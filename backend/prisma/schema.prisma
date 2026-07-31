@@ -13,10 +13,13 @@ model Family {
   head_patient_id String?
   address         String?
   contact_no      String?
+  is_active       Boolean   @default(true)
   created_at      DateTime  @default(now())
-  
+
   patients        Patient[] @relation("FamilyPatients")
   head_patient    Patient?  @relation("FamilyHead", fields: [head_patient_id], references: [patient_id])
+
+  @@index([family_name])
 }
 
 model Patient {
@@ -30,13 +33,55 @@ model Patient {
   phone        String?
   blood_group  String?
   allergies    String?
+  photo_url    String?
   is_active    Boolean   @default(true)
-  
+  created_at   DateTime  @default(now())
+
   family       Family    @relation("FamilyPatients", fields: [family_id], references: [family_id])
   family_head  Family[]  @relation("FamilyHead")
-  
+
   appointments Appointment[]
   invoices     Invoice[]
+  change_logs  PatientChangeLog[]
+  duplicate_flags_as_new     PatientDuplicateFlag[] @relation("NewPatientFlags")
+  duplicate_flags_as_matched PatientDuplicateFlag[] @relation("MatchedPatientFlags")
+
+  @@index([full_name])
+  @@index([phone])
+  @@index([guardian_nic, dob])
+}
+
+model PatientChangeLog {
+  id          Int      @id @default(autoincrement())
+  patient_id  String
+  field       String
+  old_value   String?
+  new_value   String?
+  reason      String?
+  changed_by  Int
+  changed_at  DateTime @default(now())
+
+  patient     Patient  @relation(fields: [patient_id], references: [patient_id])
+  changed_by_user User @relation(fields: [changed_by], references: [user_id])
+
+  @@index([patient_id, changed_at])
+}
+
+model PatientDuplicateFlag {
+  flag_id             Int       @id @default(autoincrement())
+  patient_id          String    // newly registered patient
+  matched_patient_id  String    // existing patient it fuzzy-matches
+  match_reason        String
+  status              String    @default("Pending") // Pending, Dismissed, Merged
+  reviewed_by         Int?
+  reviewed_at         DateTime?
+  created_at          DateTime  @default(now())
+
+  patient             Patient   @relation("NewPatientFlags", fields: [patient_id], references: [patient_id])
+  matched_patient     Patient   @relation("MatchedPatientFlags", fields: [matched_patient_id], references: [patient_id])
+  reviewer            User?     @relation(fields: [reviewed_by], references: [user_id])
+
+  @@index([status])
 }
 
 model Appointment {
@@ -163,6 +208,8 @@ model User {
   receptionist_appointments Appointment[] @relation("ReceptionistAppointments")
   purchase_orders PurchaseOrder[]
   audit_logs      AuditLog[]
+  patient_change_logs PatientChangeLog[]
+  reviewed_duplicate_flags PatientDuplicateFlag[]
 }
 
 model AuditLog {
