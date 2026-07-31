@@ -61,6 +61,7 @@ model Consultation {
   allergies_ack   Boolean   @default(false)
   diagnosis       String?
   notes           String?
+  follow_up_date  DateTime?
   status          String    @default("Draft") // Draft, Finalized
   created_at      DateTime  @default(now())
   

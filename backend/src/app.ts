@@ -7,6 +7,7 @@ import dotenv from 'dotenv';
 import passport from 'passport';
 
 import authRouter from './modules/auth/router';
+import dashboardRouter from './modules/dashboard/router';
 
 // Load environment variables
 dotenv.config();
@@ -39,6 +40,7 @@ app.use(passport.initialize());
 
 // Setup API Routes
 app.use('/api/v1/auth', authRouter);
+app.use('/api/v1/dashboard', dashboardRouter);
 
 app.get('/api/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', message: 'E-Poch Medical System API is running' });
