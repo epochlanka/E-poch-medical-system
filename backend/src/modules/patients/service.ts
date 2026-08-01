@@ -33,19 +33,25 @@ const findExactDuplicate = async (nic?: string, guardianNic?: string, dob?: Date
   return null;
 };
 
+const PATIENT_ID_PATTERN = /^PT-(\d{6})$/;
+
+// A plain "highest patient_id string, +1" would silently break on any non-standard
+// PT-prefixed id (e.g. seed/import data) — string ordering doesn't match numeric ordering,
+// and a failed parse would fall back to 1 and collide with an existing patient. Scanning
+// and taking the max of only well-formed ids is robust to that.
 const generatePatientId = async (tx: PrismaTx) => {
-  const last = await tx.patient.findFirst({
+  const candidates = await tx.patient.findMany({
     where: { patient_id: { startsWith: 'PT-' } },
-    orderBy: { patient_id: 'desc' },
     select: { patient_id: true },
   });
 
-  let next = 1;
-  if (last) {
-    const parsed = parseInt(last.patient_id.replace('PT-', ''), 10);
-    if (!Number.isNaN(parsed)) next = parsed + 1;
+  let max = 0;
+  for (const candidate of candidates) {
+    const match = PATIENT_ID_PATTERN.exec(candidate.patient_id);
+    if (match) max = Math.max(max, parseInt(match[1], 10));
   }
-  return `PT-${String(next).padStart(6, '0')}`;
+
+  return `PT-${String(max + 1).padStart(6, '0')}`;
 };
 
 // Fuzzy name+DOB match (different NIC) is flagged for human review, never blocked (FR-017).

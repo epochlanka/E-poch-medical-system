@@ -25,19 +25,48 @@ const isLowStock = (medicine: { reorder_level: number; batches: { qty_on_hand: n
   return totalQty < medicine.reorder_level;
 };
 
+// Null means "no meaningful comparison" (yesterday was zero) rather than a fabricated 0%/100%.
+const changePct = (today: number, prior: number): number | null => {
+  if (prior === 0) return today === 0 ? 0 : null;
+  return ((today - prior) / prior) * 100;
+};
+
 export const getOverview = async (expiryThresholdDays = DEFAULT_EXPIRY_THRESHOLD_DAYS) => {
   const todayStart = startOfDay();
   const todayEnd = endOfDay();
+  const yesterdayStart = addDays(todayStart, -1);
+  const yesterdayEnd = addDays(todayEnd, -1);
 
-  const [todaysPatients, revenueAgg, medicines, expiringBatchesCount] = await Promise.all([
+  const [
+    todaysPatientRows,
+    yesterdaysPatientRows,
+    todaysAppointmentsCount,
+    yesterdaysAppointmentsCount,
+    revenueAgg,
+    yesterdayRevenueAgg,
+    medicines,
+    expiringBatchesCount,
+    pendingPrescriptionsCount,
+  ] = await Promise.all([
     prisma.appointment.findMany({
       where: { scheduled_at: { gte: todayStart, lte: todayEnd } },
       select: { patient_id: true },
       distinct: ['patient_id'],
     }),
+    prisma.appointment.findMany({
+      where: { scheduled_at: { gte: yesterdayStart, lte: yesterdayEnd } },
+      select: { patient_id: true },
+      distinct: ['patient_id'],
+    }),
+    prisma.appointment.count({ where: { scheduled_at: { gte: todayStart, lte: todayEnd } } }),
+    prisma.appointment.count({ where: { scheduled_at: { gte: yesterdayStart, lte: yesterdayEnd } } }),
     prisma.invoice.aggregate({
       _sum: { total_amount: true },
       where: { payment_status: 'Paid', created_at: { gte: todayStart, lte: todayEnd } },
+    }),
+    prisma.invoice.aggregate({
+      _sum: { total_amount: true },
+      where: { payment_status: 'Paid', created_at: { gte: yesterdayStart, lte: yesterdayEnd } },
     }),
     prisma.medicine.findMany({
       where: { is_active: true },
@@ -49,11 +78,21 @@ export const getOverview = async (expiryThresholdDays = DEFAULT_EXPIRY_THRESHOLD
         expiry_date: { gte: todayStart, lte: addDays(todayStart, expiryThresholdDays) },
       },
     }),
+    prisma.prescription.count({ where: { status: 'Pending' } }),
   ]);
 
+  const revenueToday = revenueAgg._sum.total_amount ?? 0;
+  const revenueYesterday = yesterdayRevenueAgg._sum.total_amount ?? 0;
+
   return {
-    todaysPatients: todaysPatients.length,
-    revenueToday: revenueAgg._sum.total_amount ?? 0,
+    todaysPatients: todaysPatientRows.length,
+    todaysPatientsChangePct: changePct(todaysPatientRows.length, yesterdaysPatientRows.length),
+    revenueToday,
+    revenueTodayChangePct: changePct(revenueToday, revenueYesterday),
+    totalAppointmentsToday: todaysAppointmentsCount,
+    totalAppointmentsTodayChangePct: changePct(todaysAppointmentsCount, yesterdaysAppointmentsCount),
+    // No historical status-change tracking, so "pending" has no honest day-over-day comparison.
+    pendingPrescriptions: pendingPrescriptionsCount,
     lowStockCount: medicines.filter(isLowStock).length,
     expiringBatchesCount,
   };
@@ -84,18 +123,21 @@ export const getQueueSnapshot = async (doctorId?: number) => {
 
   const activeQueue = appointments.filter((a) => ACTIVE_QUEUE_STATUSES.includes(a.status));
 
+  const toAppointmentSummary = (a: (typeof appointments)[number]) => ({
+    appointmentId: a.appointment_id,
+    patientId: a.patient.patient_id,
+    patientName: a.patient.full_name,
+    doctorId: a.doctor.user_id,
+    doctorName: a.doctor.username,
+    status: a.status,
+    scheduledAt: a.scheduled_at,
+  });
+
   return {
     counts,
     queueLength: activeQueue.length,
-    queue: activeQueue.map((a) => ({
-      appointmentId: a.appointment_id,
-      patientId: a.patient.patient_id,
-      patientName: a.patient.full_name,
-      doctorId: a.doctor.user_id,
-      doctorName: a.doctor.username,
-      status: a.status,
-      scheduledAt: a.scheduled_at,
-    })),
+    queue: activeQueue.map(toAppointmentSummary),
+    appointmentsToday: appointments.map(toAppointmentSummary),
   };
 };
 
@@ -193,4 +235,91 @@ export const getAlerts = async (expiryThresholdDays = DEFAULT_EXPIRY_THRESHOLD_D
   }
 
   return alerts;
+};
+
+// ---- Revenue Overview (daily series, month-to-date total, vs. prior period) ----
+
+// "Today" elsewhere in this file is the server's local calendar day (startOfDay/endOfDay use
+// local time), so bucket keys must use the same local date — not toISOString(), which is UTC
+// and would silently mis-bucket (or overflow the series with an extra day) at any non-UTC offset.
+const localDateKey = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+export const getRevenueTrend = async (days = 30) => {
+  const end = endOfDay();
+  const start = startOfDay(addDays(end, -(days - 1)));
+
+  const invoices = await prisma.invoice.findMany({
+    where: { payment_status: 'Paid', created_at: { gte: start, lte: end } },
+    select: { created_at: true, total_amount: true },
+  });
+
+  const buckets = new Map<string, number>();
+  for (let i = 0; i < days; i++) {
+    buckets.set(localDateKey(addDays(start, i)), 0);
+  }
+  for (const invoice of invoices) {
+    const key = localDateKey(invoice.created_at);
+    buckets.set(key, (buckets.get(key) ?? 0) + invoice.total_amount);
+  }
+
+  const series = Array.from(buckets.entries()).map(([date, total]) => ({ date, total }));
+  const total = series.reduce((sum, day) => sum + day.total, 0);
+
+  const priorEnd = endOfDay(addDays(start, -1));
+  const priorStart = startOfDay(addDays(priorEnd, -(days - 1)));
+  const priorAgg = await prisma.invoice.aggregate({
+    _sum: { total_amount: true },
+    where: { payment_status: 'Paid', created_at: { gte: priorStart, lte: priorEnd } },
+  });
+
+  return { series, total, changePct: changePct(total, priorAgg._sum.total_amount ?? 0) };
+};
+
+// ---- Recent Prescriptions -------------------------------------------------
+
+export const getRecentPrescriptions = async (limit = 5) => {
+  const prescriptions = await prisma.prescription.findMany({
+    orderBy: { issued_at: 'desc' },
+    take: limit,
+    include: {
+      consultation: { include: { appointment: { include: { patient: { select: { patient_id: true, full_name: true } } } } } },
+    },
+  });
+
+  return prescriptions.map((rx) => ({
+    prescriptionId: rx.prescription_id,
+    code: `RX${String(rx.prescription_id).padStart(6, '0')}`,
+    status: rx.status,
+    issuedAt: rx.issued_at,
+    patientId: rx.consultation.appointment.patient.patient_id,
+    patientName: rx.consultation.appointment.patient.full_name,
+  }));
+};
+
+// ---- Top Selling Medicines --------------------------------------------------
+
+export const getTopMedicines = async (limit = 5, sinceDays = 30) => {
+  const since = startOfDay(addDays(new Date(), -sinceDays));
+
+  const grouped = await prisma.prescriptionItem.groupBy({
+    by: ['medicine_id'],
+    _sum: { qty: true },
+    where: { prescription: { issued_at: { gte: since } } },
+    orderBy: { _sum: { qty: 'desc' } },
+    take: limit,
+  });
+
+  const medicines = await prisma.medicine.findMany({ where: { medicine_id: { in: grouped.map((g) => g.medicine_id) } } });
+  const nameById = new Map(medicines.map((m) => [m.medicine_id, m.name]));
+
+  return grouped.map((g) => ({
+    medicineId: g.medicine_id,
+    name: nameById.get(g.medicine_id) ?? 'Unknown',
+    unitsSold: g._sum.qty ?? 0,
+  }));
 };

@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { API_BASE_URL } from '../lib/api';
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState('');
@@ -9,7 +12,10 @@ const Login: React.FC = () => {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
+
+  const { login } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,21 +29,16 @@ const Login: React.FC = () => {
     setLoading(true);
 
     try {
-      // Assuming backend is running on port 3000
-      const response = await axios.post('http://localhost:3000/api/v1/auth/login', {
+      const response = await axios.post(`${API_BASE_URL}/api/v1/auth/login`, {
         username,
         password
       });
 
       const { token, user } = response.data;
+      login(token, user);
 
-      // Save token (usually in memory or secure storage, but localStorage is common for testing)
-      localStorage.setItem('epoch_token', token);
-      localStorage.setItem('epoch_user', JSON.stringify(user));
-
-      setSuccess(true);
-      // Here you would typically redirect to a Dashboard
-
+      const redirectTo = (location.state as { from?: string } | null)?.from || '/dashboard';
+      navigate(redirectTo, { replace: true });
     } catch (err: any) {
       if (err.response?.data?.message) {
         setError(err.response.data.message);
@@ -50,31 +51,6 @@ const Login: React.FC = () => {
       setLoading(false);
     }
   };
-
-  if (success) {
-    return (
-      <div className="mc-auth-layout">
-        <div className="mc-auth-shell">
-          <div className="mc-form-panel mc-form-panel--full text-center">
-            <div className="mc-logo-row mc-logo-row--center">
-              <div className="mc-logo-icon" style={{ background: 'var(--success, #2ecc71)' }}>
-                <CheckIcon />
-              </div>
-              <div className="mc-brand-text">
-                <span className="mc-brand-name">Medi<b>Care</b></span>
-                <span className="mc-brand-sub">Clinic &amp; Dispensary</span>
-              </div>
-            </div>
-            <h2>Welcome Back!</h2>
-            <p className="mc-muted mb-4">You have successfully logged in.</p>
-            <button className="mc-btn mc-btn-primary" onClick={() => setSuccess(false)}>
-              Log Out (Test)
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="mc-auth-layout">

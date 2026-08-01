@@ -25,6 +25,8 @@ describe('Dashboard API', () => {
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('todaysPatients');
     expect(res.body).toHaveProperty('revenueToday');
+    expect(res.body).toHaveProperty('totalAppointmentsToday');
+    expect(res.body).toHaveProperty('pendingPrescriptions');
     expect(res.body).toHaveProperty('lowStockCount');
     expect(res.body).toHaveProperty('expiringBatchesCount');
   });
@@ -38,6 +40,7 @@ describe('Dashboard API', () => {
     expect(res.body).toHaveProperty('counts');
     expect(res.body).toHaveProperty('queueLength');
     expect(Array.isArray(res.body.queue)).toBe(true);
+    expect(Array.isArray(res.body.appointmentsToday)).toBe(true);
   });
 
   it('returns follow-ups due as a list', async () => {
@@ -52,6 +55,34 @@ describe('Dashboard API', () => {
   it('returns alerts as a list', async () => {
     const res = await request(app)
       .get('/api/v1/dashboard/alerts')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+  });
+
+  it('returns a revenue trend series with a total', async () => {
+    const res = await request(app)
+      .get('/api/v1/dashboard/revenue-trend')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.series)).toBe(true);
+    expect(res.body).toHaveProperty('total');
+  });
+
+  it('returns recent prescriptions as a list', async () => {
+    const res = await request(app)
+      .get('/api/v1/dashboard/recent-prescriptions')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+  });
+
+  it('returns top medicines as a list', async () => {
+    const res = await request(app)
+      .get('/api/v1/dashboard/top-medicines')
       .set('Authorization', `Bearer ${token}`);
 
     expect(res.status).toBe(200);
