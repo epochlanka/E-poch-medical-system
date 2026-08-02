@@ -238,7 +238,7 @@ const MicrosoftIcon = () => (
 );
 
 const ClinicIllustration = () => (
-  <svg viewBox="0 0 320 220" width="100%" height="auto" xmlns="http://www.w3.org/2000/svg">
+  <svg viewBox="0 0 320 220" width="100%" style={{ height: 'auto' }} xmlns="http://www.w3.org/2000/svg">
     <rect x="30" y="40" width="140" height="140" rx="6" fill="#e6eefc" />
     <rect x="55" y="60" width="90" height="30" rx="4" fill="#3b82f6" />
     <text x="100" y="80" fontSize="12" fill="white" textAnchor="middle" fontFamily="sans-serif">CLINIC</text>
