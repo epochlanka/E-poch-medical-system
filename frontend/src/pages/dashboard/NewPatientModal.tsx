@@ -4,6 +4,7 @@ import { registerPatient } from '../../lib/patients';
 
 interface NewPatientModalProps {
   onClose: () => void;
+  onSuccess?: (patientId: string) => void;
 }
 
 const emptyForm = {
@@ -16,7 +17,7 @@ const emptyForm = {
   family_name: '',
 };
 
-const NewPatientModal = ({ onClose }: NewPatientModalProps) => {
+const NewPatientModal = ({ onClose, onSuccess }: NewPatientModalProps) => {
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +65,10 @@ const NewPatientModal = ({ onClose }: NewPatientModalProps) => {
             </h3>
             <p className="modal-subtitle">{form.full_name} was saved as {createdId}.</p>
             <div className="modal-actions" style={{ justifyContent: 'center' }}>
-              <button className="modal-btn primary" onClick={onClose}>
+              <button className="modal-btn primary" onClick={() => {
+                onClose();
+                if (onSuccess && createdId) onSuccess(createdId);
+              }}>
                 Done
               </button>
             </div>
