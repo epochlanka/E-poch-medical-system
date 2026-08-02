@@ -1,0 +1,114 @@
+import { Request, Response } from 'express';
+import * as service from './service';
+import { NotFoundError, ValidationError, ForbiddenError } from './errors';
+
+const actor = (req: Request) => req.user as any as { user_id: number; role: string };
+const idParam = (req: Request) => Number(req.params.consultationId);
+
+const handleError = (req: Request, res: Response, error: any) => {
+  if (error instanceof NotFoundError) return res.status(404).json({ message: error.message });
+  if (error instanceof ForbiddenError) return res.status(403).json({ message: error.message });
+  if (error instanceof ValidationError) return res.status(400).json({ message: error.message });
+  req.log.error(error);
+  return res.status(500).json({ message: 'Internal Server Error' });
+};
+
+export const create = async (req: Request, res: Response) => {
+  try {
+    const body = req.body;
+    const consultation = await service.createConsultation(
+      {
+        appointment_id: body.appointment_id,
+        vitals: body.vitals,
+        complaint: body.complaint,
+        diagnosis: body.diagnosis,
+        icd10_code: body.icd10_code,
+        notes: body.notes,
+        follow_up_date: body.follow_up_date ? new Date(body.follow_up_date) : undefined,
+        allergies_ack: body.allergies_ack,
+      },
+      actor(req)
+    );
+    res.status(201).json(consultation);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const getById = async (req: Request, res: Response) => {
+  try {
+    const consultation = await service.getConsultationById(idParam(req));
+    if (!consultation) return res.status(404).json({ message: 'Consultation not found' });
+    res.status(200).json(consultation);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const update = async (req: Request, res: Response) => {
+  try {
+    const body = req.body;
+    const consultation = await service.updateConsultation(
+      idParam(req),
+      {
+        vitals: body.vitals,
+        complaint: body.complaint,
+        diagnosis: body.diagnosis,
+        icd10_code: body.icd10_code,
+        notes: body.notes,
+        follow_up_date: body.follow_up_date !== undefined ? (body.follow_up_date ? new Date(body.follow_up_date) : null) : undefined,
+        allergies_ack: body.allergies_ack,
+      },
+      actor(req)
+    );
+    res.status(200).json(consultation);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const finalize = async (req: Request, res: Response) => {
+  try {
+    const consultation = await service.finalizeConsultation(idParam(req), actor(req));
+    res.status(200).json(consultation);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const amend = async (req: Request, res: Response) => {
+  try {
+    const consultation = await service.amendConsultation(idParam(req), req.body, actor(req));
+    res.status(200).json(consultation);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const amendments = async (req: Request, res: Response) => {
+  try {
+    const entries = await service.listAmendments(idParam(req));
+    res.status(200).json(entries);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const list = async (req: Request, res: Response) => {
+  try {
+    const { patientId, doctorId, status, from, to, diagnosisKeyword, page, limit } = req.query as any;
+    const result = await service.listConsultations({
+      patientId,
+      doctorId: doctorId ? Number(doctorId) : undefined,
+      status,
+      from: from ? new Date(from) : undefined,
+      to: to ? new Date(to) : undefined,
+      diagnosisKeyword,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+    res.status(200).json(result);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};

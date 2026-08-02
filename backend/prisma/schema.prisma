@@ -1,0 +1,526 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Family {
+  family_id       Int       @id @default(autoincrement())
+  family_name     String
+  head_patient_id String?
+  address         String?
+  contact_no      String?
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+
+  patients        Patient[] @relation("FamilyPatients")
+  head_patient    Patient?  @relation("FamilyHead", fields: [head_patient_id], references: [patient_id])
+
+  @@index([family_name])
+}
+
+model Patient {
+  patient_id   String    @id
+  family_id    Int
+  nic          String?   @unique
+  guardian_nic String?
+  full_name    String
+  dob          DateTime
+  gender       String
+  phone        String?
+  blood_group  String?
+  allergies    String?
+  photo_url    String?
+  is_active    Boolean   @default(true)
+  created_at   DateTime  @default(now())
+
+  family       Family    @relation("FamilyPatients", fields: [family_id], references: [family_id])
+  family_head  Family[]  @relation("FamilyHead")
+
+  appointments Appointment[]
+  invoices     Invoice[]
+  change_logs  PatientChangeLog[]
+  duplicate_flags_as_new     PatientDuplicateFlag[] @relation("NewPatientFlags")
+  duplicate_flags_as_matched PatientDuplicateFlag[] @relation("MatchedPatientFlags")
+
+  @@index([full_name])
+  @@index([phone])
+  @@index([guardian_nic, dob])
+}
+
+model PatientChangeLog {
+  id          Int      @id @default(autoincrement())
+  patient_id  String
+  field       String
+  old_value   String?
+  new_value   String?
+  reason      String?
+  changed_by  Int
+  changed_at  DateTime @default(now())
+
+  patient     Patient  @relation(fields: [patient_id], references: [patient_id])
+  changed_by_user User @relation(fields: [changed_by], references: [user_id])
+
+  @@index([patient_id, changed_at])
+}
+
+model PatientDuplicateFlag {
+  flag_id             Int       @id @default(autoincrement())
+  patient_id          String    // newly registered patient
+  matched_patient_id  String    // existing patient it fuzzy-matches
+  match_reason        String
+  status              String    @default("Pending") // Pending, Dismissed, Merged
+  reviewed_by         Int?
+  reviewed_at         DateTime?
+  created_at          DateTime  @default(now())
+
+  patient             Patient   @relation("NewPatientFlags", fields: [patient_id], references: [patient_id])
+  matched_patient     Patient   @relation("MatchedPatientFlags", fields: [matched_patient_id], references: [patient_id])
+  reviewer            User?     @relation(fields: [reviewed_by], references: [user_id])
+
+  @@index([status])
+}
+
+model Appointment {
+  appointment_id Int      @id @default(autoincrement())
+  patient_id     String
+  doctor_id      Int
+  scheduled_at   DateTime
+  status         String   @default("Waiting") // Waiting, Called, Consulting, Completed, Skipped
+  created_by     Int
+  
+  patient        Patient  @relation(fields: [patient_id], references: [patient_id])
+  doctor         User     @relation("DoctorAppointments", fields: [doctor_id], references: [user_id])
+  receptionist   User     @relation("ReceptionistAppointments", fields: [created_by], references: [user_id])
+  
+  consultation   Consultation?
+}
+
+model Consultation {
+  consultation_id Int       @id @default(autoincrement())
+  appointment_id  Int       @unique
+  vitals_json     String?
+  allergies_ack   Boolean   @default(false)
+  complaint       String?
+  diagnosis       String?
+  icd10_code      String?
+  notes           String?
+  follow_up_date  DateTime?
+  status          String    @default("Draft") // Draft, Finalized
+  created_at      DateTime  @default(now())
+
+  appointment     Appointment @relation(fields: [appointment_id], references: [appointment_id])
+  prescriptions   Prescription[]
+  amendments      ConsultationAmendmentLog[]
+  invoices        Invoice[]
+}
+
+model ConsultationAmendmentLog {
+  id              Int      @id @default(autoincrement())
+  consultation_id Int
+  field           String
+  old_value       String?
+  new_value       String?
+  reason          String
+  amended_by      Int
+  amended_at      DateTime @default(now())
+
+  consultation    Consultation @relation(fields: [consultation_id], references: [consultation_id])
+  amended_by_user User         @relation(fields: [amended_by], references: [user_id])
+
+  @@index([consultation_id, amended_at])
+}
+
+model Prescription {
+  prescription_id Int       @id @default(autoincrement())
+  consultation_id Int
+  status          String    @default("Pending") // Pending, Preparing, Dispensed, Collected
+  is_refill       Boolean   @default(false)
+  refill_of_id    Int?
+  issued_at       DateTime  @default(now())
+
+  consultation    Consultation @relation(fields: [consultation_id], references: [consultation_id])
+  items           PrescriptionItem[]
+  refill_of       Prescription?  @relation("PrescriptionRefill", fields: [refill_of_id], references: [prescription_id])
+  refills         Prescription[] @relation("PrescriptionRefill")
+}
+
+model PrescriptionItem {
+  rx_item_id              Int       @id @default(autoincrement())
+  prescription_id         Int
+  medicine_id             Int
+  dosage                  String
+  frequency               String?
+  duration                String?
+  route                   String?
+  qty                     Int
+  batch_id                Int?
+  substituted_medicine_id Int?
+  fefo_override_reason    String?
+  dispensed_by            Int?
+  dispensed_at            DateTime?
+
+  prescription         Prescription @relation(fields: [prescription_id], references: [prescription_id])
+  medicine             Medicine     @relation(fields: [medicine_id], references: [medicine_id])
+  batch                Batch?       @relation(fields: [batch_id], references: [batch_id])
+  substituted_medicine Medicine?    @relation("SubstitutedInItem", fields: [substituted_medicine_id], references: [medicine_id])
+  dispensed_by_user    User?        @relation(fields: [dispensed_by], references: [user_id])
+  invoice_items        InvoiceItem[]
+}
+
+model Medicine {
+  medicine_id     Int       @id @default(autoincrement())
+  name            String
+  generic_name    String?
+  category        String?
+  form            String?
+  unit            String
+  reorder_level   Int       @default(0)
+  unit_price      Float     @default(0)
+  barcode         String?   @unique
+  is_active       Boolean   @default(true)
+
+  batches           Batch[]
+  purchaseOrderItems PurchaseOrderItem[]
+  prescriptionItems PrescriptionItem[]
+  substitutedInItems PrescriptionItem[] @relation("SubstitutedInItem")
+  substitutionsAsOriginal    MedicineSubstitution[] @relation("SubstitutionOriginal")
+  substitutionsAsAlternative MedicineSubstitution[] @relation("SubstitutionAlternative")
+
+  @@index([name])
+  @@index([generic_name])
+  @@index([category])
+}
+
+model MedicineSubstitution {
+  substitution_id        Int      @id @default(autoincrement())
+  medicine_id            Int
+  substitute_medicine_id Int
+  is_active               Boolean @default(true)
+  created_by              Int
+  created_at               DateTime @default(now())
+
+  medicine             Medicine @relation("SubstitutionOriginal", fields: [medicine_id], references: [medicine_id])
+  substitute_medicine  Medicine @relation("SubstitutionAlternative", fields: [substitute_medicine_id], references: [medicine_id])
+  creator              User     @relation(fields: [created_by], references: [user_id])
+
+  @@unique([medicine_id, substitute_medicine_id])
+}
+
+model Batch {
+  batch_id         Int       @id @default(autoincrement())
+  medicine_id      Int
+  batch_no         String
+  manufacture_date DateTime?
+  expiry_date      DateTime
+  qty_on_hand      Int
+  supplier_id      Int?
+
+  medicine          Medicine  @relation(fields: [medicine_id], references: [medicine_id])
+  supplier          Supplier? @relation(fields: [supplier_id], references: [supplier_id])
+  prescriptionItems PrescriptionItem[]
+  ledger_entries    StockLedger[]
+  stock_count_items StockCountItem[]
+  grn_item          GRNItem?
+
+  @@index([medicine_id, expiry_date])
+}
+
+// Append-only movement history per batch — current stock is always the running balance of
+// these rows (Best Practice), so the ledger *is* the audit trail, never a separate overlay.
+model StockLedger {
+  ledger_id       Int      @id @default(autoincrement())
+  batch_id        Int
+  change_qty      Int // positive = stock in, negative = stock out
+  balance_after   Int
+  event_type      String // Dispense, Adjustment, GRN, StockTakeCorrection
+  reference_type  String?
+  reference_id    String?
+  reason          String?
+  created_by      Int
+  created_at      DateTime @default(now())
+
+  batch           Batch @relation(fields: [batch_id], references: [batch_id])
+  created_by_user User  @relation(fields: [created_by], references: [user_id])
+
+  @@index([batch_id, created_at])
+}
+
+// A physical count reconciliation. Variances beyond a threshold require Admin review before
+// posting (FR-061) — posting is what actually writes the correcting StockLedger rows.
+model StockCount {
+  stock_count_id Int       @id @default(autoincrement())
+  status         String    @default("Draft") // Draft, PendingReview, Posted
+  notes          String?
+  performed_by   Int
+  reviewed_by    Int?
+  created_at     DateTime  @default(now())
+  posted_at      DateTime?
+
+  performed_by_user User             @relation("StockCountPerformer", fields: [performed_by], references: [user_id])
+  reviewed_by_user   User?            @relation("StockCountReviewer", fields: [reviewed_by], references: [user_id])
+  items              StockCountItem[]
+}
+
+model StockCountItem {
+  stock_count_item_id Int @id @default(autoincrement())
+  stock_count_id      Int
+  batch_id            Int
+  expected_qty        Int
+  counted_qty         Int
+  variance            Int
+
+  stock_count StockCount @relation(fields: [stock_count_id], references: [stock_count_id])
+  batch       Batch      @relation(fields: [batch_id], references: [batch_id])
+
+  @@index([stock_count_id])
+}
+
+model Supplier {
+  supplier_id     Int       @id @default(autoincrement())
+  name            String
+  contact         String?
+  address         String?
+  is_active       Boolean   @default(true)
+
+  batches         Batch[]
+  purchaseOrders  PurchaseOrder[]
+
+  @@index([name])
+}
+
+// The PO is a commercial commitment, not a stock event — it never creates a batch by itself;
+// only a GRN against it does (mirrors the separation used in larger ERP systems).
+model PurchaseOrder {
+  po_id           Int       @id @default(autoincrement())
+  supplier_id     Int
+  order_date      DateTime
+  status          String    @default("Draft") // Draft, Submitted, PartiallyReceived, Received, Closed
+  created_by      Int
+  created_at      DateTime  @default(now())
+
+  supplier        Supplier  @relation(fields: [supplier_id], references: [supplier_id])
+  creator         User      @relation(fields: [created_by], references: [user_id])
+  items           PurchaseOrderItem[]
+  grns            GoodsReceivedNote[]
+}
+
+model PurchaseOrderItem {
+  po_item_id  Int    @id @default(autoincrement())
+  po_id       Int
+  medicine_id Int
+  qty_ordered Int
+  unit_cost   Float?
+
+  purchase_order PurchaseOrder @relation(fields: [po_id], references: [po_id])
+  medicine       Medicine      @relation(fields: [medicine_id], references: [medicine_id])
+  grn_items      GRNItem[]
+}
+
+// The one and only path by which new stock enters the system — every batch traces back to
+// a GRN line (Best Practice), and a qty mismatch vs. the PO line flags for Admin review (FR-069).
+model GoodsReceivedNote {
+  grn_id                  Int       @id @default(autoincrement())
+  po_id                   Int
+  received_by             Int
+  received_at             DateTime  @default(now())
+  has_discrepancy         Boolean   @default(false)
+  discrepancy_reviewed_by Int?
+  discrepancy_reviewed_at DateTime?
+  discrepancy_notes       String?
+
+  purchase_order PurchaseOrder @relation(fields: [po_id], references: [po_id])
+  receiver       User          @relation("GRNReceiver", fields: [received_by], references: [user_id])
+  reviewer       User?         @relation("GRNReviewer", fields: [discrepancy_reviewed_by], references: [user_id])
+  items          GRNItem[]
+}
+
+model GRNItem {
+  grn_item_id  Int    @id @default(autoincrement())
+  grn_id       Int
+  po_item_id   Int
+  batch_id     Int?   @unique
+  qty_received Int
+
+  grn     GoodsReceivedNote @relation(fields: [grn_id], references: [grn_id])
+  po_item PurchaseOrderItem @relation(fields: [po_item_id], references: [po_item_id])
+  batch   Batch?            @relation(fields: [batch_id], references: [batch_id])
+}
+
+// One invoice per visit (consultation), combining the consultation fee and every dispensed
+// item's charge (FR-070) — never edited directly once Paid; corrections go through void+reissue.
+model Invoice {
+  invoice_id      Int       @id @default(autoincrement())
+  patient_id      String
+  consultation_id Int?
+  subtotal        Float     @default(0)
+  discount_total  Float     @default(0)
+  total_amount    Float     @default(0)
+  paid_amount     Float     @default(0)
+  payment_status  String    @default("Outstanding") // Outstanding, PartiallyPaid, Paid, Voided
+  void_reason     String?
+  voided_by       Int?
+  voided_at       DateTime?
+  created_by      Int
+  created_at      DateTime  @default(now())
+
+  patient         Patient      @relation(fields: [patient_id], references: [patient_id])
+  consultation    Consultation? @relation(fields: [consultation_id], references: [consultation_id])
+  creator         User         @relation("InvoiceCreator", fields: [created_by], references: [user_id])
+  voided_by_user  User?        @relation("InvoiceVoider", fields: [voided_by], references: [user_id])
+  items           InvoiceItem[]
+  payments        Payment[]
+
+  @@index([created_at])
+}
+
+model InvoiceItem {
+  invoice_item_id             Int    @id @default(autoincrement())
+  invoice_id                  Int
+  item_type                   String // ConsultationFee, Medicine, Discount
+  description                 String
+  qty                         Int    @default(1)
+  unit_price                  Float
+  line_total                  Float
+  source_prescription_item_id Int?
+
+  invoice     Invoice           @relation(fields: [invoice_id], references: [invoice_id])
+  source_item PrescriptionItem? @relation(fields: [source_prescription_item_id], references: [rx_item_id])
+}
+
+model Payment {
+  payment_id  Int      @id @default(autoincrement())
+  invoice_id  Int
+  method      String // Cash, Card, Mobile
+  amount      Float
+  received_by Int
+  received_at DateTime @default(now())
+
+  invoice  Invoice @relation(fields: [invoice_id], references: [invoice_id])
+  receiver User    @relation(fields: [received_by], references: [user_id])
+
+  @@index([received_at])
+}
+
+model User {
+  user_id         Int       @id @default(autoincrement())
+  role            String    // Admin, Receptionist, Doctor, Pharmacist
+  username        String    @unique
+  password_hash   String
+  registration_number String? // doctor's medical registration no., printed on prescriptions
+  is_active       Boolean   @default(true)
+
+  // Account lockout (FR-004): failed_login_attempts resets to 0 on success or on a lock being
+  // applied; locked_until gates login attempts regardless of password correctness while set.
+  failed_login_attempts Int       @default(0)
+  locked_until           DateTime?
+
+  // Optional TOTP 2FA, Admin accounts only (FR-008). totp_secret is written at /2fa/setup but
+  // totp_enabled only flips true once /2fa/verify confirms the authenticator app is in sync.
+  totp_secret  String?
+  totp_enabled Boolean @default(false)
+
+  last_login_at DateTime?
+
+  doctor_appointments Appointment[] @relation("DoctorAppointments")
+  receptionist_appointments Appointment[] @relation("ReceptionistAppointments")
+  purchase_orders PurchaseOrder[]
+  audit_logs      AuditLog[]
+  patient_change_logs PatientChangeLog[]
+  reviewed_duplicate_flags PatientDuplicateFlag[]
+  consultation_amendments ConsultationAmendmentLog[]
+  medicine_substitutions  MedicineSubstitution[]
+  dispensed_items         PrescriptionItem[]
+  stock_ledger_entries    StockLedger[]
+  stock_counts_performed  StockCount[] @relation("StockCountPerformer")
+  stock_counts_reviewed   StockCount[] @relation("StockCountReviewer")
+  grns_received           GoodsReceivedNote[] @relation("GRNReceiver")
+  grns_reviewed           GoodsReceivedNote[] @relation("GRNReviewer")
+  invoices_created        Invoice[] @relation("InvoiceCreator")
+  invoices_voided         Invoice[] @relation("InvoiceVoider")
+  payments_received       Payment[]
+  settings_updates        ClinicSettings[]
+  backups_created         DbBackup[]
+  sessions                UserSession[]
+}
+
+// One row per issued JWT (FR-007 session management). requireAuth checks this on every
+// request: revoked_at set, or last_activity_at older than ClinicSettings.session_timeout_minutes,
+// both reject the request even though the JWT itself hasn't expired — idle timeout can't be
+// expressed as a fixed JWT expiry since it resets on activity rather than counting from issuance.
+model UserSession {
+  session_id       Int       @id @default(autoincrement())
+  user_id          Int
+  created_at       DateTime  @default(now())
+  last_activity_at DateTime  @default(now())
+  revoked_at       DateTime?
+  user_agent       String?
+  ip_address       String?
+
+  user User @relation(fields: [user_id], references: [user_id])
+
+  @@index([user_id])
+}
+
+model AuditLog {
+  log_id          Int       @id @default(autoincrement())
+  user_id         Int?
+  action          String
+  entity          String
+  entity_id       String
+  timestamp       DateTime  @default(now())
+
+  user            User?     @relation(fields: [user_id], references: [user_id])
+}
+
+// Single-row table (id is always 1) — Admin-editable clinic configuration that other modules
+// read defaults from instead of hardcoding (FR-087, FR-088): clinic profile for printouts,
+// the default consultation fee Billing falls back to, and the expiry-alert window
+// Dashboard/Reports use when the caller doesn't override it.
+model ClinicSettings {
+  id                           Int       @id @default(1)
+  clinic_name                  String    @default("MediCare Clinic & Dispensary")
+  clinic_address                String?
+  registration_number          String?
+  logo_url                      String?
+  default_consultation_fee     Float     @default(500)
+  expiry_alert_threshold_days  Int       @default(90)
+  session_timeout_minutes      Int       @default(15)
+  account_lockout_minutes      Int       @default(15)
+  updated_by                   Int?
+  updated_at                   DateTime  @updatedAt
+
+  updater User? @relation(fields: [updated_by], references: [user_id])
+}
+
+// Shared lookup lists for frontend dropdowns (FR-091) — medicine categories, payment methods,
+// discount types all live here under a `type` discriminator instead of three near-identical
+// tables. These are advisory/config data, not foreign-keyed from Medicine/Payment/InvoiceItem,
+// so adding or renaming an entry never requires a data migration on those tables.
+model MasterDataItem {
+  item_id    Int     @id @default(autoincrement())
+  type       String  // MedicineCategory, PaymentMethod, DiscountType
+  value      String
+  sort_order Int     @default(0)
+  is_active  Boolean @default(true)
+
+  @@unique([type, value])
+  @@index([type])
+}
+
+// Record of on-demand SQLite file backups (FR-090). `verified`/`verified_at` are set by a
+// separate integrity-check step — a backup file existing is not itself proof it's restorable.
+model DbBackup {
+  backup_id   Int       @id @default(autoincrement())
+  filename    String    @unique
+  size_bytes  Int
+  created_by  Int
+  created_at  DateTime  @default(now())
+  verified    Boolean   @default(false)
+  verified_at DateTime?
+
+  creator User @relation(fields: [created_by], references: [user_id])
+}
