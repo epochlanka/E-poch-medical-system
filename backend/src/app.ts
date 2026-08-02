@@ -20,6 +20,7 @@ import suppliersRouter from './modules/suppliers/router';
 import billingRouter from './modules/billing/router';
 import reportsRouter from './modules/reports/router';
 import settingsRouter from './modules/settings/router';
+import securityRouter from './modules/security/router';
 
 // Load environment variables
 dotenv.config();
@@ -75,6 +76,7 @@ app.use('/api/v1/suppliers', suppliersRouter);
 app.use('/api/v1/invoices', billingRouter);
 app.use('/api/v1/reports', reportsRouter);
 app.use('/api/v1/settings', settingsRouter);
+app.use('/api/v1/security', securityRouter);
 
 app.get('/api/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', message: 'E-Poch Medical System API is running' });

@@ -413,6 +413,18 @@ model User {
   registration_number String? // doctor's medical registration no., printed on prescriptions
   is_active       Boolean   @default(true)
 
+  // Account lockout (FR-004): failed_login_attempts resets to 0 on success or on a lock being
+  // applied; locked_until gates login attempts regardless of password correctness while set.
+  failed_login_attempts Int       @default(0)
+  locked_until           DateTime?
+
+  // Optional TOTP 2FA, Admin accounts only (FR-008). totp_secret is written at /2fa/setup but
+  // totp_enabled only flips true once /2fa/verify confirms the authenticator app is in sync.
+  totp_secret  String?
+  totp_enabled Boolean @default(false)
+
+  last_login_at DateTime?
+
   doctor_appointments Appointment[] @relation("DoctorAppointments")
   receptionist_appointments Appointment[] @relation("ReceptionistAppointments")
   purchase_orders PurchaseOrder[]
@@ -432,6 +444,25 @@ model User {
   payments_received       Payment[]
   settings_updates        ClinicSettings[]
   backups_created         DbBackup[]
+  sessions                UserSession[]
+}
+
+// One row per issued JWT (FR-007 session management). requireAuth checks this on every
+// request: revoked_at set, or last_activity_at older than ClinicSettings.session_timeout_minutes,
+// both reject the request even though the JWT itself hasn't expired — idle timeout can't be
+// expressed as a fixed JWT expiry since it resets on activity rather than counting from issuance.
+model UserSession {
+  session_id       Int       @id @default(autoincrement())
+  user_id          Int
+  created_at       DateTime  @default(now())
+  last_activity_at DateTime  @default(now())
+  revoked_at       DateTime?
+  user_agent       String?
+  ip_address       String?
+
+  user User @relation(fields: [user_id], references: [user_id])
+
+  @@index([user_id])
 }
 
 model AuditLog {
@@ -457,6 +488,8 @@ model ClinicSettings {
   logo_url                      String?
   default_consultation_fee     Float     @default(500)
   expiry_alert_threshold_days  Int       @default(90)
+  session_timeout_minutes      Int       @default(15)
+  account_lockout_minutes      Int       @default(15)
   updated_by                   Int?
   updated_at                   DateTime  @updatedAt
 

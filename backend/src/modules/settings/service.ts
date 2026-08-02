@@ -36,6 +36,8 @@ interface UpdateClinicSettingsInput {
   logo_url?: string;
   default_consultation_fee?: number;
   expiry_alert_threshold_days?: number;
+  session_timeout_minutes?: number;
+  account_lockout_minutes?: number;
 }
 
 export const updateClinicSettings = async (input: UpdateClinicSettingsInput, actor: Actor) => {
@@ -45,6 +47,12 @@ export const updateClinicSettings = async (input: UpdateClinicSettingsInput, act
   }
   if (input.expiry_alert_threshold_days !== undefined && input.expiry_alert_threshold_days < 1) {
     throw new ValidationError('Expiry alert threshold must be at least 1 day');
+  }
+  if (input.session_timeout_minutes !== undefined && input.session_timeout_minutes < 1) {
+    throw new ValidationError('Session timeout must be at least 1 minute');
+  }
+  if (input.account_lockout_minutes !== undefined && input.account_lockout_minutes < 1) {
+    throw new ValidationError('Account lockout duration must be at least 1 minute');
   }
 
   await prisma.clinicSettings.upsert({

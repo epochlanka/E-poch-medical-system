@@ -20,6 +20,8 @@ const updateSettingsSchema = z.object({
     logo_url: z.string().optional(),
     default_consultation_fee: z.number().min(0).optional(),
     expiry_alert_threshold_days: z.number().int().min(1).optional(),
+    session_timeout_minutes: z.number().int().min(1).optional(),
+    account_lockout_minutes: z.number().int().min(1).optional(),
   }),
 });
 
