@@ -17,6 +17,9 @@ build/
 # User-uploaded files (patient photos, etc.)
 uploads/
 
+# Local SQLite backup dumps (Settings > Backup & Restore)
+backend/backups/
+
 # Logs
 logs
 *.log

@@ -430,6 +430,8 @@ model User {
   invoices_created        Invoice[] @relation("InvoiceCreator")
   invoices_voided         Invoice[] @relation("InvoiceVoider")
   payments_received       Payment[]
+  settings_updates        ClinicSettings[]
+  backups_created         DbBackup[]
 }
 
 model AuditLog {
@@ -439,6 +441,53 @@ model AuditLog {
   entity          String
   entity_id       String
   timestamp       DateTime  @default(now())
-  
+
   user            User?     @relation(fields: [user_id], references: [user_id])
+}
+
+// Single-row table (id is always 1) — Admin-editable clinic configuration that other modules
+// read defaults from instead of hardcoding (FR-087, FR-088): clinic profile for printouts,
+// the default consultation fee Billing falls back to, and the expiry-alert window
+// Dashboard/Reports use when the caller doesn't override it.
+model ClinicSettings {
+  id                           Int       @id @default(1)
+  clinic_name                  String    @default("MediCare Clinic & Dispensary")
+  clinic_address                String?
+  registration_number          String?
+  logo_url                      String?
+  default_consultation_fee     Float     @default(500)
+  expiry_alert_threshold_days  Int       @default(90)
+  updated_by                   Int?
+  updated_at                   DateTime  @updatedAt
+
+  updater User? @relation(fields: [updated_by], references: [user_id])
+}
+
+// Shared lookup lists for frontend dropdowns (FR-091) — medicine categories, payment methods,
+// discount types all live here under a `type` discriminator instead of three near-identical
+// tables. These are advisory/config data, not foreign-keyed from Medicine/Payment/InvoiceItem,
+// so adding or renaming an entry never requires a data migration on those tables.
+model MasterDataItem {
+  item_id    Int     @id @default(autoincrement())
+  type       String  // MedicineCategory, PaymentMethod, DiscountType
+  value      String
+  sort_order Int     @default(0)
+  is_active  Boolean @default(true)
+
+  @@unique([type, value])
+  @@index([type])
+}
+
+// Record of on-demand SQLite file backups (FR-090). `verified`/`verified_at` are set by a
+// separate integrity-check step — a backup file existing is not itself proof it's restorable.
+model DbBackup {
+  backup_id   Int       @id @default(autoincrement())
+  filename    String    @unique
+  size_bytes  Int
+  created_by  Int
+  created_at  DateTime  @default(now())
+  verified    Boolean   @default(false)
+  verified_at DateTime?
+
+  creator User @relation(fields: [created_by], references: [user_id])
 }

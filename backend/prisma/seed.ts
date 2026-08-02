@@ -626,6 +626,40 @@ async function main() {
     create: { payment_id: 5, invoice_id: outstandingInvoice.invoice_id, method: 'Card', amount: 300, received_by: receptionist.user_id },
   });
 
+  await prisma.clinicSettings.upsert({
+    where: { id: 1 },
+    update: {},
+    create: {
+      id: 1,
+      clinic_name: 'MediCare Clinic & Dispensary',
+      clinic_address: '123 Galle Road, Colombo 03',
+      registration_number: 'CLN-000123',
+      default_consultation_fee: 500,
+      expiry_alert_threshold_days: 90,
+      updated_by: admin.user_id,
+    },
+  });
+
+  const masterData: { type: string; value: string; sort_order: number }[] = [
+    { type: 'MedicineCategory', value: 'Analgesic', sort_order: 1 },
+    { type: 'MedicineCategory', value: 'Antibiotic', sort_order: 2 },
+    { type: 'MedicineCategory', value: 'Antihistamine', sort_order: 3 },
+    { type: 'MedicineCategory', value: 'Antacid', sort_order: 4 },
+    { type: 'PaymentMethod', value: 'Cash', sort_order: 1 },
+    { type: 'PaymentMethod', value: 'Card', sort_order: 2 },
+    { type: 'PaymentMethod', value: 'Mobile', sort_order: 3 },
+    { type: 'DiscountType', value: 'Senior Citizen', sort_order: 1 },
+    { type: 'DiscountType', value: 'Staff', sort_order: 2 },
+    { type: 'DiscountType', value: 'Goodwill', sort_order: 3 },
+  ];
+  for (const item of masterData) {
+    await prisma.masterDataItem.upsert({
+      where: { type_value: { type: item.type, value: item.value } },
+      update: {},
+      create: item,
+    });
+  }
+
   console.log({ admin: admin.username, doctor: doctor.username, receptionist: receptionist.username, pharmacist: pharmacist.username });
   console.log('Database seeded successfully.');
 }

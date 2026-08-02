@@ -8,7 +8,10 @@ interface Actor {
   role: string;
 }
 
-const DEFAULT_CONSULTATION_FEE = 500;
+// Fallback only for a DB with no ClinicSettings row yet (e.g. a fresh migration before the
+// first seed/save) — the real default lives in Settings > Fee Schedules (FR-088) and is read
+// fresh on every invoice rather than cached, so an Admin's fee change applies immediately.
+const FALLBACK_CONSULTATION_FEE = 500;
 
 const startOfDay = (date = new Date()) => {
   const d = new Date(date);
@@ -58,7 +61,8 @@ export const createInvoice = async (input: CreateInvoiceInput, actor: Actor) => 
     throw new ValidationError('An active invoice already exists for this consultation');
   }
 
-  const fee = input.consultation_fee ?? DEFAULT_CONSULTATION_FEE;
+  const clinicSettings = await prisma.clinicSettings.findUnique({ where: { id: 1 } });
+  const fee = input.consultation_fee ?? clinicSettings?.default_consultation_fee ?? FALLBACK_CONSULTATION_FEE;
   if (fee < 0) throw new ValidationError('Consultation fee cannot be negative');
 
   const lineItems: {
