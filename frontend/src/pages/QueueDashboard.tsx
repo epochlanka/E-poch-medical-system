@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 
 interface Appointment {
   appointment_id: number;
@@ -20,6 +21,7 @@ const formatTime = (isoString: string) => {
 };
 
 const QueueDashboard: React.FC = () => {
+  const navigate = useNavigate();
   const [queue, setQueue] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -232,9 +234,12 @@ const QueueDashboard: React.FC = () => {
                   >
                     Undo
                   </button>
-                  <button 
-                    style={{ ...styles.btnBase, background: '#10b981', color: 'white' }} 
-                    onClick={() => updateStatus(app.appointment_id, 'Consulting')}
+                  <button
+                    style={{ ...styles.btnBase, background: '#10b981', color: 'white' }}
+                    onClick={async () => {
+                      await updateStatus(app.appointment_id, 'Consulting');
+                      navigate(`/consultations/${app.appointment_id}`);
+                    }}
                   >
                     Start Consultation
                   </button>
@@ -258,11 +263,11 @@ const QueueDashboard: React.FC = () => {
                 </div>
                 
                 <div style={styles.actions}>
-                  <button 
-                    style={{ ...styles.btnBase, background: '#10b981', color: 'white', width: '100%' }} 
-                    onClick={() => updateStatus(app.appointment_id, 'Completed')}
+                  <button
+                    style={{ ...styles.btnBase, background: '#10b981', color: 'white', width: '100%' }}
+                    onClick={() => navigate(`/consultations/${app.appointment_id}`)}
                   >
-                    Finish Consultation
+                    Open Consultation
                   </button>
                 </div>
               </div>

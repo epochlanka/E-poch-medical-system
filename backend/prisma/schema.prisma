@@ -105,17 +105,45 @@ model Consultation {
   vitals_json     String?
   allergies_ack   Boolean   @default(false)
   complaint       String?
+  // History of Present Illness and Examination findings are their own clinical sections,
+  // distinct from complaint (why they came in) and notes (the treatment plan) — kept as
+  // separate nullable columns rather than folded into notes so each renders in its own box.
+  history_of_present_illness String?
+  examination_findings       String?
+  // Ad-hoc condition tags picked for this visit (e.g. "Hypertension"), JSON string array —
+  // same encoding convention as vitals_json rather than a new table, since it's a simple list.
+  medical_history_json String?
   diagnosis       String?
   icd10_code      String?
   notes           String?
   follow_up_date  DateTime?
   status          String    @default("Draft") // Draft, Finalized
   created_at      DateTime  @default(now())
+  finalized_at    DateTime?
 
   appointment     Appointment @relation(fields: [appointment_id], references: [appointment_id])
   prescriptions   Prescription[]
   amendments      ConsultationAmendmentLog[]
   invoices        Invoice[]
+  documents       ConsultationDocument[]
+}
+
+// Attach Files — consultation-scoped uploads (referral letters, lab report scans, etc.),
+// same multer-to-disk convention as patient photo uploads.
+model ConsultationDocument {
+  document_id     Int      @id @default(autoincrement())
+  consultation_id Int
+  filename        String
+  original_name   String
+  mime_type       String
+  size_bytes      Int
+  uploaded_by     Int
+  uploaded_at     DateTime @default(now())
+
+  consultation Consultation @relation(fields: [consultation_id], references: [consultation_id])
+  uploader     User         @relation(fields: [uploaded_by], references: [user_id])
+
+  @@index([consultation_id])
 }
 
 model ConsultationAmendmentLog {
@@ -445,6 +473,7 @@ model User {
   settings_updates        ClinicSettings[]
   backups_created         DbBackup[]
   sessions                UserSession[]
+  consultation_documents  ConsultationDocument[]
 }
 
 // One row per issued JWT (FR-007 session management). requireAuth checks this on every

@@ -81,3 +81,11 @@ export const updatePatient = (patientId: string, input: UpdatePatientInput) =>
 
 export const setPatientStatus = (patientId: string, is_active: boolean, reason?: string) =>
   api.patch(`/patients/${patientId}/status`, { is_active, reason }).then((r) => r.data);
+
+export type PatientHistoryEvent =
+  | { type: 'appointment'; date: string; appointmentId: number; status: string; doctorName: string }
+  | { type: 'consultation'; date: string; consultationId: number; diagnosis: string | null; status: string; followUpDate: string | null }
+  | { type: 'prescription'; date: string; prescriptionId: number; status: string; items: { medicine: string; dosage: string; qty: number }[] }
+  | { type: 'invoice'; date: string; invoiceId: number; totalAmount: number; paymentStatus: string };
+
+export const getPatientHistory = (patientId: string) => api.get<PatientHistoryEvent[]>(`/patients/${patientId}/history`).then((r) => r.data);

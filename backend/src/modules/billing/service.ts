@@ -145,6 +145,7 @@ export const getInvoiceById = async (invoiceId: number) => {
 
 interface ListInvoicesFilters {
   patientId?: string;
+  consultationId?: number;
   status?: string;
   from?: Date;
   to?: Date;
@@ -158,6 +159,7 @@ export const listInvoices = async (filters: ListInvoicesFilters) => {
 
   const where: Prisma.InvoiceWhereInput = {};
   if (filters.patientId) where.patient_id = filters.patientId;
+  if (filters.consultationId) where.consultation_id = filters.consultationId;
   if (filters.status) where.payment_status = filters.status;
   if (filters.from || filters.to) {
     where.created_at = { ...(filters.from ? { gte: filters.from } : {}), ...(filters.to ? { lte: filters.to } : {}) };

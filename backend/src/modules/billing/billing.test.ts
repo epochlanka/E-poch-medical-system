@@ -98,6 +98,17 @@ describe('Billing API', () => {
     invoiceId = res.body.invoice_id;
   });
 
+  it('filters the invoice list by consultationId', async () => {
+    const invoice = await request(app).get(`/api/v1/invoices/${invoiceId}`).set('Authorization', `Bearer ${receptionToken}`);
+    const filtered = await request(app)
+      .get('/api/v1/invoices')
+      .query({ consultationId: invoice.body.consultation_id })
+      .set('Authorization', `Bearer ${receptionToken}`);
+    expect(filtered.status).toBe(200);
+    expect(filtered.body.data.every((i: any) => i.consultation_id === invoice.body.consultation_id)).toBe(true);
+    expect(filtered.body.data.some((i: any) => i.invoice_id === invoiceId)).toBe(true);
+  });
+
   it('rejects creating a second active invoice for the same consultation', async () => {
     const invoice = await request(app).get(`/api/v1/invoices/${invoiceId}`).set('Authorization', `Bearer ${receptionToken}`);
     const res = await request(app)

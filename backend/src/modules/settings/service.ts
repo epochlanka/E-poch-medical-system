@@ -73,7 +73,7 @@ export const getEffectiveConsultationFee = async (): Promise<number> => {
 
 // ---- Master Data Lists (medicine categories, payment methods, discount types) ---------------
 
-export const MASTER_DATA_TYPES = ['MedicineCategory', 'PaymentMethod', 'DiscountType'] as const;
+export const MASTER_DATA_TYPES = ['MedicineCategory', 'PaymentMethod', 'DiscountType', 'MedicalCondition'] as const;
 export type MasterDataType = (typeof MASTER_DATA_TYPES)[number];
 
 interface ListMasterDataFilters {

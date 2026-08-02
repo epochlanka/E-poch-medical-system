@@ -261,3 +261,51 @@ export const MergeIcon = () => (
     <path d="m13 10 3 3 3-3" />
   </Base>
 );
+export const PrintIcon = () => (
+  <Base size={16}>
+    <path d="M6 9V3h12v6" />
+    <rect x="4" y="9" width="16" height="8" rx="1.5" />
+    <path d="M6 17v4h12v-4" />
+  </Base>
+);
+export const TrashIcon = () => (
+  <Base size={15}>
+    <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
+  </Base>
+);
+export const PaperclipIcon = () => (
+  <Base size={20}>
+    <path d="M21 11.5 12.5 20a4.5 4.5 0 0 1-6.4-6.4L14.6 5a3 3 0 0 1 4.3 4.2l-8.5 8.5a1.5 1.5 0 0 1-2.1-2.1l7.1-7.1" />
+  </Base>
+);
+export const FileIcon = () => (
+  <Base size={16}>
+    <path d="M6 2h9l3 3v17H6z" />
+    <path d="M15 2v3h3" />
+  </Base>
+);
+export const UploadIcon = () => (
+  <Base size={22}>
+    <path d="M12 16V4m0 0-4 4m4-4 4 4" />
+    <path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+  </Base>
+);
+export const CheckCircleIcon = () => (
+  <Base size={16}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="m8 12 3 3 5-6" />
+  </Base>
+);
+export const SaveIcon = () => (
+  <Base size={16}>
+    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
+    <path d="M17 21v-8H7v8M7 3v5h8" />
+  </Base>
+);
+export const ClipboardIcon = () => (
+  <Base size={32}>
+    <rect x="5" y="4" width="14" height="17" rx="2" />
+    <rect x="9" y="2" width="6" height="4" rx="1" />
+    <path d="M9 11h6M9 15h4" />
+  </Base>
+);

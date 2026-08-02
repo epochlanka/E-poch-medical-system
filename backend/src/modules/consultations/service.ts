@@ -1,7 +1,10 @@
 import { PrismaClient, Prisma } from '@prisma/client';
+import fs from 'fs';
+import path from 'path';
 import { NotFoundError, ValidationError, ForbiddenError } from './errors';
 
 const prisma = new PrismaClient();
+export const uploadsDir = path.join(__dirname, '..', '..', '..', 'uploads', 'consultations');
 
 interface Actor {
   user_id: number;
@@ -21,6 +24,8 @@ interface VitalsInput {
   bp_diastolic?: number;
   temp?: number;
   pulse?: number;
+  respiratory_rate?: number;
+  spo2?: number;
   weight?: number; // kg
   height?: number; // cm
 }
@@ -36,8 +41,12 @@ const computeVitals = (vitals?: VitalsInput | null) => {
 };
 
 const serializeConsultation = (consultation: any) => {
-  const { vitals_json, ...rest } = consultation;
-  return { ...rest, vitals: vitals_json ? JSON.parse(vitals_json) : null };
+  const { vitals_json, medical_history_json, ...rest } = consultation;
+  return {
+    ...rest,
+    vitals: vitals_json ? JSON.parse(vitals_json) : null,
+    medicalHistory: medical_history_json ? JSON.parse(medical_history_json) : [],
+  };
 };
 
 // ---- Consultation Workspace -----------------------------------------------------------
@@ -46,6 +55,9 @@ interface CreateConsultationInput {
   appointment_id: number;
   vitals?: VitalsInput;
   complaint?: string;
+  history_of_present_illness?: string;
+  examination_findings?: string;
+  medical_history?: string[];
   diagnosis?: string;
   icd10_code?: string;
   notes?: string;
@@ -72,6 +84,9 @@ export const createConsultation = async (input: CreateConsultationInput, actor: 
       appointment_id: input.appointment_id,
       vitals_json: JSON.stringify(computeVitals(input.vitals)),
       complaint: input.complaint,
+      history_of_present_illness: input.history_of_present_illness,
+      examination_findings: input.examination_findings,
+      medical_history_json: input.medical_history ? JSON.stringify(input.medical_history) : undefined,
       diagnosis: input.diagnosis,
       icd10_code: input.icd10_code,
       notes: input.notes,
@@ -102,6 +117,9 @@ export const getConsultationById = async (id: number) => {
 interface UpdateConsultationInput {
   vitals?: VitalsInput;
   complaint?: string;
+  history_of_present_illness?: string;
+  examination_findings?: string;
+  medical_history?: string[];
   diagnosis?: string;
   icd10_code?: string;
   notes?: string;
@@ -122,6 +140,9 @@ export const updateConsultation = async (id: number, updates: UpdateConsultation
   const data: Prisma.ConsultationUpdateInput = {};
   if (updates.vitals !== undefined) data.vitals_json = JSON.stringify(computeVitals(updates.vitals));
   if (updates.complaint !== undefined) data.complaint = updates.complaint;
+  if (updates.history_of_present_illness !== undefined) data.history_of_present_illness = updates.history_of_present_illness;
+  if (updates.examination_findings !== undefined) data.examination_findings = updates.examination_findings;
+  if (updates.medical_history !== undefined) data.medical_history_json = JSON.stringify(updates.medical_history);
   if (updates.diagnosis !== undefined) data.diagnosis = updates.diagnosis;
   if (updates.icd10_code !== undefined) data.icd10_code = updates.icd10_code;
   if (updates.notes !== undefined) data.notes = updates.notes;
@@ -141,7 +162,7 @@ export const finalizeConsultation = async (id: number, actor: Actor) => {
   if (existing.status !== 'Draft') throw new ValidationError('Only a Draft consultation can be finalized');
 
   const [consultation] = await prisma.$transaction([
-    prisma.consultation.update({ where: { consultation_id: id }, data: { status: 'Finalized' } }),
+    prisma.consultation.update({ where: { consultation_id: id }, data: { status: 'Finalized', finalized_at: new Date() } }),
     prisma.appointment.update({ where: { appointment_id: existing.appointment_id }, data: { status: 'Completed' } }),
   ]);
 
@@ -150,7 +171,15 @@ export const finalizeConsultation = async (id: number, actor: Actor) => {
 
 // ---- Consultation Amendment Log --------------------------------------------------------
 
-const AMENDABLE_FIELDS = ['complaint', 'diagnosis', 'icd10_code', 'notes', 'follow_up_date'] as const;
+const AMENDABLE_FIELDS = [
+  'complaint',
+  'history_of_present_illness',
+  'examination_findings',
+  'diagnosis',
+  'icd10_code',
+  'notes',
+  'follow_up_date',
+] as const;
 type AmendableField = (typeof AMENDABLE_FIELDS)[number];
 
 interface AmendConsultationInput {
@@ -261,6 +290,7 @@ export const listConsultations = async (filters: ListConsultationsFilters) => {
   return {
     data: consultations.map((c) => ({
       consultationId: c.consultation_id,
+      appointmentId: c.appointment_id,
       status: c.status,
       diagnosis: c.diagnosis,
       createdAt: c.created_at,
@@ -272,4 +302,121 @@ export const listConsultations = async (filters: ListConsultationsFilters) => {
     })),
     pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
   };
+};
+
+// ---- Consultation Context (everything the workspace page needs in one call) --------------
+// Keyed by appointment_id rather than consultation_id since the consultation may not exist
+// yet — a Doctor opening a freshly-Consulting appointment needs the patient/appointment
+// context to even render the "start a consultation" form.
+
+const startOfDay = (date = new Date()) => {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+export const getConsultationContext = async (appointmentId: number, actor: Actor) => {
+  const appointment = await prisma.appointment.findUnique({
+    where: { appointment_id: appointmentId },
+    include: {
+      patient: true,
+      doctor: { select: { user_id: true, username: true, registration_number: true } },
+    },
+  });
+  if (!appointment) throw new NotFoundError('Appointment not found');
+
+  const consultationRow = await prisma.consultation.findUnique({
+    where: { appointment_id: appointmentId },
+    include: {
+      documents: { include: { uploader: { select: { username: true } } }, orderBy: { uploaded_at: 'desc' } },
+      prescriptions: { orderBy: { issued_at: 'desc' } },
+      invoices: { where: { payment_status: { not: 'Voided' } }, orderBy: { created_at: 'desc' } },
+    },
+  });
+  const consultation = consultationRow ? serializeConsultation(consultationRow) : null;
+
+  const [pastConsultations, lastOtherAppointment, recentPrescription] = await Promise.all([
+    prisma.consultation.findMany({
+      where: { appointment: { patient_id: appointment.patient_id }, status: 'Finalized', appointment_id: { not: appointmentId } },
+      select: { medical_history_json: true, diagnosis: true, created_at: true },
+      orderBy: { created_at: 'desc' },
+      take: 10,
+    }),
+    prisma.appointment.findFirst({
+      where: { patient_id: appointment.patient_id, appointment_id: { not: appointmentId }, scheduled_at: { lt: startOfDay() } },
+      orderBy: { scheduled_at: 'desc' },
+      select: { scheduled_at: true },
+    }),
+    prisma.prescription.findFirst({
+      where: { consultation: { appointment: { patient_id: appointment.patient_id } } },
+      include: { items: { include: { medicine: { select: { name: true } } } } },
+      orderBy: { issued_at: 'desc' },
+    }),
+  ]);
+
+  const chronicConditions = Array.from(
+    new Set(pastConsultations.flatMap((c) => (c.medical_history_json ? (JSON.parse(c.medical_history_json) as string[]) : [])))
+  );
+
+  const recentConsultations = pastConsultations.slice(0, 5).map((c) => ({ diagnosis: c.diagnosis, date: c.created_at }));
+
+  return {
+    appointment: {
+      appointmentId: appointment.appointment_id,
+      status: appointment.status,
+      scheduledAt: appointment.scheduled_at,
+      patient: appointment.patient,
+      doctor: appointment.doctor,
+    },
+    consultation,
+    patientSummary: {
+      bloodGroup: appointment.patient.blood_group,
+      allergies: appointment.patient.allergies,
+      chronicConditions,
+      currentMedications: recentPrescription?.items.map((i) => i.medicine.name) ?? [],
+      lastVisit: lastOtherAppointment?.scheduled_at ?? null,
+    },
+    recentConsultations,
+  };
+};
+
+// ---- Attach Files (consultation-scoped document uploads) --------------------------------
+
+export const addDocument = async (
+  consultationId: number,
+  file: { filename: string; originalname: string; mimetype: string; size: number },
+  actorUserId: number
+) => {
+  const consultation = await prisma.consultation.findUnique({ where: { consultation_id: consultationId } });
+  if (!consultation) throw new NotFoundError('Consultation not found');
+
+  return prisma.consultationDocument.create({
+    data: {
+      consultation_id: consultationId,
+      filename: file.filename,
+      original_name: file.originalname,
+      mime_type: file.mimetype,
+      size_bytes: file.size,
+      uploaded_by: actorUserId,
+    },
+  });
+};
+
+export const listDocuments = async (consultationId: number) => {
+  return prisma.consultationDocument.findMany({
+    where: { consultation_id: consultationId },
+    include: { uploader: { select: { username: true } } },
+    orderBy: { uploaded_at: 'desc' },
+  });
+};
+
+export const deleteDocument = async (documentId: number) => {
+  const doc = await prisma.consultationDocument.findUnique({ where: { document_id: documentId } });
+  if (!doc) throw new NotFoundError('Document not found');
+  await prisma.consultationDocument.delete({ where: { document_id: documentId } });
+
+  const filePath = path.join(uploadsDir, doc.filename);
+  fs.promises.unlink(filePath).catch(() => {});
+
+  return doc;
 };

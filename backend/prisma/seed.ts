@@ -651,6 +651,12 @@ async function main() {
     { type: 'DiscountType', value: 'Senior Citizen', sort_order: 1 },
     { type: 'DiscountType', value: 'Staff', sort_order: 2 },
     { type: 'DiscountType', value: 'Goodwill', sort_order: 3 },
+    { type: 'MedicalCondition', value: 'Hypertension', sort_order: 1 },
+    { type: 'MedicalCondition', value: 'Diabetes Mellitus', sort_order: 2 },
+    { type: 'MedicalCondition', value: 'Asthma', sort_order: 3 },
+    { type: 'MedicalCondition', value: 'Allergic Rhinitis', sort_order: 4 },
+    { type: 'MedicalCondition', value: 'Ischemic Heart Disease', sort_order: 5 },
+    { type: 'MedicalCondition', value: 'Hyperlipidemia', sort_order: 6 },
   ];
   for (const item of masterData) {
     await prisma.masterDataItem.upsert({

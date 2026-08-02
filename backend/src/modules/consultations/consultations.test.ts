@@ -6,8 +6,9 @@ import app from '../../app';
 const prisma = new PrismaClient();
 const runId = Date.now();
 
-// No Appointments API exists yet to create a Consulting-status appointment, so we arrange
-// that prerequisite directly via Prisma — every assertion still goes through the real HTTP API.
+// The Appointments API can create one, but reaching Consulting means walking it through
+// Waiting -> Called -> Consulting first; arranging the end state directly via Prisma is
+// simpler test setup, and every assertion below still goes through the real HTTP API.
 const makeConsultingAppointment = async (doctorId: number, opts: { allergies?: string } = {}) => {
   const family = await prisma.family.create({ data: { family_name: `Consult Test Family ${runId}-${Math.random()}` } });
   const patient = await prisma.patient.create({
@@ -198,5 +199,95 @@ describe('Consultations API', () => {
     const res = await request(app).get('/api/v1/consultations').query({ status: 'Finalized' }).set('Authorization', `Bearer ${doctorToken}`);
     expect(res.status).toBe(200);
     expect(res.body.data.some((c: any) => c.consultationId === consultationId)).toBe(true);
+  });
+
+  describe('New clinical fields (HPI, examination, medical history tags)', () => {
+    it('round-trips history_of_present_illness, examination_findings, and medical_history tags', async () => {
+      const { appointment } = await makeConsultingAppointment(doctorId);
+
+      const createRes = await request(app)
+        .post('/api/v1/consultations')
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({
+          appointment_id: appointment.appointment_id,
+          complaint: 'Chest pain',
+          history_of_present_illness: 'Onset 2 days ago, worse on exertion',
+          examination_findings: 'Chest clear, no wheeze',
+          medical_history: ['Hypertension', 'Allergic Rhinitis'],
+          vitals: { respiratory_rate: 18, spo2: 98 },
+        });
+
+      expect(createRes.status).toBe(201);
+      expect(createRes.body.history_of_present_illness).toBe('Onset 2 days ago, worse on exertion');
+      expect(createRes.body.examination_findings).toBe('Chest clear, no wheeze');
+      expect(createRes.body.medicalHistory).toEqual(['Hypertension', 'Allergic Rhinitis']);
+      expect(createRes.body.vitals.respiratory_rate).toBe(18);
+      expect(createRes.body.vitals.spo2).toBe(98);
+    });
+  });
+
+  describe('Consultation Context (GET /consultations/context/:appointmentId)', () => {
+    it('returns appointment, patient summary, and null consultation before one is created', async () => {
+      const { appointment, patient } = await makeConsultingAppointment(doctorId, { allergies: 'Penicillin' });
+
+      const res = await request(app)
+        .get(`/api/v1/consultations/context/${appointment.appointment_id}`)
+        .set('Authorization', `Bearer ${doctorToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.appointment.patient.patient_id).toBe(patient.patient_id);
+      expect(res.body.consultation).toBeNull();
+      expect(res.body.patientSummary.allergies).toBe('Penicillin');
+      expect(res.body.patientSummary).toHaveProperty('chronicConditions');
+      expect(res.body.patientSummary).toHaveProperty('currentMedications');
+    });
+
+    it('returns 404 for a non-existent appointment', async () => {
+      const res = await request(app).get('/api/v1/consultations/context/999999').set('Authorization', `Bearer ${doctorToken}`);
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('Attach Files (consultation documents)', () => {
+    it('uploads, lists, and deletes a document', async () => {
+      const { appointment } = await makeConsultingAppointment(doctorId);
+      const createRes = await request(app)
+        .post('/api/v1/consultations')
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ appointment_id: appointment.appointment_id });
+      const docConsultationId = createRes.body.consultation_id;
+
+      const uploadRes = await request(app)
+        .post(`/api/v1/consultations/${docConsultationId}/documents`)
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .attach('file', Buffer.from('%PDF-1.4 fake pdf content'), { filename: 'referral.pdf', contentType: 'application/pdf' });
+      expect(uploadRes.status).toBe(201);
+      expect(uploadRes.body.original_name).toBe('referral.pdf');
+
+      const listRes = await request(app)
+        .get(`/api/v1/consultations/${docConsultationId}/documents`)
+        .set('Authorization', `Bearer ${doctorToken}`);
+      expect(listRes.status).toBe(200);
+      expect(listRes.body.some((d: any) => d.document_id === uploadRes.body.document_id)).toBe(true);
+
+      const deleteRes = await request(app)
+        .delete(`/api/v1/consultations/documents/${uploadRes.body.document_id}`)
+        .set('Authorization', `Bearer ${doctorToken}`);
+      expect(deleteRes.status).toBe(204);
+    });
+
+    it('rejects a disallowed file type', async () => {
+      const { appointment } = await makeConsultingAppointment(doctorId);
+      const createRes = await request(app)
+        .post('/api/v1/consultations')
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ appointment_id: appointment.appointment_id });
+
+      const res = await request(app)
+        .post(`/api/v1/consultations/${createRes.body.consultation_id}/documents`)
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .attach('file', Buffer.from('exe content'), { filename: 'malware.exe', contentType: 'application/octet-stream' });
+      expect(res.status).toBe(400);
+    });
   });
 });

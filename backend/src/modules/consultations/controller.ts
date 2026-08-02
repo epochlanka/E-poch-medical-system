@@ -21,6 +21,9 @@ export const create = async (req: Request, res: Response) => {
         appointment_id: body.appointment_id,
         vitals: body.vitals,
         complaint: body.complaint,
+        history_of_present_illness: body.history_of_present_illness,
+        examination_findings: body.examination_findings,
+        medical_history: body.medical_history,
         diagnosis: body.diagnosis,
         icd10_code: body.icd10_code,
         notes: body.notes,
@@ -53,6 +56,9 @@ export const update = async (req: Request, res: Response) => {
       {
         vitals: body.vitals,
         complaint: body.complaint,
+        history_of_present_illness: body.history_of_present_illness,
+        examination_findings: body.examination_findings,
+        medical_history: body.medical_history,
         diagnosis: body.diagnosis,
         icd10_code: body.icd10_code,
         notes: body.notes,
@@ -89,6 +95,45 @@ export const amendments = async (req: Request, res: Response) => {
   try {
     const entries = await service.listAmendments(idParam(req));
     res.status(200).json(entries);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const context = async (req: Request, res: Response) => {
+  try {
+    const appointmentId = Number(req.params.appointmentId);
+    const result = await service.getConsultationContext(appointmentId, actor(req));
+    res.status(200).json(result);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const uploadDocument = async (req: Request, res: Response) => {
+  try {
+    const file = (req as any).file;
+    if (!file) return res.status(400).json({ message: 'No file uploaded' });
+    const doc = await service.addDocument(idParam(req), file, actor(req).user_id);
+    res.status(201).json(doc);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const listDocuments = async (req: Request, res: Response) => {
+  try {
+    const docs = await service.listDocuments(idParam(req));
+    res.status(200).json(docs);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const deleteDocument = async (req: Request, res: Response) => {
+  try {
+    await service.deleteDocument(Number(req.params.documentId));
+    res.status(204).send();
   } catch (error) {
     handleError(req, res, error);
   }

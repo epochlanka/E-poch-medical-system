@@ -25,6 +25,7 @@ const createSchema = z.object({
 const listSchema = z.object({
   query: z.object({
     patientId: z.string().optional(),
+    consultationId: z.coerce.number().int().positive().optional(),
     status: z.enum(['Outstanding', 'PartiallyPaid', 'Paid', 'Voided']).optional(),
     from: z.coerce.date().optional(),
     to: z.coerce.date().optional(),
