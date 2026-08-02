@@ -9,7 +9,8 @@ export interface RegisterPatientInput {
   phone?: string;
   blood_group?: string;
   allergies?: string;
-  new_family: { family_name: string; address?: string; contact_no?: string };
+  family_id?: number;
+  new_family?: { family_name: string; address?: string; contact_no?: string };
 }
 
 export const registerPatient = (input: RegisterPatientInput) =>

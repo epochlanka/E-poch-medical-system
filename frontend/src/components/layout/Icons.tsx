@@ -238,3 +238,26 @@ export const RefreshIcon = () => (
     <path d="M21 4v5h-5" />
   </Base>
 );
+export const PhoneIcon = () => (
+  <Base size={14}>
+    <path d="M4 3h4l1.5 5-2.5 1.5a13 13 0 0 0 6 6L14.5 13l5 1.5v4a2 2 0 0 1-2 2A16 16 0 0 1 2 5a2 2 0 0 1 2-2Z" />
+  </Base>
+);
+export const MapPinIcon = () => (
+  <Base size={14}>
+    <path d="M12 21s7-6.5 7-12a7 7 0 0 0-14 0c0 5.5 7 12 7 12Z" />
+    <circle cx="12" cy="9" r="2.3" />
+  </Base>
+);
+export const StarIcon = () => (
+  <Base size={14}>
+    <path d="m12 3 2.6 5.8 6.2.6-4.7 4.2 1.4 6.1L12 16.7 6.5 19.7l1.4-6.1-4.7-4.2 6.2-.6Z" />
+  </Base>
+);
+export const MergeIcon = () => (
+  <Base size={16}>
+    <path d="M8 3v6a4 4 0 0 0 4 4h4" />
+    <path d="M16 3v18M8 15v6" />
+    <path d="m13 10 3 3 3-3" />
+  </Base>
+);

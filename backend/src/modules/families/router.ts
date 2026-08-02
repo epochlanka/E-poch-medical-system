@@ -63,6 +63,7 @@ router.post('/merge', requireRole(WRITE_ROLES), validate(mergeSchema), controlle
 
 // Family Directory
 router.get('/', requireRole(READ_ROLES), validate(listSchema), controller.list);
+router.get('/stats', requireRole(READ_ROLES), controller.stats);
 router.post('/', requireRole(WRITE_ROLES), validate(createSchema), controller.create);
 router.get('/:familyId', requireRole(READ_ROLES), validate(familyIdParamsSchema), controller.getById);
 router.put('/:familyId', requireRole(WRITE_ROLES), validate(updateSchema), controller.update);

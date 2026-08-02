@@ -27,6 +27,14 @@ export const list = async (req: Request, res: Response) => {
   }
 };
 
+export const stats = async (req: Request, res: Response) => {
+  try {
+    res.status(200).json(await service.getFamilyStats());
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
 export const create = async (req: Request, res: Response) => {
   try {
     const family = await service.createFamily(req.body, actorId(req));

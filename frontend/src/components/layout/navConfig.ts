@@ -36,7 +36,7 @@ export const navSections: NavSection[] = [
     items: [
       { label: 'Dashboard', path: '/dashboard', icon: DashboardIcon, implemented: true },
       { label: 'Patients', path: '/patients', icon: PatientsIcon, implemented: true },
-      { label: 'Families', path: '/families', icon: FamiliesIcon },
+      { label: 'Families', path: '/families', icon: FamiliesIcon, implemented: true },
       { label: 'Live Queue', path: '/queue', icon: CalendarIcon, implemented: true },
       { label: 'Book Appointment', path: '/book-appointment', icon: CalendarIcon, implemented: true },
       { label: 'Consultations', path: '/consultations', icon: StethoscopeIcon },

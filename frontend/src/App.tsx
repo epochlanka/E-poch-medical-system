@@ -5,6 +5,7 @@ import AppLayout from './components/layout/AppLayout';
 import Login from './pages/Login';
 import Dashboard from './pages/dashboard/Dashboard';
 import Patients from './pages/patients/Patients';
+import Families from './pages/families/Families';
 import ComingSoon from './pages/ComingSoon';
 import QueueDashboard from './pages/QueueDashboard';
 import BookAppointment from './pages/BookAppointment';
@@ -36,6 +37,7 @@ function App() {
         >
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/patients" element={<Patients />} />
+          <Route path="/families" element={<Families />} />
           <Route path="/queue" element={<QueueDashboard />} />
           <Route path="/book-appointment" element={<BookAppointment />} />
           {unimplementedPaths.map((path) => (

@@ -52,6 +52,15 @@ describe('Families API', () => {
     expect(res.body.data.some((f: any) => f.family_id === familyId)).toBe(true);
   });
 
+  it('returns family summary stats used by the list header cards', async () => {
+    const res = await request(app).get('/api/v1/families/stats').set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.totalFamilies).toBeGreaterThan(0);
+    expect(res.body.activeFamilies + res.body.inactiveFamilies).toBeLessThanOrEqual(res.body.totalFamilies);
+    expect(res.body).toHaveProperty('totalFamilyMembers');
+    expect(res.body).toHaveProperty('newFamiliesThisMonth');
+  });
+
   it('updates family details', async () => {
     const res = await request(app)
       .put(`/api/v1/families/${familyId}`)

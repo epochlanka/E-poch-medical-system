@@ -47,6 +47,41 @@ export const listFamilies = async (filters: ListFamiliesFilters) => {
   return { data: families, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
 };
 
+// ---- Summary stats for the Families list header cards ------------------------
+
+const startOfMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1);
+
+const changePct = (current: number, prior: number): number | null => {
+  if (prior === 0) return current === 0 ? 0 : null;
+  return ((current - prior) / prior) * 100;
+};
+
+export const getFamilyStats = async () => {
+  const now = new Date();
+  const thisMonthStart = startOfMonth(now);
+  const lastMonthStart = startOfMonth(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+
+  const [totalFamilies, newThisMonth, newLastMonth, totalFamilyMembers, activeFamilies, inactiveFamilies] = await Promise.all([
+    prisma.family.count(),
+    prisma.family.count({ where: { created_at: { gte: thisMonthStart } } }),
+    prisma.family.count({ where: { created_at: { gte: lastMonthStart, lt: thisMonthStart } } }),
+    prisma.patient.count(),
+    prisma.family.count({ where: { is_active: true } }),
+    prisma.family.count({ where: { is_active: false } }),
+  ]);
+
+  return {
+    totalFamilies,
+    newFamiliesThisMonth: newThisMonth,
+    newFamiliesChangePct: changePct(newThisMonth, newLastMonth),
+    totalFamilyMembers,
+    activeFamilies,
+    activeFamiliesPct: totalFamilies === 0 ? 0 : (activeFamilies / totalFamilies) * 100,
+    inactiveFamilies,
+    inactiveFamiliesPct: totalFamilies === 0 ? 0 : (inactiveFamilies / totalFamilies) * 100,
+  };
+};
+
 // A Family can exist before any patient is assigned to it (BR-01) — a receptionist
 // can create the household shell first, then attach members via patient registration.
 export const createFamily = async (
