@@ -156,6 +156,8 @@ export const registerPatient = async (input: RegisterPatientInput, actorUserId: 
 interface ListPatientsFilters {
   search?: string;
   status?: 'active' | 'inactive' | 'all';
+  gender?: string;
+  bloodGroup?: string;
   page?: number;
   limit?: number;
 }
@@ -167,6 +169,8 @@ export const listPatients = async (filters: ListPatientsFilters) => {
   const where: Prisma.PatientWhereInput = {};
   if (filters.status === 'active') where.is_active = true;
   else if (filters.status === 'inactive') where.is_active = false;
+  if (filters.gender) where.gender = filters.gender;
+  if (filters.bloodGroup) where.blood_group = filters.bloodGroup;
 
   if (filters.search) {
     const term = filters.search.trim();
@@ -189,11 +193,62 @@ export const listPatients = async (filters: ListPatientsFilters) => {
     }),
   ]);
 
-  return { data: patients, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+  // One grouped query for the whole page's "last visit" column, rather than a per-row query.
+  const lastVisits = await prisma.appointment.groupBy({
+    by: ['patient_id'],
+    _max: { scheduled_at: true },
+    where: { patient_id: { in: patients.map((p) => p.patient_id) } },
+  });
+  const lastVisitByPatientId = new Map(lastVisits.map((v) => [v.patient_id, v._max.scheduled_at]));
+
+  return {
+    data: patients.map((p) => ({ ...p, last_visit: lastVisitByPatientId.get(p.patient_id) ?? null })),
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  };
+};
+
+// ---- Summary stats for the Patients list header cards -----------------------
+
+const startOfMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1);
+
+export const getPatientStats = async () => {
+  const now = new Date();
+  const thisMonthStart = startOfMonth(now);
+  const lastMonthStart = startOfMonth(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+  const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, now.getDate());
+
+  const [totalPatients, newThisMonth, newLastMonth, malePatients, femalePatients, recentAppointments] = await Promise.all([
+    prisma.patient.count(),
+    prisma.patient.count({ where: { created_at: { gte: thisMonthStart } } }),
+    prisma.patient.count({ where: { created_at: { gte: lastMonthStart, lt: thisMonthStart } } }),
+    prisma.patient.count({ where: { gender: 'Male' } }),
+    prisma.patient.count({ where: { gender: 'Female' } }),
+    prisma.appointment.findMany({ where: { scheduled_at: { gte: twelveMonthsAgo } }, select: { patient_id: true }, distinct: ['patient_id'] }),
+  ]);
+
+  const changePct = (current: number, prior: number): number | null => {
+    if (prior === 0) return current === 0 ? 0 : null;
+    return ((current - prior) / prior) * 100;
+  };
+
+  return {
+    totalPatients,
+    newPatientsThisMonth: newThisMonth,
+    newPatientsChangePct: changePct(newThisMonth, newLastMonth),
+    activePatients: recentAppointments.length,
+    malePatients,
+    malePatientsPct: totalPatients === 0 ? 0 : (malePatients / totalPatients) * 100,
+    femalePatients,
+    femalePatientsPct: totalPatients === 0 ? 0 : (femalePatients / totalPatients) * 100,
+  };
 };
 
 export const getPatientById = async (patientId: string) => {
-  return prisma.patient.findUnique({ where: { patient_id: patientId }, include: { family: true } });
+  const patient = await prisma.patient.findUnique({ where: { patient_id: patientId }, include: { family: true } });
+  if (!patient) return null;
+
+  const lastVisit = await prisma.appointment.aggregate({ _max: { scheduled_at: true }, where: { patient_id: patientId } });
+  return { ...patient, last_visit: lastVisit._max.scheduled_at ?? null };
 };
 
 // ---- Update (with field-level change logging) ------------------------------

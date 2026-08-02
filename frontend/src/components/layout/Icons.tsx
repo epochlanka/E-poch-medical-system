@@ -192,3 +192,49 @@ export const ChevronRightIcon = () => (
     <path d="m9 6 6 6-6 6" />
   </Base>
 );
+export const ChevronLeftIcon = () => (
+  <Base size={16}>
+    <path d="m15 6-6 6 6 6" />
+  </Base>
+);
+export const DownloadIcon = () => (
+  <Base size={16}>
+    <path d="M12 3v12m0 0-4-4m4 4 4-4" />
+    <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+  </Base>
+);
+export const FilterIcon = () => (
+  <Base size={16}>
+    <path d="M4 5h16l-6 8v6l-4-2v-4L4 5Z" />
+  </Base>
+);
+export const EyeIcon = () => (
+  <Base size={16}>
+    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+    <circle cx="12" cy="12" r="3" />
+  </Base>
+);
+export const EditIcon = () => (
+  <Base size={16}>
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+  </Base>
+);
+export const MoreVerticalIcon = () => (
+  <Base size={16}>
+    <circle cx="12" cy="5" r="1.2" />
+    <circle cx="12" cy="12" r="1.2" />
+    <circle cx="12" cy="19" r="1.2" />
+  </Base>
+);
+export const XIcon = () => (
+  <Base size={18}>
+    <path d="M18 6 6 18M6 6l12 12" />
+  </Base>
+);
+export const RefreshIcon = () => (
+  <Base size={16}>
+    <path d="M21 12a9 9 0 1 1-2.6-6.4" />
+    <path d="M21 4v5h-5" />
+  </Base>
+);

@@ -7,11 +7,12 @@ interface KpiCardProps {
   label: string;
   value: string;
   changePct?: number | null;
+  compareLabel?: string;
   loading?: boolean;
   footer?: ReactNode;
 }
 
-const KpiCard = ({ icon, iconBg, iconColor, label, value, changePct, loading, footer }: KpiCardProps) => {
+const KpiCard = ({ icon, iconBg, iconColor, label, value, changePct, compareLabel = 'yesterday', loading, footer }: KpiCardProps) => {
   const hasDelta = changePct !== undefined;
 
   return (
@@ -31,11 +32,11 @@ const KpiCard = ({ icon, iconBg, iconColor, label, value, changePct, loading, fo
       {hasDelta && !footer && !loading && (
         <span className={`kpi-delta ${changePct === null ? 'flat' : changePct >= 0 ? 'up' : 'down'}`}>
           {changePct === null ? (
-            <span className="kpi-delta-note">No data for yesterday</span>
+            <span className="kpi-delta-note">No data for {compareLabel}</span>
           ) : (
             <>
               {changePct >= 0 ? '↑' : '↓'} {Math.abs(changePct).toFixed(1)}%
-              <span className="kpi-delta-note">from yesterday</span>
+              <span className="kpi-delta-note">from {compareLabel}</span>
             </>
           )}
         </span>

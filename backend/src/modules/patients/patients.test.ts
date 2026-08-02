@@ -148,6 +148,22 @@ describe('Patients API', () => {
     expect(res.body.data.some((p: any) => p.patient_id === firstPatientId)).toBe(true);
   });
 
+  it('filters the list by gender and includes a last_visit field', async () => {
+    const res = await request(app).get('/api/v1/patients').query({ gender: 'Male' }).set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.every((p: any) => p.gender === 'Male')).toBe(true);
+    expect(res.body.data[0]).toHaveProperty('last_visit');
+  });
+
+  it('returns patient summary stats used by the list header cards', async () => {
+    const res = await request(app).get('/api/v1/patients/stats').set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.totalPatients).toBeGreaterThan(0);
+    expect(res.body.malePatients + res.body.femalePatients).toBeLessThanOrEqual(res.body.totalPatients);
+    expect(res.body).toHaveProperty('activePatients');
+    expect(res.body).toHaveProperty('newPatientsThisMonth');
+  });
+
   it('returns a single patient by id', async () => {
     const res = await request(app).get(`/api/v1/patients/${firstPatientId}`).set('Authorization', `Bearer ${adminToken}`);
     expect(res.status).toBe(200);

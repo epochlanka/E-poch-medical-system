@@ -95,6 +95,8 @@ const listSchema = z.object({
   query: z.object({
     search: z.string().optional(),
     status: z.enum(['active', 'inactive', 'all']).optional(),
+    gender: z.string().optional(),
+    bloodGroup: z.string().optional(),
     page: z.coerce.number().int().positive().optional(),
     limit: z.coerce.number().int().positive().optional(),
   }),
@@ -151,6 +153,7 @@ const mergeSchema = z.object({ params: flagIdParams, body: z.object({ primaryPat
 // the generic /:patientId route or Express will swallow them as a patient id.
 
 router.get('/', requireRole(READ_ROLES), validate(listSchema), controller.list);
+router.get('/stats', requireRole(READ_ROLES), controller.stats);
 router.get('/check-duplicate', requireRole(WRITE_ROLES), validate(checkDuplicateSchema), controller.checkDuplicate);
 
 router.get('/duplicates', requireRole(WRITE_ROLES), validate(duplicatesListSchema), controller.listDuplicates);
