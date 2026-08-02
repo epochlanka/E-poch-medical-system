@@ -5,6 +5,8 @@ import AppLayout from './components/layout/AppLayout';
 import Login from './pages/Login';
 import Dashboard from './pages/dashboard/Dashboard';
 import ComingSoon from './pages/ComingSoon';
+import QueueDashboard from './pages/QueueDashboard';
+import BookAppointment from './pages/BookAppointment';
 import { navSections } from './components/layout/navConfig';
 
 const unimplementedPaths = navSections
@@ -32,6 +34,8 @@ function App() {
           }
         >
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/queue" element={<QueueDashboard />} />
+          <Route path="/book-appointment" element={<BookAppointment />} />
           {unimplementedPaths.map((path) => (
             <Route key={path} path={path} element={<ComingSoon />} />
           ))}
