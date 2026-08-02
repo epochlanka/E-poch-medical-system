@@ -205,6 +205,7 @@ model Medicine {
   generic_name    String?
   category        String?
   form            String?
+  strength        String? // e.g. "500mg", "10mg/5ml" — printed on prescriptions/labels alongside dosage
   unit            String
   reorder_level   Int       @default(0)
   unit_price      Float     @default(0)

@@ -8,6 +8,9 @@ import Patients from './pages/patients/Patients';
 import Families from './pages/families/Families';
 import ConsultationsQueue from './pages/consultations/ConsultationsQueue';
 import Consultation from './pages/consultations/Consultation';
+import PrescriptionsQueue from './pages/prescriptions/PrescriptionsQueue';
+import NewPrescription from './pages/prescriptions/NewPrescription';
+import PrescriptionView from './pages/prescriptions/PrescriptionView';
 import ComingSoon from './pages/ComingSoon';
 import QueueDashboard from './pages/QueueDashboard';
 import BookAppointment from './pages/BookAppointment';
@@ -42,6 +45,9 @@ function App() {
           <Route path="/families" element={<Families />} />
           <Route path="/consultations" element={<ConsultationsQueue />} />
           <Route path="/consultations/:appointmentId" element={<Consultation />} />
+          <Route path="/prescriptions" element={<PrescriptionsQueue />} />
+          <Route path="/prescriptions/new/:consultationId" element={<NewPrescription />} />
+          <Route path="/prescriptions/:prescriptionId" element={<PrescriptionView />} />
           <Route path="/queue" element={<QueueDashboard />} />
           <Route path="/book-appointment" element={<BookAppointment />} />
           {unimplementedPaths.map((path) => (

@@ -206,3 +206,69 @@ export const listPrescriptions = async (filters: ListPrescriptionsFilters) => {
     pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
   };
 };
+
+// ---- Prescription Builder Context (everything the "New Prescription" page needs) ---------
+// Same pattern as consultations/service.ts's getConsultationContext — one call instead of a
+// request waterfall for patient/allergy/history context, chronic conditions derived from past
+// Finalized consultations' medical_history_json, duplicated here rather than imported cross-module.
+
+export const getPrescriptionContext = async (consultationId: number) => {
+  const consultation = await prisma.consultation.findUnique({
+    where: { consultation_id: consultationId },
+    include: {
+      appointment: {
+        include: {
+          patient: true,
+          doctor: { select: { user_id: true, username: true, registration_number: true } },
+        },
+      },
+      prescriptions: { orderBy: { issued_at: 'desc' }, select: { prescription_id: true, status: true, issued_at: true } },
+    },
+  });
+  if (!consultation) throw new NotFoundError('Consultation not found');
+
+  const patientId = consultation.appointment.patient_id;
+
+  const [pastConsultations, pastPrescriptions] = await Promise.all([
+    prisma.consultation.findMany({
+      where: { appointment: { patient_id: patientId }, status: 'Finalized' },
+      select: { medical_history_json: true },
+      take: 20,
+    }),
+    prisma.prescription.findMany({
+      where: { consultation: { appointment: { patient_id: patientId } }, consultation_id: { not: consultationId } },
+      orderBy: { issued_at: 'desc' },
+      take: 10,
+      include: { items: { include: { medicine: { select: { name: true } } } } },
+    }),
+  ]);
+
+  const chronicConditions = Array.from(
+    new Set(pastConsultations.flatMap((c) => (c.medical_history_json ? (JSON.parse(c.medical_history_json) as string[]) : [])))
+  );
+
+  return {
+    consultation: {
+      consultationId: consultation.consultation_id,
+      status: consultation.status,
+      diagnosis: consultation.diagnosis,
+    },
+    appointment: {
+      appointmentId: consultation.appointment.appointment_id,
+      scheduledAt: consultation.appointment.scheduled_at,
+      patient: consultation.appointment.patient,
+      doctor: consultation.appointment.doctor,
+    },
+    existingPrescriptions: consultation.prescriptions,
+    patientSummary: {
+      allergies: consultation.appointment.patient.allergies,
+      chronicConditions,
+    },
+    pastPrescriptions: pastPrescriptions.map((rx) => ({
+      prescriptionId: rx.prescription_id,
+      code: `RX${String(rx.prescription_id).padStart(6, '0')}`,
+      issuedAt: rx.issued_at,
+      items: rx.items.map((i) => ({ medicineId: i.medicine_id, medicine: i.medicine.name, dosage: i.dosage, frequency: i.frequency, duration: i.duration, route: i.route, qty: i.qty })),
+    })),
+  };
+};

@@ -191,4 +191,32 @@ describe('Prescriptions API', () => {
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.data)).toBe(true);
   });
+
+  describe('Prescription Builder Context (GET /prescriptions/context/:consultationId)', () => {
+    it('returns patient/allergy context and past prescriptions for the New Prescription page', async () => {
+      const patient = await makePatient({ allergies: 'Penicillin' });
+      const first = await makeDraftConsultationForPatient(doctorToken, doctorId, patient.patient_id);
+      await request(app)
+        .post('/api/v1/prescriptions')
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ consultation_id: first.consultationId, items: [{ medicine_id: 3, dosage: '1 tablet', qty: 5 }] });
+
+      const second = await makeDraftConsultationForPatient(doctorToken, doctorId, patient.patient_id);
+      const res = await request(app)
+        .get(`/api/v1/prescriptions/context/${second.consultationId}`)
+        .set('Authorization', `Bearer ${doctorToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.appointment.patient.patient_id).toBe(patient.patient_id);
+      expect(res.body.patientSummary.allergies).toBe('Penicillin');
+      expect(res.body.pastPrescriptions.length).toBe(1);
+      expect(res.body.pastPrescriptions[0].items[0].medicineId).toBe(3);
+      expect(res.body.existingPrescriptions).toEqual([]);
+    });
+
+    it('returns 404 for a non-existent consultation', async () => {
+      const res = await request(app).get('/api/v1/prescriptions/context/999999').set('Authorization', `Bearer ${doctorToken}`);
+      expect(res.status).toBe(404);
+    });
+  });
 });

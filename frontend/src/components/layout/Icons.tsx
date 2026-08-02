@@ -302,6 +302,12 @@ export const SaveIcon = () => (
     <path d="M17 21v-8H7v8M7 3v5h8" />
   </Base>
 );
+export const SendIcon = () => (
+  <Base size={16}>
+    <path d="m3 3 18 9-18 9 4-9-4-9Z" />
+    <path d="M7 12h14" />
+  </Base>
+);
 export const ClipboardIcon = () => (
   <Base size={32}>
     <rect x="5" y="4" width="14" height="17" rx="2" />

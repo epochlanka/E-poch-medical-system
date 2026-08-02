@@ -56,6 +56,15 @@ export const getPdf = async (req: Request, res: Response) => {
   }
 };
 
+export const context = async (req: Request, res: Response) => {
+  try {
+    const result = await service.getPrescriptionContext(Number(req.params.consultationId));
+    res.status(200).json(result);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
 export const list = async (req: Request, res: Response) => {
   try {
     const { patientId, doctorId, status, medicineId, page, limit } = req.query as any;

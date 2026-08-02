@@ -40,7 +40,9 @@ export const searchMedicines = async (params: SearchMedicinesParams) => {
       generic_name: m.generic_name,
       category: m.category,
       form: m.form,
+      strength: m.strength,
       unit: m.unit,
+      unit_price: m.unit_price,
       is_active: m.is_active,
       stockStatus,
       totalQty,
@@ -55,6 +57,7 @@ interface CreateMedicineInput {
   generic_name?: string;
   category?: string;
   form?: string;
+  strength?: string;
   unit: string;
   reorder_level?: number;
   unit_price?: number;
@@ -75,6 +78,7 @@ interface UpdateMedicineInput {
   generic_name?: string;
   category?: string;
   form?: string;
+  strength?: string;
   unit?: string;
   reorder_level?: number;
   unit_price?: number;

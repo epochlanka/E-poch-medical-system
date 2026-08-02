@@ -38,4 +38,10 @@ describe('Medicines API', () => {
     expect(res.body[0]).toHaveProperty('stockStatus');
     expect(res.body[0]).toHaveProperty('totalQty');
   });
+
+  it('includes strength and unit price per medicine', async () => {
+    const res = await request(app).get('/api/v1/medicines').query({ search: 'Paracetamol' }).set('Authorization', `Bearer ${token}`);
+    expect(res.body[0].strength).toBe('500mg');
+    expect(res.body[0]).toHaveProperty('unit_price');
+  });
 });

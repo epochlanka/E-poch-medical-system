@@ -12,7 +12,7 @@ import {
   deleteConsultationDocument,
 } from '../../lib/consultations';
 import type { ConsultationInput } from '../../lib/consultations';
-import { PrintIcon, ChevronLeftIcon, SaveIcon } from '../../components/layout/Icons';
+import { PrintIcon, ChevronLeftIcon, SaveIcon, PrescriptionIcon } from '../../components/layout/Icons';
 import { initials, calculateAge, parseDiagnosisList, joinDiagnosisList } from './consultationUtils';
 import type { ConsultationFormState } from './ConsultationTab';
 import ConsultationTab from './ConsultationTab';
@@ -202,6 +202,11 @@ const Consultation = () => {
           <button className="cons-btn" onClick={() => navigate('/consultations')}>
             <ChevronLeftIcon /> Back to List
           </button>
+          {consultationId && (
+            <button className="cons-btn" onClick={() => navigate(`/prescriptions/new/${consultationId}`)}>
+              <PrescriptionIcon /> New Prescription
+            </button>
+          )}
           {!isFinalized && (
             <button className="cons-btn" onClick={handleSaveDraft} disabled={saving || finalizing}>
               <SaveIcon /> {saving ? 'Saving…' : 'Save as Draft'}

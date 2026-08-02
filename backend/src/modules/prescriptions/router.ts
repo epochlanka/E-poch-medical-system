@@ -48,6 +48,10 @@ const listSchema = z.object({
   }),
 });
 
+const contextParamsSchema = z.object({ params: z.object({ consultationId: z.coerce.number().int().positive() }) });
+
+router.get('/context/:consultationId', requireRole(READ_ROLES), validate(contextParamsSchema), controller.context);
+
 router.get('/', requireRole(READ_ROLES), validate(listSchema), controller.list);
 router.post('/', requireRole(WRITE_ROLES), validate(createSchema), controller.create);
 router.get('/:prescriptionId', requireRole(READ_ROLES), validate(prescriptionIdParamsSchema), controller.getById);
