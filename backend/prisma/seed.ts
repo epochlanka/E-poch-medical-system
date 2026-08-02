@@ -17,7 +17,14 @@ async function main() {
   const doctor = await prisma.user.upsert({
     where: { username: 'doctor' },
     update: {},
-    create: { username: 'doctor', password_hash: doctorHash, role: 'Doctor' },
+    create: { username: 'doctor', password_hash: doctorHash, role: 'Doctor', registration_number: 'SLMC-24681' },
+  });
+
+  const pharmacistHash = await bcrypt.hash('pharmacist123', 10);
+  const pharmacist = await prisma.user.upsert({
+    where: { username: 'pharmacist' },
+    update: {},
+    create: { username: 'pharmacist', password_hash: pharmacistHash, role: 'Pharmacist' },
   });
 
   const receptionistHash = await bcrypt.hash('reception123', 10);
@@ -59,9 +66,12 @@ async function main() {
       medicine_id: 1,
       name: 'Paracetamol 500mg',
       generic_name: 'Paracetamol',
+      category: 'Analgesic',
       form: 'Tablet',
       unit: 'tablet',
       reorder_level: 100,
+      unit_price: 15,
+      barcode: '8901030001',
     },
   });
 
@@ -72,14 +82,52 @@ async function main() {
       medicine_id: 2,
       name: 'Amoxicillin 250mg',
       generic_name: 'Amoxicillin',
+      category: 'Antibiotic',
       form: 'Capsule',
       unit: 'capsule',
       reorder_level: 50,
+      unit_price: 45,
+      barcode: '8901030002',
     },
   });
 
-  // Below reorder level -> should surface as a low-stock alert
-  await prisma.batch.upsert({
+  const cetirizine = await prisma.medicine.upsert({
+    where: { medicine_id: 3 },
+    update: {},
+    create: {
+      medicine_id: 3,
+      name: 'Cetirizine 10mg',
+      generic_name: 'Cetirizine',
+      category: 'Antihistamine',
+      form: 'Tablet',
+      unit: 'tablet',
+      reorder_level: 30,
+      unit_price: 8,
+      barcode: '8901030003',
+    },
+  });
+
+  const supplier = await prisma.supplier.upsert({
+    where: { supplier_id: 1 },
+    update: {},
+    create: { supplier_id: 1, name: 'MedSupply Lanka (Pvt) Ltd', contact: '011-2345678', address: 'Colombo 02' },
+  });
+
+  // A fully-received PO -> GRN -> Batch chain, so every unit of batch 1 traces to a purchase document.
+  const receivedPo = await prisma.purchaseOrder.upsert({
+    where: { po_id: 1 },
+    update: {},
+    create: { po_id: 1, supplier_id: supplier.supplier_id, order_date: new Date('2026-07-01'), status: 'Received', created_by: pharmacist.user_id },
+  });
+  const receivedPoItem = await prisma.purchaseOrderItem.upsert({
+    where: { po_item_id: 1 },
+    update: {},
+    create: { po_item_id: 1, po_id: receivedPo.po_id, medicine_id: paracetamol.medicine_id, qty_ordered: 40, unit_cost: 10 },
+  });
+
+  // Below reorder level -> should surface as a low-stock alert. Started at 40 (per the GRN),
+  // 20 already dispensed by the seeded prescription below, so qty_on_hand nets to 20.
+  const batch1 = await prisma.batch.upsert({
     where: { batch_id: 1 },
     update: {},
     create: {
@@ -88,13 +136,96 @@ async function main() {
       batch_no: 'PCM-2026-01',
       expiry_date: new Date('2027-01-01'),
       qty_on_hand: 20,
+      supplier_id: supplier.supplier_id,
+    },
+  });
+  await prisma.gRNItem.upsert({
+    where: { grn_item_id: 1 },
+    update: {},
+    create: {
+      grn_item_id: 1,
+      grn_id: (
+        await prisma.goodsReceivedNote.upsert({
+          where: { grn_id: 1 },
+          update: {},
+          create: { grn_id: 1, po_id: receivedPo.po_id, received_by: pharmacist.user_id, received_at: new Date('2026-07-05') },
+        })
+      ).grn_id,
+      po_item_id: receivedPoItem.po_item_id,
+      batch_id: batch1.batch_id,
+      qty_received: 40,
+    },
+  });
+  await prisma.stockLedger.upsert({
+    where: { ledger_id: 1 },
+    update: {},
+    create: {
+      ledger_id: 1,
+      batch_id: batch1.batch_id,
+      change_qty: 40,
+      balance_after: 40,
+      event_type: 'GRN',
+      reference_type: 'GRN',
+      reference_id: '1',
+      created_by: pharmacist.user_id,
+      created_at: new Date('2026-07-05'),
+    },
+  });
+  await prisma.stockLedger.upsert({
+    where: { ledger_id: 2 },
+    update: {},
+    create: {
+      ledger_id: 2,
+      batch_id: batch1.batch_id,
+      change_qty: -20,
+      balance_after: 20,
+      event_type: 'Dispense',
+      reference_type: 'Prescription',
+      reference_id: '1',
+      created_by: pharmacist.user_id,
+    },
+  });
+
+  // A second PO still awaiting delivery — demonstrates the Draft/Submitted stage of the workflow.
+  await prisma.purchaseOrder.upsert({
+    where: { po_id: 2 },
+    update: {},
+    create: { po_id: 2, supplier_id: supplier.supplier_id, order_date: new Date(), status: 'Submitted', created_by: pharmacist.user_id },
+  });
+  await prisma.purchaseOrderItem.upsert({
+    where: { po_item_id: 2 },
+    update: {},
+    create: { po_item_id: 2, po_id: 2, medicine_id: amoxicillin.medicine_id, qty_ordered: 100, unit_cost: 30 },
+  });
+
+  // A third PO received with a quantity discrepancy — flagged for Admin review, not silently accepted.
+  const discrepancyPo = await prisma.purchaseOrder.upsert({
+    where: { po_id: 3 },
+    update: {},
+    create: { po_id: 3, supplier_id: supplier.supplier_id, order_date: new Date('2026-07-20'), status: 'Received', created_by: pharmacist.user_id },
+  });
+  const discrepancyPoItem = await prisma.purchaseOrderItem.upsert({
+    where: { po_item_id: 3 },
+    update: {},
+    create: { po_item_id: 3, po_id: discrepancyPo.po_id, medicine_id: cetirizine.medicine_id, qty_ordered: 100, unit_cost: 5 },
+  });
+  const discrepancyGrn = await prisma.goodsReceivedNote.upsert({
+    where: { grn_id: 2 },
+    update: {},
+    create: {
+      grn_id: 2,
+      po_id: discrepancyPo.po_id,
+      received_by: pharmacist.user_id,
+      received_at: new Date('2026-07-22'),
+      has_discrepancy: true,
+      discrepancy_notes: 'Ordered 100 units, supplier delivered only 90',
     },
   });
 
   // Expiring within the default 90-day threshold -> should surface as an expiry alert
   const soonExpiry = new Date();
   soonExpiry.setDate(soonExpiry.getDate() + 30);
-  await prisma.batch.upsert({
+  const batch2 = await prisma.batch.upsert({
     where: { batch_id: 2 },
     update: {},
     create: {
@@ -103,6 +234,81 @@ async function main() {
       batch_no: 'AMX-2026-01',
       expiry_date: soonExpiry,
       qty_on_hand: 80,
+      supplier_id: supplier.supplier_id,
+    },
+  });
+  await prisma.stockLedger.upsert({
+    where: { ledger_id: 3 },
+    update: {},
+    create: { ledger_id: 3, batch_id: batch2.batch_id, change_qty: 90, balance_after: 90, event_type: 'GRN', created_by: pharmacist.user_id },
+  });
+  await prisma.stockLedger.upsert({
+    where: { ledger_id: 4 },
+    update: {},
+    create: {
+      ledger_id: 4,
+      batch_id: batch2.batch_id,
+      change_qty: -10,
+      balance_after: 80,
+      event_type: 'Dispense',
+      reference_type: 'Prescription',
+      reference_id: '1',
+      created_by: pharmacist.user_id,
+    },
+  });
+
+  // A later-expiring batch of the same medicine, so FEFO has a real earliest-vs-later choice to suggest.
+  // This is the batch actually received against the discrepancy PO above (90, not the ordered 100).
+  const laterExpiry = new Date();
+  laterExpiry.setDate(laterExpiry.getDate() + 180);
+  const batch3 = await prisma.batch.upsert({
+    where: { batch_id: 3 },
+    update: {},
+    create: {
+      batch_id: 3,
+      medicine_id: amoxicillin.medicine_id,
+      batch_no: 'AMX-2026-02',
+      expiry_date: laterExpiry,
+      qty_on_hand: 60,
+      supplier_id: supplier.supplier_id,
+    },
+  });
+  await prisma.stockLedger.upsert({
+    where: { ledger_id: 5 },
+    update: {},
+    create: { ledger_id: 5, batch_id: batch3.batch_id, change_qty: 60, balance_after: 60, event_type: 'GRN', created_by: pharmacist.user_id },
+  });
+
+  const batch4 = await prisma.batch.upsert({
+    where: { batch_id: 4 },
+    update: {},
+    create: {
+      batch_id: 4,
+      medicine_id: cetirizine.medicine_id,
+      batch_no: 'CTZ-2026-01',
+      expiry_date: laterExpiry,
+      qty_on_hand: 90,
+      supplier_id: supplier.supplier_id,
+    },
+  });
+  await prisma.gRNItem.upsert({
+    where: { grn_item_id: 2 },
+    update: {},
+    create: { grn_item_id: 2, grn_id: discrepancyGrn.grn_id, po_item_id: discrepancyPoItem.po_item_id, batch_id: batch4.batch_id, qty_received: 90 },
+  });
+  await prisma.stockLedger.upsert({
+    where: { ledger_id: 6 },
+    update: {},
+    create: {
+      ledger_id: 6,
+      batch_id: batch4.batch_id,
+      change_qty: 90,
+      balance_after: 90,
+      event_type: 'GRN',
+      reference_type: 'GRN',
+      reference_id: String(discrepancyGrn.grn_id),
+      created_by: pharmacist.user_id,
+      created_at: new Date('2026-07-22'),
     },
   });
 
@@ -118,6 +324,7 @@ async function main() {
       gender: 'Female',
       phone: '0779876543',
       blood_group: 'A+',
+      allergies: 'Amoxicillin (penicillin-class)',
     },
   });
 
@@ -259,42 +466,167 @@ async function main() {
     },
   });
 
-  await prisma.prescription.upsert({
+  const pendingPrescription = await prisma.prescription.upsert({
     where: { prescription_id: 2 },
     update: {},
     create: { prescription_id: 2, consultation_id: pendingConsultation.consultation_id, status: 'Pending' },
   });
 
-  await prisma.invoice.upsert({
-    where: { invoice_id: 1 },
-    update: { prescription_id: prescription.prescription_id },
+  await prisma.prescriptionItem.upsert({
+    where: { rx_item_id: 3 },
+    update: {},
     create: {
-      invoice_id: 1,
-      patient_id: patient.patient_id,
-      prescription_id: prescription.prescription_id,
-      total_amount: 1500,
-      payment_status: 'Paid',
+      rx_item_id: 3,
+      prescription_id: pendingPrescription.prescription_id,
+      medicine_id: cetirizine.medicine_id,
+      dosage: '1 tablet at night',
+      frequency: 'Once daily',
+      duration: '5 days',
+      route: 'Oral',
+      qty: 5,
     },
   });
 
-  // Backdated invoices so the revenue trend chart has a real multi-day series.
-  await prisma.invoice.upsert({
-    where: { invoice_id: 2 },
+  // Pre-configured substitution rule — dispensing can only ever offer an alternative the
+  // system already knows about, never an ad-hoc counter substitution.
+  await prisma.medicineSubstitution.upsert({
+    where: { medicine_id_substitute_medicine_id: { medicine_id: amoxicillin.medicine_id, substitute_medicine_id: cetirizine.medicine_id } },
     update: {},
-    create: { invoice_id: 2, patient_id: patient2.patient_id, total_amount: 2200, payment_status: 'Paid', created_at: daysAgo(1) },
-  });
-  await prisma.invoice.upsert({
-    where: { invoice_id: 3 },
-    update: {},
-    create: { invoice_id: 3, patient_id: patient.patient_id, total_amount: 1800, payment_status: 'Paid', created_at: daysAgo(3) },
-  });
-  await prisma.invoice.upsert({
-    where: { invoice_id: 4 },
-    update: {},
-    create: { invoice_id: 4, patient_id: patient2.patient_id, total_amount: 3100, payment_status: 'Paid', created_at: daysAgo(7) },
+    create: { medicine_id: amoxicillin.medicine_id, substitute_medicine_id: cetirizine.medicine_id, created_by: pharmacist.user_id },
   });
 
-  console.log({ admin: admin.username, doctor: doctor.username, receptionist: receptionist.username });
+  const CONSULTATION_FEE = 500;
+
+  // Consolidated invoice: consultation fee + every dispensed line, on the same items table
+  // discounts and payments will later apply against — not a flat total_amount pulled from nowhere.
+  const invoice1 = await prisma.invoice.upsert({
+    where: { invoice_id: 1 },
+    update: {},
+    create: {
+      invoice_id: 1,
+      patient_id: patient.patient_id,
+      consultation_id: consultation.consultation_id,
+      subtotal: CONSULTATION_FEE + 20 * paracetamol.unit_price + 10 * amoxicillin.unit_price,
+      discount_total: 0,
+      total_amount: CONSULTATION_FEE + 20 * paracetamol.unit_price + 10 * amoxicillin.unit_price,
+      paid_amount: CONSULTATION_FEE + 20 * paracetamol.unit_price + 10 * amoxicillin.unit_price,
+      payment_status: 'Paid',
+      created_by: receptionist.user_id,
+    },
+  });
+  await prisma.invoiceItem.upsert({
+    where: { invoice_item_id: 1 },
+    update: {},
+    create: { invoice_item_id: 1, invoice_id: invoice1.invoice_id, item_type: 'ConsultationFee', description: 'Consultation fee', qty: 1, unit_price: CONSULTATION_FEE, line_total: CONSULTATION_FEE },
+  });
+  await prisma.invoiceItem.upsert({
+    where: { invoice_item_id: 2 },
+    update: {},
+    create: {
+      invoice_item_id: 2,
+      invoice_id: invoice1.invoice_id,
+      item_type: 'Medicine',
+      description: paracetamol.name,
+      qty: 20,
+      unit_price: paracetamol.unit_price,
+      line_total: 20 * paracetamol.unit_price,
+      source_prescription_item_id: 1,
+    },
+  });
+  await prisma.invoiceItem.upsert({
+    where: { invoice_item_id: 3 },
+    update: {},
+    create: {
+      invoice_item_id: 3,
+      invoice_id: invoice1.invoice_id,
+      item_type: 'Medicine',
+      description: amoxicillin.name,
+      qty: 10,
+      unit_price: amoxicillin.unit_price,
+      line_total: 10 * amoxicillin.unit_price,
+      source_prescription_item_id: 2,
+    },
+  });
+  await prisma.payment.upsert({
+    where: { payment_id: 1 },
+    update: {},
+    create: { payment_id: 1, invoice_id: invoice1.invoice_id, method: 'Cash', amount: invoice1.total_amount, received_by: receptionist.user_id },
+  });
+
+  // Backdated, single-line invoices so the revenue trend chart has a real multi-day series.
+  const backdatedInvoices = [
+    { invoice_id: 2, patient: patient2, amount: 2200, daysBack: 1 },
+    { invoice_id: 3, patient, amount: 1800, daysBack: 3 },
+    { invoice_id: 4, patient: patient2, amount: 3100, daysBack: 7 },
+  ];
+  for (const inv of backdatedInvoices) {
+    const created = await prisma.invoice.upsert({
+      where: { invoice_id: inv.invoice_id },
+      update: {},
+      create: {
+        invoice_id: inv.invoice_id,
+        patient_id: inv.patient.patient_id,
+        subtotal: inv.amount,
+        total_amount: inv.amount,
+        paid_amount: inv.amount,
+        payment_status: 'Paid',
+        created_by: receptionist.user_id,
+        created_at: daysAgo(inv.daysBack),
+      },
+    });
+    await prisma.invoiceItem.upsert({
+      where: { invoice_item_id: 100 + inv.invoice_id },
+      update: {},
+      create: { invoice_item_id: 100 + inv.invoice_id, invoice_id: created.invoice_id, item_type: 'ConsultationFee', description: 'Consultation & dispensing', qty: 1, unit_price: inv.amount, line_total: inv.amount },
+    });
+    await prisma.payment.upsert({
+      where: { payment_id: 100 + inv.invoice_id },
+      update: {},
+      create: { payment_id: 100 + inv.invoice_id, invoice_id: created.invoice_id, method: 'Cash', amount: inv.amount, received_by: receptionist.user_id, received_at: daysAgo(inv.daysBack) },
+    });
+  }
+
+  // An Outstanding invoice with a partial payment, to demo the partial-settlement path.
+  const outstandingInvoice = await prisma.invoice.upsert({
+    where: { invoice_id: 5 },
+    update: {},
+    create: {
+      invoice_id: 5,
+      patient_id: patient2.patient_id,
+      consultation_id: pendingConsultation.consultation_id,
+      subtotal: CONSULTATION_FEE + 5 * cetirizine.unit_price,
+      total_amount: CONSULTATION_FEE + 5 * cetirizine.unit_price,
+      paid_amount: 300,
+      payment_status: 'PartiallyPaid',
+      created_by: receptionist.user_id,
+    },
+  });
+  await prisma.invoiceItem.upsert({
+    where: { invoice_item_id: 5 },
+    update: {},
+    create: { invoice_item_id: 5, invoice_id: outstandingInvoice.invoice_id, item_type: 'ConsultationFee', description: 'Consultation fee', qty: 1, unit_price: CONSULTATION_FEE, line_total: CONSULTATION_FEE },
+  });
+  await prisma.invoiceItem.upsert({
+    where: { invoice_item_id: 6 },
+    update: {},
+    create: {
+      invoice_item_id: 6,
+      invoice_id: outstandingInvoice.invoice_id,
+      item_type: 'Medicine',
+      description: cetirizine.name,
+      qty: 5,
+      unit_price: cetirizine.unit_price,
+      line_total: 5 * cetirizine.unit_price,
+      source_prescription_item_id: 3,
+    },
+  });
+  await prisma.payment.upsert({
+    where: { payment_id: 5 },
+    update: {},
+    create: { payment_id: 5, invoice_id: outstandingInvoice.invoice_id, method: 'Card', amount: 300, received_by: receptionist.user_id },
+  });
+
+  console.log({ admin: admin.username, doctor: doctor.username, receptionist: receptionist.username, pharmacist: pharmacist.username });
   console.log('Database seeded successfully.');
 }
 

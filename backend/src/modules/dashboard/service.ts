@@ -60,13 +60,13 @@ export const getOverview = async (expiryThresholdDays = DEFAULT_EXPIRY_THRESHOLD
     }),
     prisma.appointment.count({ where: { scheduled_at: { gte: todayStart, lte: todayEnd } } }),
     prisma.appointment.count({ where: { scheduled_at: { gte: yesterdayStart, lte: yesterdayEnd } } }),
-    prisma.invoice.aggregate({
-      _sum: { total_amount: true },
-      where: { payment_status: 'Paid', created_at: { gte: todayStart, lte: todayEnd } },
+    prisma.payment.aggregate({
+      _sum: { amount: true },
+      where: { received_at: { gte: todayStart, lte: todayEnd } },
     }),
-    prisma.invoice.aggregate({
-      _sum: { total_amount: true },
-      where: { payment_status: 'Paid', created_at: { gte: yesterdayStart, lte: yesterdayEnd } },
+    prisma.payment.aggregate({
+      _sum: { amount: true },
+      where: { received_at: { gte: yesterdayStart, lte: yesterdayEnd } },
     }),
     prisma.medicine.findMany({
       where: { is_active: true },
@@ -81,8 +81,8 @@ export const getOverview = async (expiryThresholdDays = DEFAULT_EXPIRY_THRESHOLD
     prisma.prescription.count({ where: { status: 'Pending' } }),
   ]);
 
-  const revenueToday = revenueAgg._sum.total_amount ?? 0;
-  const revenueYesterday = yesterdayRevenueAgg._sum.total_amount ?? 0;
+  const revenueToday = revenueAgg._sum.amount ?? 0;
+  const revenueYesterday = yesterdayRevenueAgg._sum.amount ?? 0;
 
   return {
     todaysPatients: todaysPatientRows.length,
@@ -253,18 +253,18 @@ export const getRevenueTrend = async (days = 30) => {
   const end = endOfDay();
   const start = startOfDay(addDays(end, -(days - 1)));
 
-  const invoices = await prisma.invoice.findMany({
-    where: { payment_status: 'Paid', created_at: { gte: start, lte: end } },
-    select: { created_at: true, total_amount: true },
+  const payments = await prisma.payment.findMany({
+    where: { received_at: { gte: start, lte: end } },
+    select: { received_at: true, amount: true },
   });
 
   const buckets = new Map<string, number>();
   for (let i = 0; i < days; i++) {
     buckets.set(localDateKey(addDays(start, i)), 0);
   }
-  for (const invoice of invoices) {
-    const key = localDateKey(invoice.created_at);
-    buckets.set(key, (buckets.get(key) ?? 0) + invoice.total_amount);
+  for (const payment of payments) {
+    const key = localDateKey(payment.received_at);
+    buckets.set(key, (buckets.get(key) ?? 0) + payment.amount);
   }
 
   const series = Array.from(buckets.entries()).map(([date, total]) => ({ date, total }));
@@ -272,12 +272,12 @@ export const getRevenueTrend = async (days = 30) => {
 
   const priorEnd = endOfDay(addDays(start, -1));
   const priorStart = startOfDay(addDays(priorEnd, -(days - 1)));
-  const priorAgg = await prisma.invoice.aggregate({
-    _sum: { total_amount: true },
-    where: { payment_status: 'Paid', created_at: { gte: priorStart, lte: priorEnd } },
+  const priorAgg = await prisma.payment.aggregate({
+    _sum: { amount: true },
+    where: { received_at: { gte: priorStart, lte: priorEnd } },
   });
 
-  return { series, total, changePct: changePct(total, priorAgg._sum.total_amount ?? 0) };
+  return { series, total, changePct: changePct(total, priorAgg._sum.amount ?? 0) };
 };
 
 // ---- Recent Prescriptions -------------------------------------------------
