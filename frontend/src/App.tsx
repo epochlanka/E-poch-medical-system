@@ -16,6 +16,7 @@ import Invoices from './pages/invoices/Invoices';
 import Reports from './pages/reports/Reports';
 import UsersRoles from './pages/users/UsersRoles';
 import Payments from './pages/payments/Payments';
+import Settings from './pages/settings/Settings';
 import ConsultationsQueue from './pages/consultations/ConsultationsQueue';
 import Consultation from './pages/consultations/Consultation';
 import PrescriptionsQueue from './pages/prescriptions/PrescriptionsQueue';
@@ -63,6 +64,7 @@ function App() {
           <Route path="/reports" element={<Reports />} />
           <Route path="/users" element={<UsersRoles />} />
           <Route path="/billing/payments" element={<Payments />} />
+          <Route path="/settings" element={<Settings />} />
           <Route path="/consultations" element={<ConsultationsQueue />} />
           <Route path="/consultations/:appointmentId" element={<Consultation />} />
           <Route path="/prescriptions" element={<PrescriptionsQueue />} />

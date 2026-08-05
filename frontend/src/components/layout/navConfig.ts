@@ -69,7 +69,7 @@ export const navSections: NavSection[] = [
     label: 'System',
     items: [
       { label: 'Users & Roles', path: '/users', icon: UsersIcon, implemented: true },
-      { label: 'Settings', path: '/settings', icon: SettingsIcon },
+      { label: 'Settings', path: '/settings', icon: SettingsIcon, implemented: true },
     ],
   },
 ];
