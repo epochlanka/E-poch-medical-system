@@ -60,6 +60,8 @@ const expiringBatchesSchema = z.object({
 
 const noQuerySchema = z.object({ query: z.object({ format: formatSchema }) });
 
+router.get('/overview', requireRole(ADMIN_ONLY), validate(rangeSchema), controller.overview);
+
 router.get('/patient-volume', requireRole(ADMIN_ONLY), validate(rangeSchema), controller.patientVolume);
 router.get('/revenue', requireRole(ADMIN_ONLY), validate(rangeSchema), controller.revenue);
 router.get('/top-medicines', requireRole(ADMIN_ONLY), validate(topMedicinesSchema), controller.topMedicines);

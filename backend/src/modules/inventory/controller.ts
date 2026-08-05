@@ -60,6 +60,16 @@ export const adjustBatch = async (req: Request, res: Response) => {
   }
 };
 
+export const updateBatchLocation = async (req: Request, res: Response) => {
+  try {
+    const { location } = req.body;
+    const batch = await service.updateBatchLocation(Number(req.params.batchId), location);
+    res.status(200).json(batch);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
 export const alerts = async (req: Request, res: Response) => {
   try {
     const { days } = req.query as any;

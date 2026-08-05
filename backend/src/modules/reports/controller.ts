@@ -135,6 +135,15 @@ export const expiringBatches = async (req: Request, res: Response) => {
   }
 };
 
+export const overview = async (req: Request, res: Response) => {
+  try {
+    const result = await service.getOverviewReport(parseDateRange(req));
+    res.status(200).json(result);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
 export const dispensingVolume = async (req: Request, res: Response) => {
   try {
     const result = await service.getDispensingVolumeReport(parseDateRange(req));

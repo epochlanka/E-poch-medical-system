@@ -308,6 +308,34 @@ export const SendIcon = () => (
     <path d="M7 12h14" />
   </Base>
 );
+export const HeartPulseIcon = () => (
+  <Base>
+    <path d="M19 14c1.5-1.5 3-3.5 3-6a4.5 4.5 0 0 0-8-2.5A4.5 4.5 0 0 0 6 8c0 2.5 1.5 4.5 3 6l5 6 5-6Z" />
+    <path d="M3 12h4l1.5-3L11 15l1.5-4L14 12h3" />
+  </Base>
+);
+export const TruckIcon = () => (
+  <Base>
+    <rect x="1" y="7" width="13" height="10" rx="1.5" />
+    <path d="M14 10h4l3.5 3.5V17h-3" />
+    <circle cx="6.5" cy="19" r="1.7" />
+    <circle cx="17.5" cy="19" r="1.7" />
+  </Base>
+);
+export const XCircleIcon = () => (
+  <Base>
+    <circle cx="12" cy="12" r="9" />
+    <path d="m9.5 9.5 5 5m0-5-5 5" />
+  </Base>
+);
+export const AdjustIcon = () => (
+  <Base>
+    <path d="M4 6h10M17 6h3M4 12h3M9 12h11M4 18h13M20 18h0" />
+    <circle cx="16" cy="6" r="2" />
+    <circle cx="6" cy="12" r="2" />
+    <circle cx="17" cy="18" r="2" />
+  </Base>
+);
 export const ClipboardIcon = () => (
   <Base size={32}>
     <rect x="5" y="4" width="14" height="17" rx="2" />

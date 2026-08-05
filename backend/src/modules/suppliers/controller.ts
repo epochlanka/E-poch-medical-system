@@ -21,6 +21,15 @@ export const listSuppliers = async (req: Request, res: Response) => {
   }
 };
 
+export const getSupplierStats = async (req: Request, res: Response) => {
+  try {
+    const stats = await service.getSupplierStats();
+    res.status(200).json(stats);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
 export const createSupplier = async (req: Request, res: Response) => {
   try {
     const supplier = await service.createSupplier(req.body);
@@ -59,14 +68,44 @@ export const createPurchaseOrder = async (req: Request, res: Response) => {
 
 export const listPurchaseOrders = async (req: Request, res: Response) => {
   try {
-    const { supplierId, status, page, limit } = req.query as any;
+    const { search, supplierId, status, page, limit } = req.query as any;
     const result = await service.listPurchaseOrders({
+      search,
       supplierId: supplierId ? Number(supplierId) : undefined,
       status,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });
     res.status(200).json(result);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const getPurchaseOrderStats = async (req: Request, res: Response) => {
+  try {
+    const { range } = req.query as any;
+    const stats = await service.getPurchaseOrderStats(range);
+    res.status(200).json(stats);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const getTopSuppliers = async (req: Request, res: Response) => {
+  try {
+    const { range, limit } = req.query as any;
+    const result = await service.getTopSuppliers(range, limit ? Number(limit) : undefined);
+    res.status(200).json(result);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const cancelPurchaseOrder = async (req: Request, res: Response) => {
+  try {
+    const po = await service.cancelPurchaseOrder(Number(req.params.poId));
+    res.status(200).json(po);
   } catch (error) {
     handleError(req, res, error);
   }

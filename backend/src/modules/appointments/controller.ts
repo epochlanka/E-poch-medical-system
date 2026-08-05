@@ -6,11 +6,12 @@ export class AppointmentsController {
   createAppointment = async (req: Request, res: Response, next: NextFunction) => {
     try {
       // Assuming req.user is set by auth middleware
-      const created_by = (req as any).user?.user_id || 1; 
+      const created_by = (req as any).user?.user_id || 1;
       const data = {
         patient_id: req.body.patient_id,
         doctor_id: req.body.doctor_id,
         scheduled_at: new Date(req.body.scheduled_at),
+        reason: req.body.reason,
         created_by,
       };
 
@@ -47,9 +48,55 @@ export class AppointmentsController {
         doctor_id: doctor_id ? Number(doctor_id) : undefined,
         status: status ? String(status) : undefined
       };
-      
+
       const appointments = await appointmentsService.getAllAppointments(filters);
       res.status(200).json(appointments);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listAppointments = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { search, doctorId, status, date, page, limit } = req.query as any;
+      const result = await appointmentsService.listAppointments({
+        search,
+        doctorId: doctorId ? Number(doctorId) : undefined,
+        status,
+        date: date ? new Date(date) : undefined,
+        page: page ? Number(page) : undefined,
+        limit: limit ? Number(limit) : undefined,
+      });
+      res.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getStats = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const stats = await appointmentsService.getStats();
+      res.status(200).json(stats);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getTodaysSchedule = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const schedule = await appointmentsService.getTodaysSchedule();
+      res.status(200).json(schedule);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getCalendarSummary = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const year = Number(req.query.year);
+      const month = Number(req.query.month);
+      const summary = await appointmentsService.getCalendarSummary(year, month);
+      res.status(200).json(summary);
     } catch (error) {
       next(error);
     }

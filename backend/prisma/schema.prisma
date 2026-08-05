@@ -89,7 +89,8 @@ model Appointment {
   patient_id     String
   doctor_id      Int
   scheduled_at   DateTime
-  status         String   @default("Waiting") // Waiting, Called, Consulting, Completed, Skipped
+  reason         String?  // reason for visit, captured at booking time
+  status         String   @default("Waiting") // Waiting, Called, Consulting, Completed, Skipped, Cancelled, No Show
   created_by     Int
   
   patient        Patient  @relation(fields: [patient_id], references: [patient_id])
@@ -207,8 +208,10 @@ model Medicine {
   form            String?
   strength        String? // e.g. "500mg", "10mg/5ml" — printed on prescriptions/labels alongside dosage
   unit            String
-  reorder_level   Int       @default(0)
-  unit_price      Float     @default(0)
+  reorder_level   Int       @default(0) // "Min Stock" — reorder trigger threshold
+  max_stock_level Int       @default(0) // "Max Stock" — target ceiling for reorder-quantity suggestions
+  unit_price      Float     @default(0) // sell price charged to the patient
+  buy_price       Float     @default(0) // supplier cost price, for margin/PO reference
   barcode         String?   @unique
   is_active       Boolean   @default(true)
 
@@ -246,6 +249,7 @@ model Batch {
   manufacture_date DateTime?
   expiry_date      DateTime
   qty_on_hand      Int
+  location         String? // physical storage location, e.g. "Main Store / Shelf A-01"
   supplier_id      Int?
 
   medicine          Medicine  @relation(fields: [medicine_id], references: [medicine_id])
@@ -309,11 +313,16 @@ model StockCountItem {
 }
 
 model Supplier {
-  supplier_id     Int       @id @default(autoincrement())
-  name            String
-  contact         String?
-  address         String?
-  is_active       Boolean   @default(true)
+  supplier_id         Int       @id @default(autoincrement())
+  name                String
+  contact             String? // legacy free-text contact field, superseded by the structured fields below
+  contact_person      String?
+  phone               String?
+  email               String?
+  city                String?
+  payment_terms_days  Int       @default(30) // used to flag received-but-unpaid orders as overdue
+  address             String?
+  is_active           Boolean   @default(true)
 
   batches         Batch[]
   purchaseOrders  PurchaseOrder[]
@@ -327,7 +336,8 @@ model PurchaseOrder {
   po_id           Int       @id @default(autoincrement())
   supplier_id     Int
   order_date      DateTime
-  status          String    @default("Draft") // Draft, Submitted, PartiallyReceived, Received, Closed
+  expected_date   DateTime? // expected delivery date, set at booking time
+  status          String    @default("Draft") // Draft, Submitted, PartiallyReceived, Received, Closed, Cancelled
   created_by      Int
   created_at      DateTime  @default(now())
 

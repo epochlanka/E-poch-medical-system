@@ -37,6 +37,7 @@ export const navSections: NavSection[] = [
       { label: 'Dashboard', path: '/dashboard', icon: DashboardIcon, implemented: true },
       { label: 'Patients', path: '/patients', icon: PatientsIcon, implemented: true },
       { label: 'Families', path: '/families', icon: FamiliesIcon, implemented: true },
+      { label: 'Appointments', path: '/appointments', icon: CalendarIcon, implemented: true },
       { label: 'Live Queue', path: '/queue', icon: CalendarIcon, implemented: true },
       { label: 'Book Appointment', path: '/book-appointment', icon: CalendarIcon, implemented: true },
       { label: 'Consultations', path: '/consultations', icon: StethoscopeIcon, implemented: true },
@@ -46,28 +47,28 @@ export const navSections: NavSection[] = [
   {
     label: 'Inventory',
     items: [
-      { label: 'Pharmacy', path: '/pharmacy', icon: PharmacyIcon },
-      { label: 'Medicines', path: '/inventory/medicines', icon: MedicineIcon },
-      { label: 'Stock Management', path: '/inventory/stock', icon: StockIcon },
-      { label: 'Purchase Orders', path: '/inventory/purchase-orders', icon: PurchaseOrderIcon },
-      { label: 'Suppliers', path: '/suppliers', icon: SupplierIcon },
+      { label: 'Pharmacy', path: '/pharmacy', icon: PharmacyIcon, implemented: true },
+      { label: 'Medicines', path: '/inventory/medicines', icon: MedicineIcon, implemented: true },
+      { label: 'Stock Management', path: '/inventory/stock', icon: StockIcon, implemented: true },
+      { label: 'Purchase Orders', path: '/inventory/purchase-orders', icon: PurchaseOrderIcon, implemented: true },
+      { label: 'Suppliers', path: '/suppliers', icon: SupplierIcon, implemented: true },
     ],
   },
   {
     label: 'Finance',
     items: [
-      { label: 'Invoices', path: '/billing/invoices', icon: InvoiceIcon },
-      { label: 'Payments', path: '/billing/payments', icon: PaymentIcon },
+      { label: 'Invoices', path: '/billing/invoices', icon: InvoiceIcon, implemented: true },
+      { label: 'Payments', path: '/billing/payments', icon: PaymentIcon, implemented: true },
     ],
   },
   {
     label: 'Reports',
-    items: [{ label: 'Reports & Analytics', path: '/reports', icon: ReportsIcon }],
+    items: [{ label: 'Reports & Analytics', path: '/reports', icon: ReportsIcon, implemented: true }],
   },
   {
     label: 'System',
     items: [
-      { label: 'Users & Roles', path: '/users', icon: UsersIcon },
+      { label: 'Users & Roles', path: '/users', icon: UsersIcon, implemented: true },
       { label: 'Settings', path: '/settings', icon: SettingsIcon },
     ],
   },

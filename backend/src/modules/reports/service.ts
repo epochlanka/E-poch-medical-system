@@ -33,6 +33,21 @@ const changePct = (current: number, prior: number): number | null => {
   return ((current - prior) / prior) * 100;
 };
 
+const ageInYears = (dob: Date, today: Date) => {
+  let age = today.getFullYear() - dob.getFullYear();
+  const m = today.getMonth() - dob.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age -= 1;
+  return age;
+};
+
+const AGE_BUCKETS = [
+  { label: '0 - 18 Years', min: 0, max: 18 },
+  { label: '19 - 30 Years', min: 19, max: 30 },
+  { label: '31 - 45 Years', min: 31, max: 45 },
+  { label: '46 - 60 Years', min: 46, max: 60 },
+  { label: '60+ Years', min: 61, max: Infinity },
+];
+
 interface DateRangeInput {
   from?: Date;
   to?: Date;
@@ -481,5 +496,196 @@ export const getDispensingVolumeReport = async (input: DateRangeInput): Promise<
     ],
     rows,
     summary: { totalItemsDispensed: items.length, totalUnitsDispensed: items.reduce((s, i) => s + i.qty, 0) },
+  };
+};
+
+// ---- Admin: Dashboard Overview -------------------------------------------------------------
+// Aggregates only what the data model actually supports: revenue here is accrual (invoice
+// total_amount, net of discounts), distinct from the cash-basis /revenue report. "Collections"
+// is the cash-basis counterpart (payments actually received against this period's invoices).
+
+export const getOverviewReport = async (input: DateRangeInput) => {
+  const { start, end, priorStart, priorEnd } = resolveRange(input);
+
+  const [
+    totalPatients,
+    priorTotalPatients,
+    newPatients,
+    priorNewPatients,
+    appointments,
+    priorAppointments,
+    consultations,
+    priorConsultations,
+    prescriptions,
+    priorPrescriptions,
+    invoices,
+    priorInvoiceAgg,
+    priorMedicineAgg,
+    lowStock,
+    expiringBatches,
+    outstandingInvoicesCount,
+    activePatients,
+    recentActivityLogs,
+  ] = await Promise.all([
+    prisma.patient.count({ where: { created_at: { lte: end } } }),
+    prisma.patient.count({ where: { created_at: { lte: priorEnd } } }),
+    prisma.patient.count({ where: { created_at: { gte: start, lte: end } } }),
+    prisma.patient.count({ where: { created_at: { gte: priorStart, lte: priorEnd } } }),
+    prisma.appointment.count({ where: { scheduled_at: { gte: start, lte: end } } }),
+    prisma.appointment.count({ where: { scheduled_at: { gte: priorStart, lte: priorEnd } } }),
+    prisma.consultation.findMany({
+      where: { status: 'Finalized', created_at: { gte: start, lte: end } },
+      select: { consultation_id: true, appointment: { select: { patient_id: true, doctor: { select: { user_id: true, username: true } } } } },
+    }),
+    prisma.consultation.count({ where: { status: 'Finalized', created_at: { gte: priorStart, lte: priorEnd } } }),
+    prisma.prescription.count({ where: { issued_at: { gte: start, lte: end } } }),
+    prisma.prescription.count({ where: { issued_at: { gte: priorStart, lte: priorEnd } } }),
+    prisma.invoice.findMany({
+      where: { created_at: { gte: start, lte: end }, payment_status: { not: 'Voided' } },
+      select: {
+        invoice_id: true,
+        total_amount: true,
+        paid_amount: true,
+        created_at: true,
+        items: { select: { item_type: true, line_total: true } },
+        consultation: { select: { appointment: { select: { doctor: { select: { user_id: true, username: true } } } } } },
+      },
+    }),
+    prisma.invoice.aggregate({
+      _sum: { total_amount: true, paid_amount: true },
+      _count: true,
+      where: { created_at: { gte: priorStart, lte: priorEnd }, payment_status: { not: 'Voided' } },
+    }),
+    prisma.invoiceItem.aggregate({
+      _sum: { line_total: true },
+      where: { item_type: 'Medicine', invoice: { created_at: { gte: priorStart, lte: priorEnd }, payment_status: { not: 'Voided' } } },
+    }),
+    getLowStockReport(),
+    getExpiringBatchesReport(30),
+    prisma.invoice.count({ where: { payment_status: { in: ['Outstanding', 'PartiallyPaid'] } } }),
+    prisma.patient.findMany({ where: { is_active: true }, select: { dob: true } }),
+    prisma.auditLog.findMany({ take: 8, orderBy: { timestamp: 'desc' }, include: { user: { select: { username: true, role: true } } } }),
+  ]);
+
+  // Revenue trend + total: accrual basis, day-bucketed sum of invoice total_amount.
+  const revenueByDay = new Map<string, number>();
+  for (const inv of invoices) revenueByDay.set(localDateKey(inv.created_at), (revenueByDay.get(localDateKey(inv.created_at)) ?? 0) + inv.total_amount);
+
+  const revenueTrend: { date: string; total: number }[] = [];
+  let cursor = new Date(start);
+  while (cursor <= end) {
+    const key = localDateKey(cursor);
+    revenueTrend.push({ date: key, total: revenueByDay.get(key) ?? 0 });
+    cursor = addDays(cursor, 1);
+  }
+
+  const totalRevenue = invoices.reduce((sum, inv) => sum + inv.total_amount, 0);
+  const priorTotalRevenue = priorInvoiceAgg._sum.total_amount ?? 0;
+  const collections = invoices.reduce((sum, inv) => sum + inv.paid_amount, 0);
+  const priorCollections = priorInvoiceAgg._sum.paid_amount ?? 0;
+
+  const revenueByCategory: Record<string, number> = {};
+  let subtotalBilled = 0;
+  let discountTotal = 0;
+  for (const inv of invoices) {
+    for (const item of inv.items) {
+      if (item.item_type === 'Discount') {
+        discountTotal += -item.line_total;
+      } else {
+        revenueByCategory[item.item_type] = (revenueByCategory[item.item_type] ?? 0) + item.line_total;
+        subtotalBilled += item.line_total;
+      }
+    }
+  }
+  const medicineSales = revenueByCategory['Medicine'] ?? 0;
+  const priorMedicineSales = priorMedicineAgg._sum.line_total ?? 0;
+
+  const avgBillValue = invoices.length ? totalRevenue / invoices.length : 0;
+  const priorAvgBillValue = priorInvoiceAgg._count ? priorTotalRevenue / priorInvoiceAgg._count : 0;
+
+  // Top performing doctors: consultation/patient counts from all finalized consultations in
+  // range, revenue attributed from invoices billed for those doctors' visits (fee + medicine).
+  interface DoctorAgg { doctorId: number; doctorName: string; consultations: number; patients: Set<string>; revenue: number }
+  const doctorMap = new Map<number, DoctorAgg>();
+  const getDoctorAgg = (id: number, name: string) => {
+    if (!doctorMap.has(id)) doctorMap.set(id, { doctorId: id, doctorName: name, consultations: 0, patients: new Set(), revenue: 0 });
+    return doctorMap.get(id)!;
+  };
+  for (const c of consultations) {
+    const doctor = c.appointment.doctor;
+    const agg = getDoctorAgg(doctor.user_id, doctor.username);
+    agg.consultations += 1;
+    agg.patients.add(c.appointment.patient_id);
+  }
+  for (const inv of invoices) {
+    const doctor = inv.consultation?.appointment.doctor;
+    if (!doctor) continue;
+    getDoctorAgg(doctor.user_id, doctor.username).revenue += inv.total_amount;
+  }
+  const topDoctors = Array.from(doctorMap.values())
+    .map((d) => ({ doctorId: d.doctorId, doctorName: d.doctorName, consultations: d.consultations, patients: d.patients.size, revenue: d.revenue }))
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 5);
+
+  // Patient demographics: live snapshot of the current active roster, not range-scoped.
+  const now = new Date();
+  const patientDemographics = AGE_BUCKETS.map((bucket) => ({
+    label: bucket.label,
+    count: activePatients.filter((p) => {
+      const age = ageInYears(p.dob as Date, now);
+      return age >= bucket.min && age <= bucket.max;
+    }).length,
+  }));
+
+  const recentActivity = recentActivityLogs.map((l) => ({
+    logId: l.log_id,
+    timestamp: l.timestamp,
+    username: l.user?.username ?? 'System',
+    role: l.user?.role ?? '—',
+    action: l.action,
+    entity: l.entity,
+    entityId: l.entity_id,
+  }));
+
+  return {
+    title: 'Reports Overview',
+    range: { from: start, to: end },
+    kpis: {
+      totalPatients,
+      totalPatientsChangePct: changePct(totalPatients, priorTotalPatients),
+      appointments: appointments,
+      appointmentsChangePct: changePct(appointments, priorAppointments),
+      consultations: consultations.length,
+      consultationsChangePct: changePct(consultations.length, priorConsultations),
+      prescriptions,
+      prescriptionsChangePct: changePct(prescriptions, priorPrescriptions),
+      totalRevenue,
+      totalRevenueChangePct: changePct(totalRevenue, priorTotalRevenue),
+    },
+    revenueTrend,
+    revenueByCategory: {
+      categories: Object.entries(revenueByCategory).map(([label, value]) => ({ label, value })),
+      subtotalBilled,
+      discountTotal,
+      netRevenue: totalRevenue,
+    },
+    stats: {
+      newPatients,
+      newPatientsChangePct: changePct(newPatients, priorNewPatients),
+      medicineSales,
+      medicineSalesChangePct: changePct(medicineSales, priorMedicineSales),
+      avgBillValue,
+      avgBillValueChangePct: changePct(avgBillValue, priorAvgBillValue),
+      collections,
+      collectionsChangePct: changePct(collections, priorCollections),
+    },
+    topDoctors,
+    patientDemographics,
+    alerts: {
+      lowStockCount: lowStock.summary.totalLowStockItems as number,
+      expiringSoonCount: expiringBatches.summary.totalBatches as number,
+      outstandingInvoicesCount,
+    },
+    recentActivity,
   };
 };

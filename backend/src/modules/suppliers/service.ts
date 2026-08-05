@@ -15,19 +15,85 @@ interface ListSuppliersFilters {
   includeInactive?: boolean;
 }
 
+type PoForSummary = {
+  supplier_id: number;
+  order_date: Date;
+  items: { qty_ordered: number; unit_cost: number | null; grn_items: { qty_received: number }[] }[];
+};
+
+// A supplier's order/payable figures aren't stored — they're always derived live from its
+// purchase orders, same "compute, don't cache" approach used for medicines' stock status and
+// summarizePo() below. Kept additive to the plain Supplier row so existing callers (dropdown
+// pickers in the PO/GRN modals) that only read {supplier_id, name} are unaffected.
+const withSupplierTotals = <T extends { supplier_id: number; payment_terms_days: number }>(supplier: T, orders: PoForSummary[]) => {
+  const now = new Date();
+  let totalOrders = 0;
+  let totalPayable = 0;
+  let overduePayable = 0;
+
+  for (const po of orders) {
+    if (po.supplier_id !== supplier.supplier_id) continue;
+    totalOrders += 1;
+    const s = summarizePo(po);
+    totalPayable += s.receivedAmount;
+    const dueDate = new Date(po.order_date.getTime() + supplier.payment_terms_days * 86400000);
+    if (s.receivedAmount > 0 && dueDate < now) overduePayable += s.receivedAmount;
+  }
+
+  return { ...supplier, totalOrders, totalPayable, overduePayable };
+};
+
 export const listSuppliers = async (filters: ListSuppliersFilters) => {
   const where: Prisma.SupplierWhereInput = {};
   if (!filters.includeInactive) where.is_active = true;
   if (filters.search) {
     const term = filters.search.trim();
-    where.OR = [{ name: { contains: term } }, { contact: { contains: term } }];
+    where.OR = [
+      { name: { contains: term } },
+      { contact_person: { contains: term } },
+      { phone: { contains: term } },
+      { email: { contains: term } },
+      { city: { contains: term } },
+      { contact: { contains: term } },
+    ];
   }
-  return prisma.supplier.findMany({ where, orderBy: { name: 'asc' } });
+
+  const [suppliers, orders] = await Promise.all([
+    prisma.supplier.findMany({ where, orderBy: { name: 'asc' } }),
+    prisma.purchaseOrder.findMany({ select: { supplier_id: true, order_date: true, items: { include: { grn_items: true } } } }),
+  ]);
+
+  return suppliers.map((s) => withSupplierTotals(s, orders));
+};
+
+export const getSupplierStats = async () => {
+  const [totalSuppliers, activeSuppliers, suppliers, ordersThisMonth, allOrders] = await Promise.all([
+    prisma.supplier.count(),
+    prisma.supplier.count({ where: { is_active: true } }),
+    prisma.supplier.findMany({ select: { supplier_id: true, payment_terms_days: true } }),
+    prisma.purchaseOrder.count({ where: { order_date: { gte: rangeStart('month') } } }),
+    prisma.purchaseOrder.findMany({ select: { supplier_id: true, order_date: true, items: { include: { grn_items: true } } } }),
+  ]);
+
+  let totalPayable = 0;
+  let overduePayable = 0;
+  for (const s of suppliers) {
+    const { totalPayable: p, overduePayable: o } = withSupplierTotals(s, allOrders);
+    totalPayable += p;
+    overduePayable += o;
+  }
+
+  return { totalSuppliers, activeSuppliers, totalOrdersThisMonth: ordersThisMonth, totalPayable, overduePayable };
 };
 
 interface CreateSupplierInput {
   name: string;
   contact?: string;
+  contact_person?: string;
+  phone?: string;
+  email?: string;
+  city?: string;
+  payment_terms_days?: number;
   address?: string;
 }
 
@@ -36,6 +102,11 @@ export const createSupplier = (input: CreateSupplierInput) => prisma.supplier.cr
 interface UpdateSupplierInput {
   name?: string;
   contact?: string;
+  contact_person?: string;
+  phone?: string;
+  email?: string;
+  city?: string;
+  payment_terms_days?: number;
   address?: string;
   is_active?: boolean;
 }
@@ -63,6 +134,7 @@ interface PoItemInput {
 interface CreatePoInput {
   supplier_id: number;
   order_date?: Date;
+  expected_date?: Date;
   items: PoItemInput[];
 }
 
@@ -77,6 +149,7 @@ export const createPurchaseOrder = async (input: CreatePoInput, actor: Actor) =>
     data: {
       supplier_id: input.supplier_id,
       order_date: input.order_date ?? new Date(),
+      expected_date: input.expected_date,
       created_by: actor.user_id,
       items: { create: input.items.map((i) => ({ medicine_id: i.medicine_id, qty_ordered: i.qty_ordered, unit_cost: i.unit_cost })) },
     },
@@ -85,11 +158,24 @@ export const createPurchaseOrder = async (input: CreatePoInput, actor: Actor) =>
 };
 
 interface ListPoFilters {
+  search?: string;
   supplierId?: number;
   status?: string;
   page?: number;
   limit?: number;
 }
+
+// PurchaseOrder itself has no total/received amount columns — those are always derived live
+// from its items + whatever GRNs have been posted against them, same "compute, don't cache"
+// approach as medicines' stock status.
+const summarizePo = (po: { items: { qty_ordered: number; unit_cost: number | null; grn_items: { qty_received: number }[] }[] }) => {
+  const orderedQty = po.items.reduce((s, i) => s + i.qty_ordered, 0);
+  const receivedQty = po.items.reduce((s, i) => s + i.grn_items.reduce((gs, g) => gs + g.qty_received, 0), 0);
+  const totalAmount = po.items.reduce((s, i) => s + i.qty_ordered * (i.unit_cost ?? 0), 0);
+  const receivedAmount = po.items.reduce((s, i) => s + i.grn_items.reduce((gs, g) => gs + g.qty_received, 0) * (i.unit_cost ?? 0), 0);
+  const receivedPct = orderedQty > 0 ? Math.round((receivedQty / orderedQty) * 100) : 0;
+  return { orderedQty, receivedQty, receivedPct, totalAmount, receivedAmount, pendingAmount: totalAmount - receivedAmount };
+};
 
 export const listPurchaseOrders = async (filters: ListPoFilters) => {
   const page = filters.page && filters.page > 0 ? filters.page : 1;
@@ -98,6 +184,15 @@ export const listPurchaseOrders = async (filters: ListPoFilters) => {
   const where: Prisma.PurchaseOrderWhereInput = {};
   if (filters.supplierId) where.supplier_id = filters.supplierId;
   if (filters.status) where.status = filters.status;
+  if (filters.search) {
+    const term = filters.search.trim();
+    const asId = Number(term.replace(/^PO-?/i, ''));
+    where.OR = [
+      { supplier: { name: { contains: term } } },
+      { items: { some: { medicine: { name: { contains: term } } } } },
+      ...(Number.isFinite(asId) && asId > 0 ? [{ po_id: asId }] : []),
+    ];
+  }
 
   const [total, orders] = await Promise.all([
     prisma.purchaseOrder.count({ where }),
@@ -106,11 +201,79 @@ export const listPurchaseOrders = async (filters: ListPoFilters) => {
       orderBy: { order_date: 'desc' },
       skip: (page - 1) * limit,
       take: limit,
-      include: { supplier: { select: { supplier_id: true, name: true } }, items: true },
+      include: { supplier: { select: { supplier_id: true, name: true } }, items: { include: { grn_items: true } } },
     }),
   ]);
 
-  return { data: orders, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+  const data = orders.map((po) => ({ ...po, ...summarizePo(po) }));
+
+  return { data, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+};
+
+const rangeStart = (range?: 'month' | 'quarter' | 'year' | 'all') => {
+  const now = new Date();
+  if (range === 'quarter') return new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+  if (range === 'year') return new Date(now.getFullYear(), 0, 1);
+  if (range === 'all') return undefined;
+  return new Date(now.getFullYear(), now.getMonth(), 1); // default: month
+};
+
+export const getPurchaseOrderStats = async (range?: 'month' | 'quarter' | 'year' | 'all') => {
+  const since = rangeStart(range);
+  const where: Prisma.PurchaseOrderWhereInput = since ? { order_date: { gte: since } } : {};
+
+  const orders = await prisma.purchaseOrder.findMany({ where, include: { items: { include: { grn_items: true } } } });
+
+  let completed = 0;
+  let pending = 0;
+  let partiallyReceived = 0;
+  let cancelled = 0;
+  let totalAmount = 0;
+  let receivedAmount = 0;
+
+  for (const po of orders) {
+    if (po.status === 'Received' || po.status === 'Closed') completed += 1;
+    else if (po.status === 'Submitted') pending += 1;
+    else if (po.status === 'PartiallyReceived') partiallyReceived += 1;
+    else if (po.status === 'Cancelled') cancelled += 1;
+
+    const s = summarizePo(po);
+    totalAmount += s.totalAmount;
+    receivedAmount += s.receivedAmount;
+  }
+
+  return {
+    totalOrders: orders.length,
+    completed,
+    pending,
+    partiallyReceived,
+    cancelled,
+    totalAmount,
+    receivedAmount,
+    pendingAmount: totalAmount - receivedAmount,
+  };
+};
+
+export const getTopSuppliers = async (range?: 'month' | 'quarter' | 'year' | 'all', limit = 5) => {
+  const since = rangeStart(range);
+  const where: Prisma.PurchaseOrderWhereInput = since ? { order_date: { gte: since } } : {};
+
+  const orders = await prisma.purchaseOrder.findMany({
+    where,
+    include: { supplier: { select: { supplier_id: true, name: true } }, items: { include: { grn_items: true } } },
+  });
+
+  const bySupplier = new Map<number, { supplierId: number; supplierName: string; orderCount: number; totalAmount: number }>();
+  for (const po of orders) {
+    const entry = bySupplier.get(po.supplier_id) ?? { supplierId: po.supplier_id, supplierName: po.supplier.name, orderCount: 0, totalAmount: 0 };
+    entry.orderCount += 1;
+    entry.totalAmount += summarizePo(po).totalAmount;
+    bySupplier.set(po.supplier_id, entry);
+  }
+
+  return Array.from(bySupplier.values())
+    .sort((a, b) => b.totalAmount - a.totalAmount)
+    .slice(0, limit);
 };
 
 export const getPurchaseOrderById = async (poId: number) => {
@@ -123,7 +286,7 @@ export const getPurchaseOrderById = async (poId: number) => {
     },
   });
   if (!po) throw new NotFoundError('Purchase order not found');
-  return po;
+  return { ...po, ...summarizePo(po) };
 };
 
 export const submitPurchaseOrder = async (poId: number) => {
@@ -138,6 +301,17 @@ export const closePurchaseOrder = async (poId: number) => {
   if (!po) throw new NotFoundError('Purchase order not found');
   if (po.status !== 'Received') throw new ValidationError('Only a fully Received purchase order can be closed');
   return prisma.purchaseOrder.update({ where: { po_id: poId }, data: { status: 'Closed' } });
+};
+
+// Cancellable only before any stock has actually moved against it — once a GRN exists
+// (PartiallyReceived/Received/Closed) the commercial commitment has already been acted on.
+export const cancelPurchaseOrder = async (poId: number) => {
+  const po = await prisma.purchaseOrder.findUnique({ where: { po_id: poId } });
+  if (!po) throw new NotFoundError('Purchase order not found');
+  if (!['Draft', 'Submitted'].includes(po.status)) {
+    throw new ValidationError('Only a Draft or Submitted purchase order can be cancelled');
+  }
+  return prisma.purchaseOrder.update({ where: { po_id: poId }, data: { status: 'Cancelled' } });
 };
 
 // Auto-suggests reorder quantities from medicines currently flagged low-stock (FR-067) —

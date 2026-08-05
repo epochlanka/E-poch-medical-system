@@ -79,6 +79,41 @@ describe('Reports API', () => {
     });
   });
 
+  describe('Overview report', () => {
+    it('rejects a non-admin from the overview report', async () => {
+      const res = await request(app).get('/api/v1/reports/overview').set('Authorization', `Bearer ${doctorToken}`);
+      expect(res.status).toBe(403);
+    });
+
+    it('returns an aggregated overview for admin', async () => {
+      const res = await request(app).get('/api/v1/reports/overview').set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.kpis).toHaveProperty('totalPatients');
+      expect(res.body.kpis).toHaveProperty('totalRevenue');
+      expect(Array.isArray(res.body.revenueTrend)).toBe(true);
+      expect(Array.isArray(res.body.topDoctors)).toBe(true);
+      expect(Array.isArray(res.body.patientDemographics)).toBe(true);
+      expect(res.body.patientDemographics).toHaveLength(5);
+      expect(res.body.alerts).toHaveProperty('lowStockCount');
+      expect(Array.isArray(res.body.recentActivity)).toBe(true);
+    });
+
+    it('reconciles net revenue with billed minus discounts', async () => {
+      const res = await request(app).get('/api/v1/reports/overview').set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      const { subtotalBilled, discountTotal, netRevenue } = res.body.revenueByCategory;
+      expect(subtotalBilled - discountTotal).toBeCloseTo(netRevenue, 2);
+    });
+
+    it('rejects an invalid date range on the overview report', async () => {
+      const res = await request(app)
+        .get('/api/v1/reports/overview')
+        .query({ from: '2026-06-10', to: '2026-06-01' })
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(400);
+    });
+  });
+
   describe('Doctor reports', () => {
     it('scopes a doctor to their own consultation counts even if another doctorId is requested', async () => {
       const res = await request(app)

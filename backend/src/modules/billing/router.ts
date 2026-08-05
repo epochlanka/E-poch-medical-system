@@ -24,9 +24,11 @@ const createSchema = z.object({
 
 const listSchema = z.object({
   query: z.object({
+    search: z.string().optional(),
     patientId: z.string().optional(),
     consultationId: z.coerce.number().int().positive().optional(),
     status: z.enum(['Outstanding', 'PartiallyPaid', 'Paid', 'Voided']).optional(),
+    type: z.enum(['Consultation', 'Pharmacy', 'Consultation+Pharmacy']).optional(),
     from: z.coerce.date().optional(),
     to: z.coerce.date().optional(),
     page: z.coerce.number().int().positive().optional(),
@@ -48,7 +50,24 @@ const voidSchema = z.object({
 
 const reconciliationSchema = z.object({ query: z.object({ date: z.coerce.date().optional() }) });
 
+const paymentsListSchema = z.object({
+  query: z.object({
+    search: z.string().optional(),
+    method: z.enum(['Cash', 'Card', 'Mobile']).optional(),
+    invoiceStatus: z.enum(['Outstanding', 'PartiallyPaid', 'Paid', 'Voided']).optional(),
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
+    page: z.coerce.number().int().positive().optional(),
+    limit: z.coerce.number().int().positive().optional(),
+  }),
+});
+const paymentsStatsSchema = z.object({ query: z.object({ range: z.enum(['month', 'quarter', 'year', 'all']).optional() }) });
+
 router.get('/reconciliation', requireRole(['Admin', 'Receptionist']), validate(reconciliationSchema), controller.reconciliation);
+router.get('/stats', requireRole(READ_ROLES), controller.stats);
+// Registered before the /:invoiceId catch-all — same route-ordering rule as every other module.
+router.get('/payments', requireRole(READ_ROLES), validate(paymentsListSchema), controller.payments);
+router.get('/payments/stats', requireRole(READ_ROLES), validate(paymentsStatsSchema), controller.paymentsStats);
 
 router.get('/', requireRole(READ_ROLES), validate(listSchema), controller.list);
 router.post('/', requireRole(BILLING_ROLES), validate(createSchema), controller.create);

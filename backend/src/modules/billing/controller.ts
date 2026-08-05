@@ -31,16 +31,27 @@ export const getById = async (req: Request, res: Response) => {
 
 export const list = async (req: Request, res: Response) => {
   try {
-    const { patientId, consultationId, status, from, to, page, limit } = req.query as any;
+    const { search, patientId, consultationId, status, type, from, to, page, limit } = req.query as any;
     const result = await service.listInvoices({
+      search,
       patientId,
       consultationId: consultationId ? Number(consultationId) : undefined,
       status,
+      type,
       from: from ? new Date(from) : undefined,
       to: to ? new Date(to) : undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });
+    res.status(200).json(result);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const stats = async (req: Request, res: Response) => {
+  try {
+    const result = await service.getInvoiceStats();
     res.status(200).json(result);
   } catch (error) {
     handleError(req, res, error);
@@ -60,6 +71,33 @@ export const voidInvoice = async (req: Request, res: Response) => {
   try {
     const invoice = await service.voidInvoice(Number(req.params.invoiceId), req.body.reason, actor(req));
     res.status(200).json(invoice);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const payments = async (req: Request, res: Response) => {
+  try {
+    const { search, method, invoiceStatus, from, to, page, limit } = req.query as any;
+    const result = await service.listPayments({
+      search,
+      method,
+      invoiceStatus,
+      from: from ? new Date(from) : undefined,
+      to: to ? new Date(to) : undefined,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+    res.status(200).json(result);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const paymentsStats = async (req: Request, res: Response) => {
+  try {
+    const range = (req.query.range as any) || 'month';
+    res.status(200).json(await service.getPaymentsStats(range));
   } catch (error) {
     handleError(req, res, error);
   }

@@ -30,7 +30,9 @@ const createSchema = z.object({
     strength: z.string().optional(),
     unit: z.string().min(1, 'Unit is required'),
     reorder_level: z.number().int().min(0).optional(),
+    max_stock_level: z.number().int().min(0).optional(),
     unit_price: z.number().min(0).optional(),
+    buy_price: z.number().min(0).optional(),
     barcode: z.string().optional(),
   }),
 });
@@ -45,11 +47,29 @@ const updateSchema = z.object({
     strength: z.string().optional(),
     unit: z.string().min(1).optional(),
     reorder_level: z.number().int().min(0).optional(),
+    max_stock_level: z.number().int().min(0).optional(),
     unit_price: z.number().min(0).optional(),
+    buy_price: z.number().min(0).optional(),
     barcode: z.string().optional(),
     is_active: z.boolean().optional(),
   }),
 });
+
+const stockQuerySchema = z.object({
+  query: z.object({
+    search: z.string().optional(),
+    category: z.string().optional(),
+    status: z.enum(['in-stock', 'low-stock', 'out-of-stock', 'expiring-soon']).optional(),
+    supplierId: z.coerce.number().int().positive().optional(),
+    page: z.coerce.number().int().positive().optional(),
+    limit: z.coerce.number().int().positive().optional(),
+  }),
+});
+
+// Static-segment routes (/stats, /stock) must be registered before the generic /:medicineId
+// catch-all, or Express will swallow them as if they were a medicine id.
+router.get('/stats', requireRole(READ_ROLES), controller.stats);
+router.get('/stock', requireRole(READ_ROLES), validate(stockQuerySchema), controller.listStock);
 
 router.get('/', requireRole(READ_ROLES), validate(searchSchema), controller.search);
 router.post('/', requireRole(WRITE_ROLES), validate(createSchema), controller.create);

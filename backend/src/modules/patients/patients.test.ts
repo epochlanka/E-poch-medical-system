@@ -12,6 +12,10 @@ const runDob = (slot: number) => {
   const date = new Date(new Date(1980, 0, 1).getTime() + daysOffset * 24 * 60 * 60 * 1000);
   return date.toISOString().slice(0, 10);
 };
+// Unique per test run so the search test (which relies on default `limit: 20` list ordering)
+// doesn't get buried under same-named patients left over from earlier runs against the persistent dev DB.
+const patientName = `Kasun Silva ${runId}`;
+const patientNameTypo = `Kasun Silwa ${runId}`; // one-letter edit distance from patientName, for fuzzy-match test
 
 describe('Patients API', () => {
   let adminToken: string;
@@ -59,7 +63,7 @@ describe('Patients API', () => {
       .post('/api/v1/patients')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
-        full_name: 'Kasun Silva',
+        full_name: patientName,
         dob: runDob(1),
         gender: 'Male',
         nic: nic(3),
@@ -78,7 +82,7 @@ describe('Patients API', () => {
       .post('/api/v1/patients')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
-        full_name: 'Kasun Silva',
+        full_name: patientName,
         dob: runDob(1),
         gender: 'Male',
         nic: nic(3),
@@ -96,7 +100,7 @@ describe('Patients API', () => {
       .post('/api/v1/patients')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
-        full_name: 'Kasun Silwa', // one-letter edit distance from "Kasun Silva"
+        full_name: patientNameTypo,
         dob: runDob(1),
         gender: 'Male',
         nic: nic(4),
@@ -141,7 +145,7 @@ describe('Patients API', () => {
   it('finds the registered patient via search', async () => {
     const res = await request(app)
       .get('/api/v1/patients')
-      .query({ search: 'Kasun Silva' })
+      .query({ search: patientName })
       .set('Authorization', `Bearer ${adminToken}`);
 
     expect(res.status).toBe(200);

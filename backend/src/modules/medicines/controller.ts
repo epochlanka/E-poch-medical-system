@@ -19,6 +19,32 @@ export const search = async (req: Request, res: Response) => {
   }
 };
 
+export const stats = async (req: Request, res: Response) => {
+  try {
+    const data = await service.getMedicineStats();
+    res.status(200).json(data);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const listStock = async (req: Request, res: Response) => {
+  try {
+    const { search, category, status, supplierId, page, limit } = req.query as any;
+    const data = await service.listMedicineStock({
+      search,
+      category,
+      status,
+      supplierId: supplierId ? Number(supplierId) : undefined,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+    res.status(200).json(data);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
 export const getById = async (req: Request, res: Response) => {
   try {
     const medicine = await service.getMedicineById(Number(req.params.medicineId));

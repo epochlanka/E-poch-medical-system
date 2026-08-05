@@ -6,6 +6,16 @@ import Login from './pages/Login';
 import Dashboard from './pages/dashboard/Dashboard';
 import Patients from './pages/patients/Patients';
 import Families from './pages/families/Families';
+import Pharmacy from './pages/pharmacy/Pharmacy';
+import Medicines from './pages/medicines/Medicines';
+import Appointments from './pages/appointments/Appointments';
+import StockManagement from './pages/stock/StockManagement';
+import PurchaseOrders from './pages/purchaseOrders/PurchaseOrders';
+import Suppliers from './pages/suppliers/Suppliers';
+import Invoices from './pages/invoices/Invoices';
+import Reports from './pages/reports/Reports';
+import UsersRoles from './pages/users/UsersRoles';
+import Payments from './pages/payments/Payments';
 import ConsultationsQueue from './pages/consultations/ConsultationsQueue';
 import Consultation from './pages/consultations/Consultation';
 import PrescriptionsQueue from './pages/prescriptions/PrescriptionsQueue';
@@ -43,6 +53,16 @@ function App() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/patients" element={<Patients />} />
           <Route path="/families" element={<Families />} />
+          <Route path="/appointments" element={<Appointments />} />
+          <Route path="/pharmacy" element={<Pharmacy />} />
+          <Route path="/inventory/medicines" element={<Medicines />} />
+          <Route path="/inventory/stock" element={<StockManagement />} />
+          <Route path="/inventory/purchase-orders" element={<PurchaseOrders />} />
+          <Route path="/suppliers" element={<Suppliers />} />
+          <Route path="/billing/invoices" element={<Invoices />} />
+          <Route path="/reports" element={<Reports />} />
+          <Route path="/users" element={<UsersRoles />} />
+          <Route path="/billing/payments" element={<Payments />} />
           <Route path="/consultations" element={<ConsultationsQueue />} />
           <Route path="/consultations/:appointmentId" element={<Consultation />} />
           <Route path="/prescriptions" element={<PrescriptionsQueue />} />

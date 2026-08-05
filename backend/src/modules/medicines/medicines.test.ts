@@ -44,4 +44,42 @@ describe('Medicines API', () => {
     expect(res.body[0].strength).toBe('500mg');
     expect(res.body[0]).toHaveProperty('unit_price');
   });
+
+  describe('GET /medicines/stats', () => {
+    it('returns catalog-wide stock counts and panel lists', async () => {
+      const res = await request(app).get('/api/v1/medicines/stats').set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('totalMedicines');
+      expect(res.body.inStock + res.body.lowStock + res.body.outOfStock).toBe(res.body.totalMedicines);
+      expect(Array.isArray(res.body.expiringList)).toBe(true);
+      expect(Array.isArray(res.body.lowStockList)).toBe(true);
+    });
+  });
+
+  describe('GET /medicines/stock', () => {
+    it('paginates and reports buy/sell price plus min/max stock levels', async () => {
+      const res = await request(app).get('/api/v1/medicines/stock').query({ search: 'Paracetamol', limit: 5 }).set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('pagination');
+      const row = res.body.data.find((m: any) => m.name === 'Paracetamol 500mg');
+      expect(row).toBeDefined();
+      expect(row).toHaveProperty('buy_price');
+      expect(row).toHaveProperty('sell_price');
+      expect(row).toHaveProperty('reorder_level');
+      expect(row).toHaveProperty('max_stock_level');
+      expect(row).toHaveProperty('location');
+    });
+
+    it('filters by stock status', async () => {
+      const res = await request(app).get('/api/v1/medicines/stock').query({ status: 'out-of-stock', limit: 100 }).set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.every((m: any) => m.stockStatus === 'out-of-stock')).toBe(true);
+    });
+
+    it('filters by supplier', async () => {
+      const res = await request(app).get('/api/v1/medicines/stock').query({ supplierId: 999999 }).set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.length).toBe(0);
+    });
+  });
 });

@@ -39,6 +39,11 @@ const adjustSchema = z.object({
   }),
 });
 
+const updateLocationSchema = z.object({
+  params: z.object({ batchId: z.coerce.number().int().positive() }),
+  body: z.object({ location: z.string().min(1, 'A location is required') }),
+});
+
 const alertsSchema = z.object({ query: z.object({ days: z.coerce.number().int().positive().optional() }) });
 
 const createStockCountSchema = z.object({
@@ -57,6 +62,7 @@ router.get('/batches', requireRole(READ_ROLES), validate(listBatchesSchema), con
 router.get('/batches/:batchId', requireRole(READ_ROLES), validate(batchIdParamsSchema), controller.getBatchById);
 router.get('/batches/:batchId/ledger', requireRole(READ_ROLES), validate(ledgerSchema), controller.getBatchLedger);
 router.post('/batches/:batchId/adjust', requireRole(WRITE_ROLES), validate(adjustSchema), controller.adjustBatch);
+router.patch('/batches/:batchId/location', requireRole(WRITE_ROLES), validate(updateLocationSchema), controller.updateBatchLocation);
 
 router.get('/alerts', requireRole(READ_ROLES), validate(alertsSchema), controller.alerts);
 

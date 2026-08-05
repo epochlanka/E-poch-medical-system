@@ -109,6 +109,32 @@ describe('Billing API', () => {
     expect(filtered.body.data.some((i: any) => i.invoice_id === invoiceId)).toBe(true);
   });
 
+  it('derives a Consultation+Pharmacy type from the invoice line items', async () => {
+    const res = await request(app).get(`/api/v1/invoices/${invoiceId}`).set('Authorization', `Bearer ${receptionToken}`);
+    expect(res.body.type).toBe('Consultation+Pharmacy');
+
+    const listRes = await request(app).get('/api/v1/invoices').query({ consultationId: res.body.consultation_id }).set('Authorization', `Bearer ${receptionToken}`);
+    expect(listRes.body.data.find((i: any) => i.invoice_id === invoiceId).type).toBe('Consultation+Pharmacy');
+  });
+
+  it('filters by the derived Consultation+Pharmacy type, paginating in memory', async () => {
+    const res = await request(app).get('/api/v1/invoices').query({ type: 'Consultation+Pharmacy', limit: 100 }).set('Authorization', `Bearer ${receptionToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBeGreaterThan(0);
+    expect(res.body.data.every((i: any) => i.type === 'Consultation+Pharmacy')).toBe(true);
+    expect(res.body.data.some((i: any) => i.invoice_id === invoiceId)).toBe(true);
+  });
+
+  it('searches invoices by patient name', async () => {
+    const invoice = await request(app).get(`/api/v1/invoices/${invoiceId}`).set('Authorization', `Bearer ${receptionToken}`);
+    const res = await request(app)
+      .get('/api/v1/invoices')
+      .query({ search: invoice.body.patient.full_name })
+      .set('Authorization', `Bearer ${receptionToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.some((i: any) => i.invoice_id === invoiceId)).toBe(true);
+  });
+
   it('rejects creating a second active invoice for the same consultation', async () => {
     const invoice = await request(app).get(`/api/v1/invoices/${invoiceId}`).set('Authorization', `Bearer ${receptionToken}`);
     const res = await request(app)
@@ -208,5 +234,94 @@ describe('Billing API', () => {
     expect(res.body).toHaveProperty('totalCollected');
     expect(res.body).toHaveProperty('byMethod');
     expect(res.body.totalCollected).toBeGreaterThan(0);
+  });
+
+  describe('GET /invoices/stats', () => {
+    it('returns mutually-exclusive Paid/Unpaid/Overdue counts plus this-month revenue', async () => {
+      const res = await request(app).get('/api/v1/invoices/stats').set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.totalInvoices).toBeGreaterThan(0);
+      // the invoice created+paid earlier in this suite (before being voided) contributed to
+      // both paidInvoices (at the time) and totalRevenueThisMonth (payments are never undone).
+      expect(res.body).toHaveProperty('paidInvoices');
+      expect(res.body).toHaveProperty('unpaidInvoices');
+      expect(res.body).toHaveProperty('overdueInvoices');
+      expect(res.body.totalRevenueThisMonth).toBeGreaterThan(0);
+    });
+  });
+
+  describe('GET /invoices/payments (flat payments ledger)', () => {
+    let paymentPatientName: string;
+    let paymentInvoiceId: number;
+
+    beforeAll(async () => {
+      const { consultationId } = await makeFinalizedConsultationWithDispensedRx(doctorToken, doctorId, pharmacistToken);
+      const invoiceRes = await request(app).post('/api/v1/invoices').set('Authorization', `Bearer ${receptionToken}`).send({ consultation_id: consultationId });
+      paymentInvoiceId = invoiceRes.body.invoice_id;
+      paymentPatientName = invoiceRes.body.patient.full_name;
+
+      await request(app)
+        .post(`/api/v1/invoices/${paymentInvoiceId}/payments`)
+        .set('Authorization', `Bearer ${receptionToken}`)
+        .send({ payments: [{ method: 'Mobile', amount: 50 }] });
+    });
+
+    it('rejects a non-read role', async () => {
+      const res = await request(app).get('/api/v1/invoices/payments');
+      expect(res.status).toBe(401);
+    });
+
+    it('lists payments with the paying invoice status attached, not a fabricated per-payment status', async () => {
+      const res = await request(app).get('/api/v1/invoices/payments').set('Authorization', `Bearer ${receptionToken}`);
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body.data)).toBe(true);
+      expect(res.body.pagination).toBeDefined();
+      const row = res.body.data.find((p: any) => p.invoiceId === paymentInvoiceId);
+      expect(row).toBeDefined();
+      expect(row.method).toBe('Mobile');
+      expect(row.amount).toBe(50);
+      expect(['Outstanding', 'PartiallyPaid', 'Paid']).toContain(row.invoiceStatus);
+    });
+
+    it('searches payments by patient name', async () => {
+      const res = await request(app).get('/api/v1/invoices/payments').query({ search: paymentPatientName }).set('Authorization', `Bearer ${receptionToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.some((p: any) => p.invoiceId === paymentInvoiceId)).toBe(true);
+    });
+
+    it('filters payments by method', async () => {
+      const res = await request(app).get('/api/v1/invoices/payments').query({ method: 'Mobile' }).set('Authorization', `Bearer ${receptionToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.every((p: any) => p.method === 'Mobile')).toBe(true);
+    });
+
+    it('filters payments by the paying invoice status', async () => {
+      const res = await request(app).get('/api/v1/invoices/payments').query({ invoiceStatus: 'PartiallyPaid' }).set('Authorization', `Bearer ${receptionToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.every((p: any) => p.invoiceStatus === 'PartiallyPaid')).toBe(true);
+    });
+
+    it('rejects an invalid payment method filter', async () => {
+      const res = await request(app).get('/api/v1/invoices/payments').query({ method: 'Bitcoin' }).set('Authorization', `Bearer ${receptionToken}`);
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('GET /invoices/payments/stats', () => {
+    it('returns cumulative totals plus a by-method and by-invoice-status breakdown', async () => {
+      const res = await request(app).get('/api/v1/invoices/payments/stats').set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.totalPayments).toBeGreaterThan(0);
+      expect(res.body.totalReceived).toBeGreaterThan(0);
+      expect(Array.isArray(res.body.byMethod)).toBe(true);
+      expect(Array.isArray(res.body.byInvoiceStatus)).toBe(true);
+      expect(res.body).toHaveProperty('outstandingInvoices');
+      expect(res.body).toHaveProperty('voidedInvoices');
+    });
+
+    it('rejects an invalid range', async () => {
+      const res = await request(app).get('/api/v1/invoices/payments/stats').query({ range: 'decade' }).set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(400);
+    });
   });
 });

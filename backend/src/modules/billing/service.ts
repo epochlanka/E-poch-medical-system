@@ -140,18 +140,30 @@ export const getInvoiceById = async (invoiceId: number) => {
     },
   });
   if (!invoice) throw new NotFoundError('Invoice not found');
-  return invoice;
+  return { ...invoice, type: invoiceType(invoice.items) };
 };
 
 interface ListInvoicesFilters {
+  search?: string;
   patientId?: string;
   consultationId?: number;
   status?: string;
+  type?: 'Consultation' | 'Pharmacy' | 'Consultation+Pharmacy';
   from?: Date;
   to?: Date;
   page?: number;
   limit?: number;
 }
+
+// "Consultation", "Pharmacy", or "Consultation+Pharmacy" — not a stored field, derived from
+// which item types actually ended up on the invoice (Discount lines don't count either way).
+const invoiceType = (items: { item_type: string }[]) => {
+  const hasFee = items.some((i) => i.item_type === 'ConsultationFee');
+  const hasMedicine = items.some((i) => i.item_type === 'Medicine');
+  if (hasFee && hasMedicine) return 'Consultation+Pharmacy';
+  if (hasMedicine) return 'Pharmacy';
+  return 'Consultation';
+};
 
 export const listInvoices = async (filters: ListInvoicesFilters) => {
   const page = filters.page && filters.page > 0 ? filters.page : 1;
@@ -164,19 +176,57 @@ export const listInvoices = async (filters: ListInvoicesFilters) => {
   if (filters.from || filters.to) {
     where.created_at = { ...(filters.from ? { gte: filters.from } : {}), ...(filters.to ? { lte: filters.to } : {}) };
   }
+  if (filters.search) {
+    const term = filters.search.trim();
+    const asId = Number(term.replace(/^INV-?/i, ''));
+    where.OR = [
+      { patient: { full_name: { contains: term } } },
+      { patient: { phone: { contains: term } } },
+      { patient_id: { contains: term } },
+      ...(Number.isFinite(asId) && asId > 0 ? [{ invoice_id: asId }] : []),
+    ];
+  }
+
+  const include = { patient: { select: { patient_id: true, full_name: true, phone: true } }, items: { select: { item_type: true } } } as const;
+
+  // 'type' isn't a stored column, so it can't be pushed into the Prisma `where` — filtering by
+  // it means fetching every DB-level match, deriving the type in JS, then paginating in memory
+  // (same "compute, don't cache" tradeoff medicines/service.ts makes for its stock-status filter).
+  if (filters.type) {
+    const all = await prisma.invoice.findMany({ where, orderBy: { created_at: 'desc' }, include });
+    const filtered = all.map((inv) => ({ ...inv, type: invoiceType(inv.items) })).filter((inv) => inv.type === filters.type);
+    const total = filtered.length;
+    const data = filtered.slice((page - 1) * limit, page * limit);
+    return { data, pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) } };
+  }
 
   const [total, invoices] = await Promise.all([
     prisma.invoice.count({ where }),
-    prisma.invoice.findMany({
-      where,
-      orderBy: { created_at: 'desc' },
-      skip: (page - 1) * limit,
-      take: limit,
-      include: { patient: { select: { patient_id: true, full_name: true } } },
-    }),
+    prisma.invoice.findMany({ where, orderBy: { created_at: 'desc' }, skip: (page - 1) * limit, take: limit, include }),
   ]);
 
-  return { data: invoices, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+  const data = invoices.map((inv) => ({ ...inv, type: invoiceType(inv.items) }));
+
+  return { data, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+};
+
+// Stat cards for the Invoices dashboard. Paid/Unpaid/Overdue are mutually exclusive buckets
+// (Voided invoices aren't counted in any of them): this is a same-day walk-in clinic, so
+// "overdue" just means still unpaid from a day other than today — there's no separate due-date
+// field to track, since nothing in the domain gives an invoice its own payment terms.
+export const getInvoiceStats = async () => {
+  const today = startOfDay();
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+
+  const [totalInvoices, paidInvoices, unpaidInvoices, overdueInvoices, revenueThisMonth] = await Promise.all([
+    prisma.invoice.count(),
+    prisma.invoice.count({ where: { payment_status: 'Paid' } }),
+    prisma.invoice.count({ where: { payment_status: { in: ['Outstanding', 'PartiallyPaid'] }, created_at: { gte: today } } }),
+    prisma.invoice.count({ where: { payment_status: { in: ['Outstanding', 'PartiallyPaid'] }, created_at: { lt: today } } }),
+    prisma.payment.aggregate({ _sum: { amount: true }, where: { received_at: { gte: monthStart } } }),
+  ]);
+
+  return { totalInvoices, paidInvoices, unpaidInvoices, overdueInvoices, totalRevenueThisMonth: revenueThisMonth._sum.amount ?? 0 };
 };
 
 // ---- Payments (cash/card/mobile, split) --------------------------------------------------
@@ -235,6 +285,105 @@ export const voidInvoice = async (invoiceId: number, reason: string, actor: Acto
   });
 
   return { ...updated, dispensedItemsNeedingReview: invoice.items.length > 0 };
+};
+
+// ---- Payments Ledger (flat, cross-invoice view) --------------------------------------------
+// Every Payment row is, by construction, money already received (there's no payment-attempt/
+// gateway concept in this domain) — so unlike the mockup this list has no per-row status.
+// The closest real per-row signal is the *invoice's* current status (Paid/PartiallyPaid/Voided),
+// included alongside each payment.
+
+interface ListPaymentsFilters {
+  search?: string;
+  method?: 'Cash' | 'Card' | 'Mobile';
+  invoiceStatus?: 'Outstanding' | 'PartiallyPaid' | 'Paid' | 'Voided';
+  from?: Date;
+  to?: Date;
+  page?: number;
+  limit?: number;
+}
+
+export const listPayments = async (filters: ListPaymentsFilters) => {
+  const page = filters.page && filters.page > 0 ? filters.page : 1;
+  const limit = filters.limit && filters.limit > 0 && filters.limit <= 100 ? filters.limit : 10;
+
+  const where: Prisma.PaymentWhereInput = {};
+  if (filters.method) where.method = filters.method;
+  if (filters.invoiceStatus) where.invoice = { payment_status: filters.invoiceStatus };
+  if (filters.from || filters.to) {
+    where.received_at = { ...(filters.from ? { gte: filters.from } : {}), ...(filters.to ? { lte: filters.to } : {}) };
+  }
+  if (filters.search) {
+    const term = filters.search.trim();
+    const asId = Number(term.replace(/^PAY-?/i, ''));
+    where.OR = [
+      { invoice: { patient: { full_name: { contains: term } } } },
+      { invoice: { patient: { phone: { contains: term } } } },
+      { invoice: { patient_id: { contains: term } } },
+      ...(Number.isFinite(asId) && asId > 0 ? [{ payment_id: asId }, { invoice_id: asId }] : []),
+    ];
+  }
+
+  const include = {
+    invoice: { select: { invoice_id: true, payment_status: true, created_at: true, patient: { select: { patient_id: true, full_name: true, phone: true } } } },
+    receiver: { select: { username: true } },
+  } as const;
+
+  const [total, payments] = await Promise.all([
+    prisma.payment.count({ where }),
+    prisma.payment.findMany({ where, orderBy: { received_at: 'desc' }, skip: (page - 1) * limit, take: limit, include }),
+  ]);
+
+  const data = payments.map((p) => ({
+    paymentId: p.payment_id,
+    invoiceId: p.invoice_id,
+    invoiceStatus: p.invoice.payment_status,
+    invoiceCreatedAt: p.invoice.created_at,
+    patientId: p.invoice.patient.patient_id,
+    patientName: p.invoice.patient.full_name,
+    patientPhone: p.invoice.patient.phone,
+    amount: p.amount,
+    method: p.method,
+    receivedAt: p.received_at,
+    receivedBy: p.receiver.username,
+  }));
+
+  return { data, pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) } };
+};
+
+type StatsRange = 'month' | 'quarter' | 'year' | 'all';
+
+// KPIs are all-time cumulative (matches a "Total Payments" style counter); the by-method
+// breakdown is windowed by `range` since that's what the mockup's "This Month ▾" toggle implies.
+export const getPaymentsStats = async (range: StatsRange = 'month') => {
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  let rangeStart: Date | undefined;
+  if (range === 'month') rangeStart = monthStart;
+  else if (range === 'quarter') rangeStart = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+  else if (range === 'year') rangeStart = new Date(now.getFullYear(), 0, 1);
+
+  const [totalPayments, totalReceivedAgg, totalReceivedThisMonthAgg, outstandingInvoices, voidedInvoices, methodGroups, invoiceStatusGroups] = await Promise.all([
+    prisma.payment.count(),
+    prisma.payment.aggregate({ _sum: { amount: true } }),
+    prisma.payment.aggregate({ _sum: { amount: true }, where: { received_at: { gte: monthStart } } }),
+    prisma.invoice.count({ where: { payment_status: { in: ['Outstanding', 'PartiallyPaid'] } } }),
+    prisma.invoice.count({ where: { payment_status: 'Voided' } }),
+    prisma.payment.groupBy({ by: ['method'], _sum: { amount: true }, _count: true, where: rangeStart ? { received_at: { gte: rangeStart } } : undefined }),
+    prisma.invoice.groupBy({ by: ['payment_status'], _count: true }),
+  ]);
+
+  return {
+    range,
+    totalPayments,
+    totalReceived: totalReceivedAgg._sum.amount ?? 0,
+    totalReceivedThisMonth: totalReceivedThisMonthAgg._sum.amount ?? 0,
+    outstandingInvoices,
+    voidedInvoices,
+    byMethod: methodGroups.map((g) => ({ method: g.method, amount: g._sum.amount ?? 0, count: g._count })),
+    byInvoiceStatus: invoiceStatusGroups.map((g) => ({ status: g.payment_status, count: g._count })),
+  };
 };
 
 // ---- End-of-Day Cash Reconciliation --------------------------------------------------------

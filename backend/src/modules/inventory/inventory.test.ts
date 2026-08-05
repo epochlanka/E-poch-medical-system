@@ -104,6 +104,42 @@ describe('Inventory API', () => {
     expect(res.status).toBe(400);
   });
 
+  describe('PATCH /batches/:batchId/location', () => {
+    it('rejects from a non-inventory role (Receptionist)', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/inventory/batches/${adjustBatchId}/location`)
+        .set('Authorization', `Bearer ${receptionToken}`)
+        .send({ location: 'Main Store / Shelf A-01' });
+      expect(res.status).toBe(403);
+    });
+
+    it('rejects an empty location', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/inventory/batches/${adjustBatchId}/location`)
+        .set('Authorization', `Bearer ${pharmacistToken}`)
+        .send({ location: '' });
+      expect(res.status).toBe(400);
+    });
+
+    it('relocates a batch without touching its quantity', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/inventory/batches/${adjustBatchId}/location`)
+        .set('Authorization', `Bearer ${pharmacistToken}`)
+        .send({ location: 'Main Store / Shelf A-01' });
+      expect(res.status).toBe(200);
+      expect(res.body.location).toBe('Main Store / Shelf A-01');
+      expect(res.body.qty_on_hand).toBe(7);
+    });
+
+    it('returns 404 for a non-existent batch', async () => {
+      const res = await request(app)
+        .patch('/api/v1/inventory/batches/999999/location')
+        .set('Authorization', `Bearer ${pharmacistToken}`)
+        .send({ location: 'Somewhere' });
+      expect(res.status).toBe(404);
+    });
+  });
+
   it('returns low-stock and expiry alerts', async () => {
     const res = await request(app).get('/api/v1/inventory/alerts').set('Authorization', `Bearer ${pharmacistToken}`);
     expect(res.status).toBe(200);

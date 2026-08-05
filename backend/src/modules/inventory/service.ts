@@ -83,6 +83,7 @@ export const listBatches = async (filters: ListBatchesFilters) => {
     manufactureDate: b.manufacture_date,
     expiryDate: b.expiry_date,
     qtyOnHand: b.qty_on_hand,
+    location: b.location,
     supplierId: b.supplier?.supplier_id ?? null,
     supplierName: b.supplier?.name ?? null,
     status: batchLifecycleStatus(b.qty_on_hand, b.expiry_date, now),
@@ -154,6 +155,18 @@ export const adjustBatch = async (batchId: number, delta: number, reason: string
     });
     return updated;
   });
+};
+
+// ---- Physical relocation (Stock Transfer) --------------------------------------
+// A transfer here means "this batch now physically sits somewhere else" — qty_on_hand is
+// unchanged, so unlike adjustBatch this doesn't write a StockLedger row (that ledger's
+// change_qty/balance_after model is for quantity movements, not location metadata).
+
+export const updateBatchLocation = async (batchId: number, location: string) => {
+  if (!location?.trim()) throw new ValidationError('A location is required');
+  const batch = await prisma.batch.findUnique({ where: { batch_id: batchId } });
+  if (!batch) throw new NotFoundError('Batch not found');
+  return prisma.batch.update({ where: { batch_id: batchId }, data: { location: location.trim() } });
 };
 
 // ---- Low-Stock / Reorder + Expiry Alerts ---------------------------------------
