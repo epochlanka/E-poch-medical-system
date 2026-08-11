@@ -89,15 +89,20 @@ model Appointment {
   patient_id     String
   doctor_id      Int
   scheduled_at   DateTime
+<<<<<<< Updated upstream
   reason         String?  // reason for visit, captured at booking time
   status         String   @default("Waiting") // Waiting, Called, Consulting, Completed, Skipped, Cancelled, No Show
   skip_reason    String?  // captured when a doctor skips a called-but-unresponsive patient (FR-029); cleared on recall
+=======
+  reason         String?
+  status         String   @default("Waiting") // Waiting, Called, Consulting, Completed, Skipped
+>>>>>>> Stashed changes
   created_by     Int
-  
+
   patient        Patient  @relation(fields: [patient_id], references: [patient_id])
   doctor         User     @relation("DoctorAppointments", fields: [doctor_id], references: [user_id])
   receptionist   User     @relation("ReceptionistAppointments", fields: [created_by], references: [user_id])
-  
+
   consultation   Consultation?
 }
 
@@ -107,13 +112,8 @@ model Consultation {
   vitals_json     String?
   allergies_ack   Boolean   @default(false)
   complaint       String?
-  // History of Present Illness and Examination findings are their own clinical sections,
-  // distinct from complaint (why they came in) and notes (the treatment plan) — kept as
-  // separate nullable columns rather than folded into notes so each renders in its own box.
   history_of_present_illness String?
   examination_findings       String?
-  // Ad-hoc condition tags picked for this visit (e.g. "Hypertension"), JSON string array —
-  // same encoding convention as vitals_json rather than a new table, since it's a simple list.
   medical_history_json String?
   diagnosis       String?
   icd10_code      String?
@@ -130,8 +130,6 @@ model Consultation {
   documents       ConsultationDocument[]
 }
 
-// Attach Files — consultation-scoped uploads (referral letters, lab report scans, etc.),
-// same multer-to-disk convention as patient photo uploads.
 model ConsultationDocument {
   document_id     Int      @id @default(autoincrement())
   consultation_id Int
@@ -207,7 +205,7 @@ model Medicine {
   generic_name    String?
   category        String?
   form            String?
-  strength        String? // e.g. "500mg", "10mg/5ml" — printed on prescriptions/labels alongside dosage
+  strength        String? // e.g. "500mg", "10mg/5ml"
   unit            String
   reorder_level   Int       @default(0) // "Min Stock" — reorder trigger threshold
   max_stock_level Int       @default(0) // "Max Stock" — target ceiling for reorder-quantity suggestions
@@ -232,9 +230,9 @@ model MedicineSubstitution {
   substitution_id        Int      @id @default(autoincrement())
   medicine_id            Int
   substitute_medicine_id Int
-  is_active               Boolean @default(true)
-  created_by              Int
-  created_at               DateTime @default(now())
+  is_active              Boolean  @default(true)
+  created_by             Int
+  created_at             DateTime @default(now())
 
   medicine             Medicine @relation("SubstitutionOriginal", fields: [medicine_id], references: [medicine_id])
   substitute_medicine  Medicine @relation("SubstitutionAlternative", fields: [substitute_medicine_id], references: [medicine_id])
@@ -263,8 +261,6 @@ model Batch {
   @@index([medicine_id, expiry_date])
 }
 
-// Append-only movement history per batch — current stock is always the running balance of
-// these rows (Best Practice), so the ledger *is* the audit trail, never a separate overlay.
 model StockLedger {
   ledger_id       Int      @id @default(autoincrement())
   batch_id        Int
@@ -283,8 +279,6 @@ model StockLedger {
   @@index([batch_id, created_at])
 }
 
-// A physical count reconciliation. Variances beyond a threshold require Admin review before
-// posting (FR-061) — posting is what actually writes the correcting StockLedger rows.
 model StockCount {
   stock_count_id Int       @id @default(autoincrement())
   status         String    @default("Draft") // Draft, PendingReview, Posted
@@ -295,8 +289,8 @@ model StockCount {
   posted_at      DateTime?
 
   performed_by_user User             @relation("StockCountPerformer", fields: [performed_by], references: [user_id])
-  reviewed_by_user   User?            @relation("StockCountReviewer", fields: [reviewed_by], references: [user_id])
-  items              StockCountItem[]
+  reviewed_by_user  User?            @relation("StockCountReviewer", fields: [reviewed_by], references: [user_id])
+  items             StockCountItem[]
 }
 
 model StockCountItem {
@@ -331,8 +325,6 @@ model Supplier {
   @@index([name])
 }
 
-// The PO is a commercial commitment, not a stock event — it never creates a batch by itself;
-// only a GRN against it does (mirrors the separation used in larger ERP systems).
 model PurchaseOrder {
   po_id           Int       @id @default(autoincrement())
   supplier_id     Int
@@ -360,8 +352,6 @@ model PurchaseOrderItem {
   grn_items      GRNItem[]
 }
 
-// The one and only path by which new stock enters the system — every batch traces back to
-// a GRN line (Best Practice), and a qty mismatch vs. the PO line flags for Admin review (FR-069).
 model GoodsReceivedNote {
   grn_id                  Int       @id @default(autoincrement())
   po_id                   Int
@@ -390,8 +380,6 @@ model GRNItem {
   batch   Batch?            @relation(fields: [batch_id], references: [batch_id])
 }
 
-// One invoice per visit (consultation), combining the consultation fee and every dispensed
-// item's charge (FR-070) — never edited directly once Paid; corrections go through void+reissue.
 model Invoice {
   invoice_id      Int       @id @default(autoincrement())
   patient_id      String
@@ -407,10 +395,10 @@ model Invoice {
   created_by      Int
   created_at      DateTime  @default(now())
 
-  patient         Patient      @relation(fields: [patient_id], references: [patient_id])
+  patient         Patient       @relation(fields: [patient_id], references: [patient_id])
   consultation    Consultation? @relation(fields: [consultation_id], references: [consultation_id])
-  creator         User         @relation("InvoiceCreator", fields: [created_by], references: [user_id])
-  voided_by_user  User?        @relation("InvoiceVoider", fields: [voided_by], references: [user_id])
+  creator         User          @relation("InvoiceCreator", fields: [created_by], references: [user_id])
+  voided_by_user  User?         @relation("InvoiceVoider", fields: [voided_by], references: [user_id])
   items           InvoiceItem[]
   payments        Payment[]
 
@@ -446,52 +434,44 @@ model Payment {
 }
 
 model User {
-  user_id         Int       @id @default(autoincrement())
-  role            String    // Admin, Receptionist, Doctor, Pharmacist
-  username        String    @unique
-  password_hash   String
-  registration_number String? // doctor's medical registration no., printed on prescriptions
-  is_active       Boolean   @default(true)
+  user_id             Int     @id @default(autoincrement())
+  role                String  // Admin, Receptionist, Doctor, Pharmacist
+  username            String  @unique
+  password_hash       String
+  registration_number String?
+  is_active           Boolean @default(true)
 
-  // Account lockout (FR-004): failed_login_attempts resets to 0 on success or on a lock being
-  // applied; locked_until gates login attempts regardless of password correctness while set.
   failed_login_attempts Int       @default(0)
-  locked_until           DateTime?
+  locked_until          DateTime?
 
-  // Optional TOTP 2FA, Admin accounts only (FR-008). totp_secret is written at /2fa/setup but
-  // totp_enabled only flips true once /2fa/verify confirms the authenticator app is in sync.
   totp_secret  String?
   totp_enabled Boolean @default(false)
 
   last_login_at DateTime?
 
-  doctor_appointments Appointment[] @relation("DoctorAppointments")
+  doctor_appointments       Appointment[] @relation("DoctorAppointments")
   receptionist_appointments Appointment[] @relation("ReceptionistAppointments")
-  purchase_orders PurchaseOrder[]
-  audit_logs      AuditLog[]
-  patient_change_logs PatientChangeLog[]
-  reviewed_duplicate_flags PatientDuplicateFlag[]
-  consultation_amendments ConsultationAmendmentLog[]
-  medicine_substitutions  MedicineSubstitution[]
-  dispensed_items         PrescriptionItem[]
-  stock_ledger_entries    StockLedger[]
-  stock_counts_performed  StockCount[] @relation("StockCountPerformer")
-  stock_counts_reviewed   StockCount[] @relation("StockCountReviewer")
-  grns_received           GoodsReceivedNote[] @relation("GRNReceiver")
-  grns_reviewed           GoodsReceivedNote[] @relation("GRNReviewer")
-  invoices_created        Invoice[] @relation("InvoiceCreator")
-  invoices_voided         Invoice[] @relation("InvoiceVoider")
-  payments_received       Payment[]
-  settings_updates        ClinicSettings[]
-  backups_created         DbBackup[]
-  sessions                UserSession[]
-  consultation_documents  ConsultationDocument[]
+  purchase_orders           PurchaseOrder[]
+  audit_logs                AuditLog[]
+  patient_change_logs       PatientChangeLog[]
+  reviewed_duplicate_flags  PatientDuplicateFlag[]
+  consultation_amendments   ConsultationAmendmentLog[]
+  medicine_substitutions    MedicineSubstitution[]
+  dispensed_items           PrescriptionItem[]
+  stock_ledger_entries      StockLedger[]
+  stock_counts_performed    StockCount[] @relation("StockCountPerformer")
+  stock_counts_reviewed     StockCount[] @relation("StockCountReviewer")
+  grns_received             GoodsReceivedNote[] @relation("GRNReceiver")
+  grns_reviewed             GoodsReceivedNote[] @relation("GRNReviewer")
+  invoices_created          Invoice[] @relation("InvoiceCreator")
+  invoices_voided           Invoice[] @relation("InvoiceVoider")
+  payments_received         Payment[]
+  settings_updates          ClinicSettings[]
+  backups_created           DbBackup[]
+  sessions                  UserSession[]
+  consultation_documents    ConsultationDocument[]
 }
 
-// One row per issued JWT (FR-007 session management). requireAuth checks this on every
-// request: revoked_at set, or last_activity_at older than ClinicSettings.session_timeout_minutes,
-// both reject the request even though the JWT itself hasn't expired — idle timeout can't be
-// expressed as a fixed JWT expiry since it resets on activity rather than counting from issuance.
 model UserSession {
   session_id       Int       @id @default(autoincrement())
   user_id          Int
@@ -507,40 +487,32 @@ model UserSession {
 }
 
 model AuditLog {
-  log_id          Int       @id @default(autoincrement())
-  user_id         Int?
-  action          String
-  entity          String
-  entity_id       String
-  timestamp       DateTime  @default(now())
+  log_id    Int      @id @default(autoincrement())
+  user_id   Int?
+  action    String
+  entity    String
+  entity_id String
+  timestamp DateTime @default(now())
 
-  user            User?     @relation(fields: [user_id], references: [user_id])
+  user User? @relation(fields: [user_id], references: [user_id])
 }
 
-// Single-row table (id is always 1) — Admin-editable clinic configuration that other modules
-// read defaults from instead of hardcoding (FR-087, FR-088): clinic profile for printouts,
-// the default consultation fee Billing falls back to, and the expiry-alert window
-// Dashboard/Reports use when the caller doesn't override it.
 model ClinicSettings {
-  id                           Int       @id @default(1)
-  clinic_name                  String    @default("MediCare Clinic & Dispensary")
-  clinic_address                String?
-  registration_number          String?
-  logo_url                      String?
-  default_consultation_fee     Float     @default(500)
-  expiry_alert_threshold_days  Int       @default(90)
-  session_timeout_minutes      Int       @default(15)
-  account_lockout_minutes      Int       @default(15)
-  updated_by                   Int?
-  updated_at                   DateTime  @updatedAt
+  id                          Int      @id @default(1)
+  clinic_name                 String   @default("MediCare Clinic & Dispensary")
+  clinic_address              String?
+  registration_number         String?
+  logo_url                    String?
+  default_consultation_fee    Float    @default(500)
+  expiry_alert_threshold_days Int      @default(90)
+  session_timeout_minutes     Int      @default(15)
+  account_lockout_minutes     Int      @default(15)
+  updated_by                  Int?
+  updated_at                  DateTime @updatedAt
 
   updater User? @relation(fields: [updated_by], references: [user_id])
 }
 
-// Shared lookup lists for frontend dropdowns (FR-091) — medicine categories, payment methods,
-// discount types all live here under a `type` discriminator instead of three near-identical
-// tables. These are advisory/config data, not foreign-keyed from Medicine/Payment/InvoiceItem,
-// so adding or renaming an entry never requires a data migration on those tables.
 model MasterDataItem {
   item_id    Int     @id @default(autoincrement())
   type       String  // MedicineCategory, PaymentMethod, DiscountType
@@ -552,8 +524,6 @@ model MasterDataItem {
   @@index([type])
 }
 
-// Record of on-demand SQLite file backups (FR-090). `verified`/`verified_at` are set by a
-// separate integrity-check step — a backup file existing is not itself proof it's restorable.
 model DbBackup {
   backup_id   Int       @id @default(autoincrement())
   filename    String    @unique
