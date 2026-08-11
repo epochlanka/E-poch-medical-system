@@ -22,10 +22,28 @@ export class AppointmentsController {
     }
   };
 
+  // A Doctor caller is always scoped to their own queue, regardless of any doctorId query param
+  // they might pass — other roles may use doctorId to filter, or omit it to see every doctor.
+  doctorScope = (req: Request): number | undefined => {
+    const user = (req as any).user;
+    if (user?.role === 'Doctor') return user.user_id;
+    const queryDoctorId = req.query.doctorId;
+    return queryDoctorId ? Number(queryDoctorId) : undefined;
+  };
+
   getLiveQueue = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const queue = await appointmentsService.getLiveQueue();
+      const queue = await appointmentsService.getLiveQueue(this.doctorScope(req));
       res.status(200).json(queue);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getQueueStats = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const stats = await appointmentsService.getQueueStats(this.doctorScope(req));
+      res.status(200).json(stats);
     } catch (error) {
       next(error);
     }
@@ -58,10 +76,10 @@ export class AppointmentsController {
 
   listAppointments = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { search, doctorId, status, date, page, limit } = req.query as any;
+      const { search, status, date, page, limit } = req.query as any;
       const result = await appointmentsService.listAppointments({
         search,
-        doctorId: doctorId ? Number(doctorId) : undefined,
+        doctorId: this.doctorScope(req),
         status,
         date: date ? new Date(date) : undefined,
         page: page ? Number(page) : undefined,
@@ -107,7 +125,19 @@ export class AppointmentsController {
       const appointment_id = Number(req.params.id);
       const { status } = req.body;
 
-      const updated = await appointmentsService.updateStatus(appointment_id, status);
+      const updated = await appointmentsService.updateStatus(appointment_id, status, (req as any).user);
+      res.status(200).json(updated);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  skipAppointment = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const appointment_id = Number(req.params.id);
+      const { reason } = req.body;
+
+      const updated = await appointmentsService.skipAppointment(appointment_id, reason, (req as any).user);
       res.status(200).json(updated);
     } catch (error) {
       next(error);

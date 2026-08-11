@@ -7,6 +7,7 @@ import {
   getRevenueTrend,
   getRecentPrescriptions,
   getTopMedicines,
+  getDoctorDashboard,
 } from './service';
 
 const parseThresholdDays = (value: unknown, fallback = 90) => {
@@ -82,6 +83,17 @@ export const recentPrescriptions = async (req: Request, res: Response) => {
   } catch (error: any) {
     req.log.error(error);
     res.status(500).json({ message: 'Failed to load recent prescriptions' });
+  }
+};
+
+export const doctorDashboard = async (req: Request, res: Response) => {
+  try {
+    const user = req.user as any;
+    const data = await getDoctorDashboard(user.user_id);
+    res.status(200).json(data);
+  } catch (error: any) {
+    req.log.error(error);
+    res.status(500).json({ message: 'Failed to load doctor dashboard' });
   }
 };
 

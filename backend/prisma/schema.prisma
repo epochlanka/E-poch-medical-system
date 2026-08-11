@@ -91,6 +91,7 @@ model Appointment {
   scheduled_at   DateTime
   reason         String?  // reason for visit, captured at booking time
   status         String   @default("Waiting") // Waiting, Called, Consulting, Completed, Skipped, Cancelled, No Show
+  skip_reason    String?  // captured when a doctor skips a called-but-unresponsive patient (FR-029); cleared on recall
   created_by     Int
   
   patient        Patient  @relation(fields: [patient_id], references: [patient_id])

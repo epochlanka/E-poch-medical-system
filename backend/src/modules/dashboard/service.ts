@@ -301,6 +301,107 @@ export const getRecentPrescriptions = async (limit = 5) => {
   }));
 };
 
+// ---- Doctor Dashboard (own appointments/consultations/prescriptions only) -----------------
+
+export const getDoctorDashboard = async (doctorId: number) => {
+  const todayStart = startOfDay();
+  const todayEnd = endOfDay();
+  const yesterdayStart = addDays(todayStart, -1);
+  const yesterdayEnd = addDays(todayEnd, -1);
+
+  // Current week, Monday-Sunday, for the consultations trend chart.
+  const dayOfWeek = todayStart.getDay();
+  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const weekStart = startOfDay(addDays(todayStart, mondayOffset));
+  const weekEnd = endOfDay(addDays(weekStart, 6));
+
+  // "Due this week" = overdue-or-due within the next 7 days, same overdue-inclusive philosophy
+  // as getFollowUpsDue, just with an upper bound so the KPI card has a bounded "this week" count.
+  const followUpsWindowEnd = endOfDay(addDays(todayStart, 6));
+
+  const [
+    appointmentsToday,
+    appointmentsYesterday,
+    completedToday,
+    completedYesterday,
+    pendingInQueue,
+    followUpsDueCount,
+    prescriptionsToday,
+    prescriptionsYesterday,
+    todaysAppointments,
+    weekConsultations,
+    recentPrescriptions,
+  ] = await Promise.all([
+    prisma.appointment.count({ where: { doctor_id: doctorId, scheduled_at: { gte: todayStart, lte: todayEnd } } }),
+    prisma.appointment.count({ where: { doctor_id: doctorId, scheduled_at: { gte: yesterdayStart, lte: yesterdayEnd } } }),
+    prisma.consultation.count({ where: { status: 'Finalized', finalized_at: { gte: todayStart, lte: todayEnd }, appointment: { doctor_id: doctorId } } }),
+    prisma.consultation.count({ where: { status: 'Finalized', finalized_at: { gte: yesterdayStart, lte: yesterdayEnd }, appointment: { doctor_id: doctorId } } }),
+    prisma.appointment.count({
+      where: { doctor_id: doctorId, scheduled_at: { gte: todayStart, lte: todayEnd }, status: { in: ACTIVE_QUEUE_STATUSES } },
+    }),
+    prisma.consultation.count({
+      where: { status: 'Finalized', follow_up_date: { lte: followUpsWindowEnd }, appointment: { doctor_id: doctorId } },
+    }),
+    prisma.prescription.count({ where: { issued_at: { gte: todayStart, lte: todayEnd }, consultation: { appointment: { doctor_id: doctorId } } } }),
+    prisma.prescription.count({ where: { issued_at: { gte: yesterdayStart, lte: yesterdayEnd }, consultation: { appointment: { doctor_id: doctorId } } } }),
+    prisma.appointment.findMany({
+      where: { doctor_id: doctorId, scheduled_at: { gte: todayStart, lte: todayEnd } },
+      include: { patient: { select: { patient_id: true, full_name: true } } },
+      orderBy: { scheduled_at: 'asc' },
+    }),
+    prisma.consultation.findMany({
+      where: { status: 'Finalized', finalized_at: { gte: weekStart, lte: weekEnd }, appointment: { doctor_id: doctorId } },
+      select: { finalized_at: true },
+    }),
+    prisma.prescription.findMany({
+      where: { consultation: { appointment: { doctor_id: doctorId } } },
+      orderBy: { issued_at: 'desc' },
+      take: 5,
+      include: { consultation: { include: { appointment: { include: { patient: { select: { patient_id: true, full_name: true } } } } } } },
+    }),
+  ]);
+
+  const byDay = new Map<string, number>();
+  let cursor = new Date(weekStart);
+  while (cursor <= weekEnd) {
+    byDay.set(localDateKey(cursor), 0);
+    cursor = addDays(cursor, 1);
+  }
+  for (const c of weekConsultations) {
+    const key = localDateKey(c.finalized_at as Date);
+    byDay.set(key, (byDay.get(key) ?? 0) + 1);
+  }
+
+  return {
+    kpis: {
+      totalAppointmentsToday: appointmentsToday,
+      totalAppointmentsTodayChangePct: changePct(appointmentsToday, appointmentsYesterday),
+      completedConsultationsToday: completedToday,
+      completedConsultationsTodayChangePct: changePct(completedToday, completedYesterday),
+      pendingConsultationsInQueue: pendingInQueue,
+      followUpsDueThisWeek: followUpsDueCount,
+      prescriptionsIssuedToday: prescriptionsToday,
+      prescriptionsIssuedTodayChangePct: changePct(prescriptionsToday, prescriptionsYesterday),
+    },
+    todaysSchedule: todaysAppointments.map((a) => ({
+      appointmentId: a.appointment_id,
+      scheduledAt: a.scheduled_at,
+      patientId: a.patient.patient_id,
+      patientName: a.patient.full_name,
+      status: a.status,
+    })),
+    consultationsOverview: Array.from(byDay.entries()).map(([date, count]) => ({ date, count })),
+    recentPrescriptions: recentPrescriptions.map((rx) => ({
+      prescriptionId: rx.prescription_id,
+      code: `RX${String(rx.prescription_id).padStart(6, '0')}`,
+      status: rx.status,
+      issuedAt: rx.issued_at,
+      patientId: rx.consultation.appointment.patient.patient_id,
+      patientName: rx.consultation.appointment.patient.full_name,
+    })),
+  };
+};
+
 // ---- Top Selling Medicines --------------------------------------------------
 
 export const getTopMedicines = async (limit = 5, sinceDays = 30) => {

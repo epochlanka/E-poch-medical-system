@@ -35,6 +35,15 @@ const updateTimeSchema = z.object({
   })
 });
 
+const skipSchema = z.object({
+  body: z.object({
+    reason: z.string().min(1, 'A reason is required to skip a patient')
+  }),
+  params: z.object({
+    id: z.string().transform((val) => parseInt(val, 10))
+  })
+});
+
 const listAppointmentsSchema = z.object({
   query: z.object({
     search: z.string().optional(),
@@ -64,6 +73,7 @@ router.get('/stats', appointmentsController.getStats);
 router.get('/today-schedule', appointmentsController.getTodaysSchedule);
 router.get('/calendar', validate(calendarSummarySchema), appointmentsController.getCalendarSummary);
 router.get('/queue', appointmentsController.getLiveQueue);
+router.get('/queue/stats', appointmentsController.getQueueStats);
 router.get('/doctors', appointmentsController.getDoctors);
 router.get('/list', validate(listAppointmentsSchema), appointmentsController.listAppointments);
 
@@ -71,5 +81,6 @@ router.post('/', validate(createAppointmentSchema), appointmentsController.creat
 router.get('/', appointmentsController.getAllAppointments);
 router.patch('/:id/status', validate(updateStatusSchema), appointmentsController.updateStatus);
 router.patch('/:id/time', validate(updateTimeSchema), appointmentsController.updateTime);
+router.patch('/:id/skip', validate(skipSchema), appointmentsController.skipAppointment);
 
 export { router as appointmentsRouter };

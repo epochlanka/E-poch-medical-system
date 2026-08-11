@@ -3,6 +3,7 @@ import app from '../../app';
 
 describe('Dashboard API', () => {
   let token: string;
+  let doctorToken: string;
 
   beforeAll(async () => {
     // Note: The database must be seeded (npm run prisma:migrate, which seeds automatically) for this to pass.
@@ -10,6 +11,9 @@ describe('Dashboard API', () => {
       .post('/api/v1/auth/login')
       .send({ username: 'admin', password: 'admin123' });
     token = res.body.token;
+
+    const doctorRes = await request(app).post('/api/v1/auth/login').send({ username: 'doctor', password: 'doctor123' });
+    doctorToken = doctorRes.body.token;
   });
 
   it('rejects unauthenticated requests', async () => {
@@ -87,5 +91,26 @@ describe('Dashboard API', () => {
 
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
+  });
+
+  describe('GET /dashboard/doctor-overview', () => {
+    it('rejects a non-Doctor role, even Admin', async () => {
+      const res = await request(app).get('/api/v1/dashboard/doctor-overview').set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(403);
+    });
+
+    it("returns the doctor's own dashboard with kpis, schedule, trend, and recent prescriptions", async () => {
+      const res = await request(app).get('/api/v1/dashboard/doctor-overview').set('Authorization', `Bearer ${doctorToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.kpis).toHaveProperty('totalAppointmentsToday');
+      expect(res.body.kpis).toHaveProperty('completedConsultationsToday');
+      expect(res.body.kpis).toHaveProperty('pendingConsultationsInQueue');
+      expect(res.body.kpis).toHaveProperty('followUpsDueThisWeek');
+      expect(res.body.kpis).toHaveProperty('prescriptionsIssuedToday');
+      expect(Array.isArray(res.body.todaysSchedule)).toBe(true);
+      expect(Array.isArray(res.body.consultationsOverview)).toBe(true);
+      expect(res.body.consultationsOverview).toHaveLength(7);
+      expect(Array.isArray(res.body.recentPrescriptions)).toBe(true);
+    });
   });
 });

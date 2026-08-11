@@ -5,6 +5,7 @@ const runId = Date.now();
 
 describe('Appointments API', () => {
   let adminToken: string;
+  let doctorToken: string;
   let doctorId: number;
   let appointmentId: number;
 
@@ -13,6 +14,7 @@ describe('Appointments API', () => {
     adminToken = adminRes.body.token;
 
     const doctorRes = await request(app).post('/api/v1/auth/login').send({ username: 'doctor', password: 'doctor123' });
+    doctorToken = doctorRes.body.token;
     doctorId = doctorRes.body.user.id;
   });
 
@@ -119,6 +121,131 @@ describe('Appointments API', () => {
     it('rejects a missing year/month', async () => {
       const res = await request(app).get('/api/v1/appointments/calendar').set('Authorization', `Bearer ${adminToken}`);
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe('Doctor "own queue only" scoping (FR-029 / BR-05)', () => {
+    let otherDoctorToken: string;
+    let otherDoctorId: number;
+    let otherDoctorAppointmentId: number;
+    let ownAppointmentId: number;
+
+    beforeAll(async () => {
+      const username = `apt-test-doctor-${runId}`;
+      const createRes = await request(app)
+        .post('/api/v1/security/users')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ username, password: 'ThrowawayPass1', role: 'Doctor' });
+      otherDoctorId = createRes.body.user_id;
+
+      const loginRes = await request(app).post('/api/v1/auth/login').send({ username, password: 'ThrowawayPass1' });
+      otherDoctorToken = loginRes.body.token;
+
+      const otherAptRes = await request(app)
+        .post('/api/v1/appointments')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ patient_id: 'PT-SEED-001', doctor_id: otherDoctorId, scheduled_at: new Date().toISOString() });
+      otherDoctorAppointmentId = otherAptRes.body.appointment_id;
+
+      const ownAptRes = await request(app)
+        .post('/api/v1/appointments')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ patient_id: 'PT-SEED-001', doctor_id: doctorId, scheduled_at: new Date().toISOString() });
+      ownAppointmentId = ownAptRes.body.appointment_id;
+    });
+
+    it("GET /appointments/queue auto-scopes a Doctor caller to their own appointments only", async () => {
+      const res = await request(app).get('/api/v1/appointments/queue').set('Authorization', `Bearer ${doctorToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.every((a: any) => a.doctor_id === doctorId)).toBe(true);
+      expect(res.body.some((a: any) => a.appointment_id === otherDoctorAppointmentId)).toBe(false);
+    });
+
+    it("GET /appointments/list ignores a doctorId query param from a Doctor and still scopes to self", async () => {
+      const res = await request(app)
+        .get('/api/v1/appointments/list')
+        .query({ doctorId: otherDoctorId, limit: 100 })
+        .set('Authorization', `Bearer ${doctorToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.every((a: any) => a.doctor_id === doctorId)).toBe(true);
+    });
+
+    it('rejects a Doctor changing another doctor\'s appointment status', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/appointments/${otherDoctorAppointmentId}/status`)
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ status: 'Called' });
+      expect(res.status).toBe(403);
+    });
+
+    it('rejects a Doctor skipping another doctor\'s appointment', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/appointments/${otherDoctorAppointmentId}/skip`)
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ reason: 'Not my patient' });
+      expect(res.status).toBe(403);
+    });
+
+    it('lets a Doctor update their own appointment status', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/appointments/${ownAppointmentId}/status`)
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ status: 'Called' });
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('Called');
+    });
+
+    it("still lets Admin manage any doctor's appointment (unrestricted, as before)", async () => {
+      const res = await request(app)
+        .patch(`/api/v1/appointments/${otherDoctorAppointmentId}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ status: 'Called' });
+      expect(res.status).toBe(200);
+    });
+
+    it('returns 404 for a non-existent appointment', async () => {
+      const res = await request(app)
+        .patch('/api/v1/appointments/999999/status')
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ status: 'Called' });
+      expect(res.status).toBe(404);
+    });
+
+    it('skips a patient with a required reason, then recalling clears it', async () => {
+      const skipRes = await request(app)
+        .patch(`/api/v1/appointments/${ownAppointmentId}/skip`)
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ reason: 'Did not respond when called' });
+      expect(skipRes.status).toBe(200);
+      expect(skipRes.body.status).toBe('Skipped');
+      expect(skipRes.body.skip_reason).toBe('Did not respond when called');
+
+      const missingReasonRes = await request(app)
+        .patch(`/api/v1/appointments/${ownAppointmentId}/skip`)
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({});
+      expect(missingReasonRes.status).toBe(400);
+
+      const recallRes = await request(app)
+        .patch(`/api/v1/appointments/${ownAppointmentId}/status`)
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ status: 'Waiting' });
+      expect(recallRes.status).toBe(200);
+      expect(recallRes.body.status).toBe('Waiting');
+      expect(recallRes.body.skip_reason).toBeNull();
+    });
+  });
+
+  describe('GET /appointments/queue/stats', () => {
+    it("returns queue KPIs scoped to the calling doctor's own queue", async () => {
+      const res = await request(app).get('/api/v1/appointments/queue/stats').set('Authorization', `Bearer ${doctorToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('totalInQueue');
+      expect(res.body).toHaveProperty('waitingOver30');
+      expect(res.body).toHaveProperty('inConsultation');
+      expect(res.body).toHaveProperty('completedToday');
+      expect(res.body).toHaveProperty('avgWaitingTimeMinutes');
+      expect(res.body).toHaveProperty('longestWaitingTimeMinutes');
     });
   });
 });

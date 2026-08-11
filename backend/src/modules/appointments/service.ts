@@ -1,6 +1,21 @@
 import { PrismaClient, Prisma } from '@prisma/client';
+import { NotFoundError, ForbiddenError } from './errors';
 
 const prisma = new PrismaClient();
+
+interface Actor {
+  user_id: number;
+  role: string;
+}
+
+// A Doctor may only act on their own appointments (FR-029/BR-05, "own queue only") — every
+// other role's access is unchanged from before this check existed, since only Doctor callers
+// have an ownership concept here at all.
+const assertDoctorOwnsIfDoctor = (actor: Actor, doctorId: number) => {
+  if (actor.role === 'Doctor' && actor.user_id !== doctorId) {
+    throw new ForbiddenError('You can only manage your own queue');
+  }
+};
 
 const patientSelect = { full_name: true, gender: true, dob: true, phone: true, patient_id: true } as const;
 const doctorSelect = { user_id: true, username: true, registration_number: true } as const;
@@ -52,14 +67,57 @@ export class AppointmentsService {
   }
 
   /**
-   * Fetch the live queue for today
+   * Fetch the live queue for today — optionally scoped to one doctor (a Doctor caller is
+   * always scoped to themselves; other roles may pass doctorId to filter or omit it for all).
+   * Scoped to today's scheduled_at — without this, a stray appointment from days ago that was
+   * never moved out of Waiting/Called/Consulting (e.g. abandoned test data) would linger in
+   * "today's" queue forever, which is exactly the kind of thing a live queue must not show.
    */
-  async getLiveQueue() {
+  async getLiveQueue(doctorId?: number) {
+    const now = new Date();
     return prisma.appointment.findMany({
-      where: { status: { in: ACTIVE_STATUSES } },
-      include: { patient: { select: patientSelect }, doctor: { select: doctorSelect } },
+      where: {
+        status: { in: ACTIVE_STATUSES },
+        scheduled_at: { gte: startOfDay(now), lte: endOfDay(now) },
+        ...(doctorId ? { doctor_id: doctorId } : {}),
+      },
+      include: { patient: { select: patientSelect }, doctor: { select: doctorSelect }, consultation: { select: { created_at: true } } },
       orderBy: { scheduled_at: 'asc' },
     });
+  }
+
+  /**
+   * KPI row for the queue board: in-queue/waiting/consulting counts, today's completions, and
+   * waiting-time stats computed live from scheduled_at (there's no separate "arrived_at" — the
+   * whole app already treats scheduled_at as the arrival reference elsewhere, e.g. the doctor
+   * dashboard's "Today's Schedule").
+   */
+  async getQueueStats(doctorId?: number) {
+    const now = new Date();
+    const doctorFilter = doctorId ? { doctor_id: doctorId } : {};
+
+    const [active, completedToday] = await Promise.all([
+      prisma.appointment.findMany({
+        where: { status: { in: ACTIVE_STATUSES }, scheduled_at: { gte: startOfDay(now), lte: endOfDay(now) }, ...doctorFilter },
+        select: { status: true, scheduled_at: true },
+      }),
+      prisma.appointment.count({
+        where: { status: 'Completed', scheduled_at: { gte: startOfDay(now), lte: endOfDay(now) }, ...doctorFilter },
+      }),
+    ]);
+
+    const waitingMinutes = active
+      .filter((a) => a.status === 'Waiting' || a.status === 'Called')
+      .map((a) => Math.max(0, (now.getTime() - a.scheduled_at.getTime()) / 60000));
+
+    return {
+      totalInQueue: waitingMinutes.length,
+      waitingOver30: waitingMinutes.filter((m) => m > 30).length,
+      inConsultation: active.filter((a) => a.status === 'Consulting').length,
+      completedToday,
+      avgWaitingTimeMinutes: waitingMinutes.length ? Math.round(waitingMinutes.reduce((s, m) => s + m, 0) / waitingMinutes.length) : 0,
+      longestWaitingTimeMinutes: waitingMinutes.length ? Math.round(Math.max(...waitingMinutes)) : 0,
+    };
   }
 
   /**
@@ -223,12 +281,33 @@ export class AppointmentsService {
   }
 
   /**
-   * Update appointment status
+   * Update appointment status. A recall (back to Waiting from Skipped) clears any prior
+   * skip_reason — it's a fresh re-entry into the queue, not a continuation of the old skip.
    */
-  async updateStatus(appointment_id: number, status: string) {
+  async updateStatus(appointment_id: number, status: string, actor: Actor) {
+    const appointment = await prisma.appointment.findUnique({ where: { appointment_id } });
+    if (!appointment) throw new NotFoundError('Appointment not found');
+    assertDoctorOwnsIfDoctor(actor, appointment.doctor_id);
+
     return prisma.appointment.update({
       where: { appointment_id },
-      data: { status },
+      data: { status, ...(status === 'Waiting' && appointment.status === 'Skipped' ? { skip_reason: null } : {}) },
+      include: { patient: { select: patientSelect }, doctor: { select: doctorSelect } },
+    });
+  }
+
+  /**
+   * Skip a called-but-unresponsive patient with a required reason (FR-029) — the patient
+   * re-enters the queue later via updateStatus(..., 'Waiting'), not dropped from it.
+   */
+  async skipAppointment(appointment_id: number, reason: string, actor: Actor) {
+    const appointment = await prisma.appointment.findUnique({ where: { appointment_id } });
+    if (!appointment) throw new NotFoundError('Appointment not found');
+    assertDoctorOwnsIfDoctor(actor, appointment.doctor_id);
+
+    return prisma.appointment.update({
+      where: { appointment_id },
+      data: { status: 'Skipped', skip_reason: reason },
       include: { patient: { select: patientSelect }, doctor: { select: doctorSelect } },
     });
   }
