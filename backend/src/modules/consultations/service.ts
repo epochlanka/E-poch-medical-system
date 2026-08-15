@@ -248,6 +248,8 @@ interface ListConsultationsFilters {
   from?: Date;
   to?: Date;
   diagnosisKeyword?: string;
+  search?: string;
+  followUpOnly?: boolean;
   page?: number;
   limit?: number;
 }
@@ -259,15 +261,21 @@ export const listConsultations = async (filters: ListConsultationsFilters) => {
   const where: Prisma.ConsultationWhereInput = {};
   if (filters.status) where.status = filters.status;
   if (filters.diagnosisKeyword) where.diagnosis = { contains: filters.diagnosisKeyword };
+  if (filters.followUpOnly) where.follow_up_date = { not: null };
   if (filters.from || filters.to) {
     where.created_at = { ...(filters.from ? { gte: filters.from } : {}), ...(filters.to ? { lte: filters.to } : {}) };
   }
-  if (filters.patientId || filters.doctorId) {
+  if (filters.patientId || filters.doctorId || filters.search) {
     where.appointment = {
       ...(filters.patientId ? { patient_id: filters.patientId } : {}),
       ...(filters.doctorId ? { doctor_id: filters.doctorId } : {}),
+      ...(filters.search
+        ? { OR: [{ patient: { full_name: { contains: filters.search } } }, { patient: { patient_id: { contains: filters.search } } }] }
+        : {}),
     };
   }
+
+  const patientSelect = { patient_id: true, full_name: true, gender: true, dob: true, phone: true, photo_url: true } as const;
 
   const [total, consultations] = await Promise.all([
     prisma.consultation.count({ where }),
@@ -279,7 +287,7 @@ export const listConsultations = async (filters: ListConsultationsFilters) => {
       include: {
         appointment: {
           include: {
-            patient: { select: { patient_id: true, full_name: true } },
+            patient: { select: patientSelect },
             doctor: { select: { user_id: true, username: true } },
           },
         },
@@ -288,15 +296,25 @@ export const listConsultations = async (filters: ListConsultationsFilters) => {
   ]);
 
   return {
+    // patientId/patientName stay flat (existing consumers, e.g. the admin app's Consultations
+    // Queue and New Invoice modal, already depend on this shape) — everything else here is
+    // purely additive so those callers are unaffected by ignoring the new fields.
     data: consultations.map((c) => ({
       consultationId: c.consultation_id,
       appointmentId: c.appointment_id,
       status: c.status,
+      complaint: c.complaint,
       diagnosis: c.diagnosis,
+      icd10Code: c.icd10_code,
+      notes: c.notes,
       createdAt: c.created_at,
       followUpDate: c.follow_up_date,
       patientId: c.appointment.patient.patient_id,
       patientName: c.appointment.patient.full_name,
+      patientGender: c.appointment.patient.gender,
+      patientDob: c.appointment.patient.dob,
+      patientPhone: c.appointment.patient.phone,
+      patientPhotoUrl: c.appointment.patient.photo_url,
       doctorId: c.appointment.doctor.user_id,
       doctorName: c.appointment.doctor.username,
     })),

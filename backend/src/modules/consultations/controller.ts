@@ -139,16 +139,28 @@ export const deleteDocument = async (req: Request, res: Response) => {
   }
 };
 
+// A Doctor caller is always scoped to their own consultations, regardless of any doctorId
+// query param they might pass — mirrors appointments controller's doctorScope helper. Other
+// roles may use doctorId to filter, or omit it to see every doctor's consultations.
+const doctorScope = (req: Request): number | undefined => {
+  const user = req.user as any as { user_id: number; role: string };
+  if (user?.role === 'Doctor') return user.user_id;
+  const queryDoctorId = req.query.doctorId;
+  return queryDoctorId ? Number(queryDoctorId) : undefined;
+};
+
 export const list = async (req: Request, res: Response) => {
   try {
-    const { patientId, doctorId, status, from, to, diagnosisKeyword, page, limit } = req.query as any;
+    const { patientId, status, from, to, diagnosisKeyword, search, followUpOnly, page, limit } = req.query as any;
     const result = await service.listConsultations({
       patientId,
-      doctorId: doctorId ? Number(doctorId) : undefined,
+      doctorId: doctorScope(req),
       status,
       from: from ? new Date(from) : undefined,
       to: to ? new Date(to) : undefined,
       diagnosisKeyword,
+      search,
+      followUpOnly: followUpOnly === true || followUpOnly === 'true',
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });

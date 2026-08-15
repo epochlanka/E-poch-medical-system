@@ -174,6 +174,85 @@ export const getFollowUpsDue = async (doctorId?: number) => {
   }));
 };
 
+const endOfMonth = (date = new Date()) => endOfDay(new Date(date.getFullYear(), date.getMonth() + 1, 0));
+
+/**
+ * Full Follow-ups Due page: every Finalized consultation with a follow-up date set, doctor-scoped,
+ * bucketed the same "due by X" cumulative way getDoctorDashboard's followUpsDueCount already does
+ * (each wider window includes everything narrower, including anything overdue) — not mutually
+ * exclusive slices, so a pie/donut isn't the right chart for these; percentages are "of total".
+ */
+export const getFollowUpsList = async (filters: { doctorId?: number; bucket?: 'all' | 'overdue' | 'today' | 'week' | 'month'; search?: string; page?: number; limit?: number }) => {
+  const todayStart = startOfDay();
+  const todayEnd = endOfDay();
+  const weekEnd = endOfDay(addDays(todayStart, 6));
+  const monthEnd = endOfMonth();
+
+  const all = await prisma.consultation.findMany({
+    where: {
+      status: 'Finalized',
+      follow_up_date: { not: null },
+      ...(filters.doctorId ? { appointment: { doctor_id: filters.doctorId } } : {}),
+      ...(filters.search
+        ? {
+            appointment: {
+              ...(filters.doctorId ? { doctor_id: filters.doctorId } : {}),
+              OR: [{ patient: { full_name: { contains: filters.search } } }, { patient: { patient_id: { contains: filters.search } } }],
+            },
+          }
+        : {}),
+    },
+    include: {
+      appointment: {
+        include: {
+          patient: { select: { patient_id: true, full_name: true, gender: true, dob: true, phone: true, photo_url: true } },
+          doctor: { select: { user_id: true, username: true } },
+        },
+      },
+    },
+    orderBy: { follow_up_date: 'asc' },
+  });
+
+  const counts = {
+    total: all.length,
+    overdue: all.filter((c) => (c.follow_up_date as Date) < todayStart).length,
+    dueToday: all.filter((c) => (c.follow_up_date as Date) >= todayStart && (c.follow_up_date as Date) <= todayEnd).length,
+    dueThisWeek: all.filter((c) => (c.follow_up_date as Date) <= weekEnd).length,
+    dueThisMonth: all.filter((c) => (c.follow_up_date as Date) <= monthEnd).length,
+  };
+
+  const bucketed =
+    filters.bucket === 'overdue'
+      ? all.filter((c) => (c.follow_up_date as Date) < todayStart)
+      : filters.bucket === 'today'
+        ? all.filter((c) => (c.follow_up_date as Date) >= todayStart && (c.follow_up_date as Date) <= todayEnd)
+        : filters.bucket === 'week'
+          ? all.filter((c) => (c.follow_up_date as Date) <= weekEnd)
+          : filters.bucket === 'month'
+            ? all.filter((c) => (c.follow_up_date as Date) <= monthEnd)
+            : all;
+
+  const page = filters.page && filters.page > 0 ? filters.page : 1;
+  const limit = filters.limit && filters.limit > 0 && filters.limit <= 100 ? filters.limit : 10;
+  const pageRows = bucketed.slice((page - 1) * limit, (page - 1) * limit + limit);
+
+  return {
+    data: pageRows.map((c) => ({
+      consultationId: c.consultation_id,
+      appointmentId: c.appointment_id,
+      followUpDate: c.follow_up_date,
+      lastVisitDate: c.created_at,
+      diagnosis: c.diagnosis,
+      complaint: c.complaint,
+      patient: c.appointment.patient,
+      doctorId: c.appointment.doctor.user_id,
+      doctorName: c.appointment.doctor.username,
+    })),
+    pagination: { page, limit, total: bucketed.length, totalPages: Math.max(1, Math.ceil(bucketed.length / limit)) },
+    counts,
+  };
+};
+
 type Alert = {
   type: 'low-stock' | 'expiring-batch' | 'expired-batch' | 'skipped-appointment';
   severity: 'red' | 'amber';

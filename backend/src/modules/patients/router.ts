@@ -97,6 +97,8 @@ const listSchema = z.object({
     status: z.enum(['active', 'inactive', 'all']).optional(),
     gender: z.string().optional(),
     bloodGroup: z.string().optional(),
+    ageFrom: z.coerce.number().int().min(0).optional(),
+    ageTo: z.coerce.number().int().min(0).optional(),
     page: z.coerce.number().int().positive().optional(),
     limit: z.coerce.number().int().positive().optional(),
   }),

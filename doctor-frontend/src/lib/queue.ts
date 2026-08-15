@@ -24,6 +24,7 @@ export interface QueueAppointment {
   reason: string | null;
   status: AppointmentStatus;
   skip_reason: string | null;
+  skipped_at: string | null;
   patient: QueuePatient;
   doctor: QueueDoctor;
   consultation?: { created_at: string } | null;
@@ -49,6 +50,8 @@ export interface ListAppointmentsParams {
   search?: string;
   status?: AppointmentStatus | 'Upcoming';
   date?: string;
+  dateFrom?: string;
+  dateTo?: string;
   page?: number;
   limit?: number;
 }
@@ -68,6 +71,16 @@ export const updateAppointmentStatus = (appointmentId: number, status: Appointme
 
 export const skipAppointment = (appointmentId: number, reason: string) =>
   api.patch<QueueAppointment>(`/appointments/${appointmentId}/skip`, { reason }).then((r) => r.data);
+
+export interface SkipStats {
+  totalSkipped: number;
+  skippedToday: number;
+  skippedOver30: number;
+  longestSkippedWaitMinutes: number;
+}
+
+export const getSkipStats = (params?: { dateFrom?: string; dateTo?: string }) =>
+  api.get<SkipStats>('/appointments/skip-stats', { params }).then((r) => r.data);
 
 export const tokenNumber = (appointmentId: number) => `T-${String(appointmentId).padStart(3, '0')}`;
 

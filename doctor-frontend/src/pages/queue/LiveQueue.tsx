@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import {
   getLiveQueue,
@@ -53,6 +54,7 @@ const TABS: { key: Tab; label: string }[] = [
 
 const LiveQueue = () => {
   useNow(30000);
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>('live');
   const [skipTarget, setSkipTarget] = useState<QueueAppointment | null>(null);
   const [showAllRows, setShowAllRows] = useState(false);
@@ -203,7 +205,10 @@ const LiveQueue = () => {
                                 className="pat-btn primary"
                                 style={{ fontSize: 12, padding: '6px 12px' }}
                                 disabled={busyId === a.appointment_id}
-                                onClick={() => runAction(a.appointment_id, () => updateAppointmentStatus(a.appointment_id, 'Consulting'))}
+                                onClick={async () => {
+                                  await runAction(a.appointment_id, () => updateAppointmentStatus(a.appointment_id, 'Consulting'));
+                                  navigate(`/consultations/workspace/${a.appointment_id}`);
+                                }}
                               >
                                 Start Consultation
                               </button>

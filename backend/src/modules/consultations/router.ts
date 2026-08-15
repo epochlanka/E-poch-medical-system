@@ -76,6 +76,8 @@ const listSchema = z.object({
     from: z.coerce.date().optional(),
     to: z.coerce.date().optional(),
     diagnosisKeyword: z.string().optional(),
+    search: z.string().optional(),
+    followUpOnly: z.coerce.boolean().optional(),
     page: z.coerce.number().int().positive().optional(),
     limit: z.coerce.number().int().positive().optional(),
   }),

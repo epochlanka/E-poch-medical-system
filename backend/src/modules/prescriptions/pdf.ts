@@ -32,7 +32,14 @@ export const streamPrescriptionPdf = (prescription: any, res: Response) => {
     doc.fontSize(11).text(`${item.medicine.name}${item.medicine.generic_name ? ` (${item.medicine.generic_name})` : ''} — Qty ${item.qty}`);
     const parts = [item.dosage, item.frequency, item.duration, item.route].filter(Boolean);
     if (parts.length) doc.fontSize(10).fillColor('#555').text(parts.join(' · '), { indent: 15 });
+    if (item.instructions) doc.fontSize(10).fillColor('#555').text(item.instructions, { indent: 15 });
     doc.fillColor('black').moveDown(0.5);
+  }
+
+  if (prescription.notes) {
+    doc.moveDown(0.5);
+    doc.fontSize(11).text('Notes to Pharmacist:', { underline: true });
+    doc.fontSize(10).text(prescription.notes);
   }
 
   doc.moveDown();

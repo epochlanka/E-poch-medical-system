@@ -1,0 +1,197 @@
+.pat-clickable-row {
+  cursor: pointer;
+}
+.pat-clickable-row.selected {
+  background: #eff6ff;
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+.pat-clickable-row.selected td:first-child {
+  font-weight: 700;
+  color: #2563eb;
+}
+
+/* ---- Patient banner ---- */
+.pth-banner {
+  background: white;
+  border: 1px solid #e7ebf3;
+  border-radius: 16px;
+  padding: 18px;
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.pth-banner-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 20px;
+  flex: 1;
+  min-width: 220px;
+}
+
+/* ---- Tabs (horizontal scroll on small widths) ---- */
+.pth-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid #e7ebf3;
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+.pth-tab {
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pth-tab:hover {
+  color: #1e293b;
+}
+.pth-tab.active {
+  color: #2563eb;
+  border-bottom-color: #2563eb;
+}
+
+/* ---- Timeline ---- */
+.pth-timeline {
+  position: relative;
+  padding-left: 34px;
+}
+.pth-timeline::before {
+  content: '';
+  position: absolute;
+  left: 15px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  background: #eef1f7;
+}
+.pth-timeline-item {
+  position: relative;
+  padding-bottom: 22px;
+}
+.pth-timeline-item:last-child {
+  padding-bottom: 0;
+}
+.pth-timeline-dot {
+  position: absolute;
+  left: -34px;
+  top: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid white;
+  box-shadow: 0 0 0 1px #eef1f7;
+}
+.pth-timeline-card {
+  background: #fbfcfe;
+  border: 1px solid #eef1f7;
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.pth-timeline-date {
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+}
+.pth-timeline-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-top: 2px;
+}
+.pth-timeline-desc {
+  font-size: 12.5px;
+  color: #64748b;
+  margin-top: 3px;
+}
+
+/* ---- Sidebar cards ---- */
+.pth-side-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 12px;
+}
+.pth-chip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pth-chip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12.5px;
+}
+.pth-chip-row.allergy {
+  background: #fef2f2;
+}
+.pth-chip-row.condition {
+  background: #eff6ff;
+}
+.pth-chip-row.medication {
+  background: #f0fdf4;
+}
+.pth-chip-main {
+  font-weight: 600;
+  color: #0f172a;
+}
+.pth-chip-sub {
+  font-size: 11px;
+  color: #94a3b8;
+}
+.pth-followup-box {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.pth-followup-date {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1d4ed8;
+}
+
+/* ---- Simple flat list rows (Consultations / Prescriptions / Documents / Vitals / Notes tabs) ---- */
+.pth-list-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 13px;
+}
+.pth-list-row:last-child {
+  border-bottom: none;
+}
+
+@media (max-width: 720px) {
+  .pth-banner-fields {
+    grid-template-columns: 1fr;
+  }
+}

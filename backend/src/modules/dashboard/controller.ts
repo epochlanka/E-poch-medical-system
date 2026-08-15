@@ -3,6 +3,7 @@ import {
   getOverview,
   getQueueSnapshot,
   getFollowUpsDue,
+  getFollowUpsList,
   getAlerts,
   getRevenueTrend,
   getRecentPrescriptions,
@@ -53,6 +54,25 @@ export const followUpsDue = async (req: Request, res: Response) => {
   } catch (error: any) {
     req.log.error(error);
     res.status(500).json({ message: 'Failed to load follow-ups due' });
+  }
+};
+
+const VALID_BUCKETS = ['all', 'overdue', 'today', 'week', 'month'];
+
+export const followUpsList = async (req: Request, res: Response) => {
+  try {
+    const bucket = VALID_BUCKETS.includes(String(req.query.bucket)) ? (req.query.bucket as any) : 'all';
+    const data = await getFollowUpsList({
+      doctorId: doctorScope(req),
+      bucket,
+      search: req.query.search ? String(req.query.search) : undefined,
+      page: req.query.page ? Number(req.query.page) : undefined,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+    });
+    res.status(200).json(data);
+  } catch (error: any) {
+    req.log.error(error);
+    res.status(500).json({ message: 'Failed to load follow-ups list' });
   }
 };
 

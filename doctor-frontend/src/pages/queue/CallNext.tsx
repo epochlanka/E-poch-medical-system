@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import {
   getLiveQueue,
@@ -54,6 +55,7 @@ type StatusFilter = 'all' | 'waiting' | 'called';
 
 const CallNext = () => {
   useNow(30000);
+  const navigate = useNavigate();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [skipTarget, setSkipTarget] = useState<QueueAppointment | null>(null);
   const [showAllRows, setShowAllRows] = useState(false);
@@ -212,7 +214,10 @@ const CallNext = () => {
                               className="pat-btn primary"
                               style={{ fontSize: 12, padding: '6px 12px' }}
                               disabled={busyId === a.appointment_id}
-                              onClick={() => runAction(a.appointment_id, () => updateAppointmentStatus(a.appointment_id, 'Consulting'))}
+                              onClick={async () => {
+                                await runAction(a.appointment_id, () => updateAppointmentStatus(a.appointment_id, 'Consulting'));
+                                navigate(`/consultations/workspace/${a.appointment_id}`);
+                              }}
                             >
                               Start Consultation
                             </button>

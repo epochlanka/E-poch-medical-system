@@ -92,6 +92,7 @@ model Appointment {
   reason         String?  // reason for visit, captured at booking time
   status         String   @default("Waiting") // Waiting, Called, Consulting, Completed, Skipped, Cancelled, No Show
   skip_reason    String?  // captured when a doctor skips a called-but-unresponsive patient (FR-029); cleared on recall
+  skipped_at     DateTime? // when the skip happened; cleared alongside skip_reason on recall
   created_by     Int
   
   patient        Patient  @relation(fields: [patient_id], references: [patient_id])
@@ -170,6 +171,7 @@ model Prescription {
   status          String    @default("Pending") // Pending, Preparing, Dispensed, Collected
   is_refill       Boolean   @default(false)
   refill_of_id    Int?
+  notes           String?   // free-text instructions for the pharmacist, e.g. counseling points
   issued_at       DateTime  @default(now())
 
   consultation    Consultation @relation(fields: [consultation_id], references: [consultation_id])
@@ -186,6 +188,7 @@ model PrescriptionItem {
   frequency               String?
   duration                String?
   route                   String?
+  instructions            String? // per-medicine note distinct from dosage/frequency, e.g. "after food"
   qty                     Int
   batch_id                Int?
   substituted_medicine_id Int?

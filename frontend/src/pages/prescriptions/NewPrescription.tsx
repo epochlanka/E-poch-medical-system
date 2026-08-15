@@ -177,6 +177,7 @@ const NewPrescription = () => {
         items: buildItemsInput(),
         refill_of_prescription_id: prescriptionType === 'repeat' && repeatFromId ? repeatFromId : undefined,
         allergyAck,
+        notes: notes || undefined,
       });
       localStorage.removeItem(draftKey(id));
       navigate(`/prescriptions/${res.data.prescription_id}`);

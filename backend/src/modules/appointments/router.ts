@@ -52,8 +52,17 @@ const listAppointmentsSchema = z.object({
     // (write context) — it's a virtual grouping, never a status an appointment is set to.
     status: z.enum([...APPOINTMENT_STATUSES, 'Upcoming']).optional(),
     date: z.coerce.date().optional(),
+    dateFrom: z.coerce.date().optional(),
+    dateTo: z.coerce.date().optional(),
     page: z.coerce.number().int().positive().optional(),
     limit: z.coerce.number().int().positive().optional()
+  })
+});
+
+const skipStatsSchema = z.object({
+  query: z.object({
+    dateFrom: z.coerce.date().optional(),
+    dateTo: z.coerce.date().optional()
   })
 });
 
@@ -74,6 +83,7 @@ router.get('/today-schedule', appointmentsController.getTodaysSchedule);
 router.get('/calendar', validate(calendarSummarySchema), appointmentsController.getCalendarSummary);
 router.get('/queue', appointmentsController.getLiveQueue);
 router.get('/queue/stats', appointmentsController.getQueueStats);
+router.get('/skip-stats', validate(skipStatsSchema), appointmentsController.getSkipStats);
 router.get('/doctors', appointmentsController.getDoctors);
 router.get('/list', validate(listAppointmentsSchema), appointmentsController.listAppointments);
 

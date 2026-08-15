@@ -25,20 +25,31 @@ const parseDateRange = (req: Request) => {
   return { from: from ? new Date(from) : undefined, to: to ? new Date(to) : undefined };
 };
 
+// Content-Disposition filenames must be ASCII-safe — report titles can contain an em dash
+// (e.g. "Consultations by Diagnosis — doctor") which is not a valid raw header character.
+const fileSlug = (title: string) =>
+  title
+    .normalize('NFKD')
+    .replace(/[^\x20-\x7E]/g, '')
+    .trim()
+    .replace(/\s+/g, '_')
+    .toLowerCase();
+
 // Every report goes through this so json/csv/pdf stay consistent for every endpoint below.
 const respond = (req: Request, res: Response, payload: ReportPayload) => {
   const format = parseFormat(req);
   const who = actor(req).username;
+  const slug = fileSlug(payload.title);
 
   if (format === 'csv') {
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="${payload.title.replace(/\s+/g, '_').toLowerCase()}.csv"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${slug}.csv"`);
     return res.status(200).send(toCsv(payload.columns, payload.rows));
   }
 
   if (format === 'pdf') {
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${payload.title.replace(/\s+/g, '_').toLowerCase()}.pdf"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${slug}.pdf"`);
     return streamReportPdf(payload, who, res);
   }
 
@@ -110,6 +121,67 @@ export const doctorFollowUpsDue = async (req: Request, res: Response) => {
     const requestedDoctorId = req.query.doctorId ? Number(req.query.doctorId) : undefined;
     const doctorId = who.role === 'Doctor' ? who.user_id : requestedDoctorId;
     const result = await service.getDoctorFollowUpsDueReport(doctorId);
+    respond(req, res, result);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const doctorPrescriptions = async (req: Request, res: Response) => {
+  try {
+    const who = actor(req);
+    const requestedDoctorId = req.query.doctorId ? Number(req.query.doctorId) : undefined;
+    const doctorId = who.role === 'Doctor' ? who.user_id : requestedDoctorId;
+    const result = await service.getDoctorPrescriptionsReport({ ...parseDateRange(req), doctorId });
+    respond(req, res, result);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const doctorDiagnoses = async (req: Request, res: Response) => {
+  try {
+    const who = actor(req);
+    const requestedDoctorId = req.query.doctorId ? Number(req.query.doctorId) : undefined;
+    const doctorId = who.role === 'Doctor' ? who.user_id : requestedDoctorId;
+    const result = await service.getDoctorDiagnosesReport({ ...parseDateRange(req), doctorId });
+    respond(req, res, result);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const doctorPatientVisits = async (req: Request, res: Response) => {
+  try {
+    const who = actor(req);
+    const requestedDoctorId = req.query.doctorId ? Number(req.query.doctorId) : undefined;
+    const doctorId = who.role === 'Doctor' ? who.user_id : requestedDoctorId;
+    const result = await service.getDoctorPatientVisitsReport({ ...parseDateRange(req), doctorId });
+    respond(req, res, result);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const doctorTopMedicines = async (req: Request, res: Response) => {
+  try {
+    const who = actor(req);
+    const requestedDoctorId = req.query.doctorId ? Number(req.query.doctorId) : undefined;
+    const doctorId = who.role === 'Doctor' ? who.user_id : requestedDoctorId;
+    const { limit } = req.query as any;
+    const result = await service.getDoctorTopMedicinesReport({ ...parseDateRange(req), doctorId, limit: limit ? Number(limit) : undefined });
+    respond(req, res, result);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const doctorAppointments = async (req: Request, res: Response) => {
+  try {
+    const who = actor(req);
+    const requestedDoctorId = req.query.doctorId ? Number(req.query.doctorId) : undefined;
+    const doctorId = who.role === 'Doctor' ? who.user_id : requestedDoctorId;
+    const result = await service.getDoctorAppointmentsReport({ ...parseDateRange(req), doctorId });
     respond(req, res, result);
   } catch (error) {
     handleError(req, res, error);

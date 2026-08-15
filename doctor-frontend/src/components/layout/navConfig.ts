@@ -9,7 +9,6 @@ import {
   ClockIcon,
   PrescriptionIcon,
   SearchIcon,
-  FileIcon,
   ReportsIcon,
 } from './Icons';
 
@@ -36,36 +35,33 @@ export const navSections: NavSection[] = [
     items: [
       { label: 'Live Queue', path: '/queue/live', icon: CalendarIcon, implemented: true },
       { label: 'Call Next', path: '/queue/call-next', icon: PhoneIcon, implemented: true },
-      { label: 'Skip / Recall', path: '/queue/skip-recall', icon: RefreshIcon },
+      { label: 'Skip / Recall', path: '/queue/skip-recall', icon: RefreshIcon, implemented: true },
     ],
   },
   {
     label: 'Consultations',
     items: [
-      { label: 'Consultation Workspace', path: '/consultations/workspace', icon: ClipboardIcon },
-      { label: 'My Consultations', path: '/consultations/my', icon: StethoscopeIcon },
-      { label: 'Follow-ups Due', path: '/consultations/follow-ups', icon: ClockIcon },
+      { label: 'Consultation Workspace', path: '/consultations/workspace', icon: ClipboardIcon, implemented: true },
+      { label: 'My Consultations', path: '/consultations/my', icon: StethoscopeIcon, implemented: true },
+      { label: 'Follow-ups Due', path: '/consultations/follow-ups', icon: ClockIcon, implemented: true },
     ],
   },
   {
     label: 'Prescriptions',
     items: [
-      { label: 'New Prescription', path: '/prescriptions/new', icon: PrescriptionIcon },
-      { label: 'My Prescriptions', path: '/prescriptions/my', icon: PrescriptionIcon },
-      { label: 'Repeat Prescriptions', path: '/prescriptions/repeat', icon: RefreshIcon },
+      { label: 'New Prescription', path: '/prescriptions/new', icon: PrescriptionIcon, implemented: true },
+      { label: 'My Prescriptions', path: '/prescriptions/my', icon: PrescriptionIcon, implemented: true },
+      { label: 'Repeat Prescriptions', path: '/prescriptions/repeat', icon: RefreshIcon, implemented: true },
     ],
   },
   {
     label: 'Patients (Read Only)',
-    items: [
-      { label: 'Patient Search', path: '/patients/search', icon: SearchIcon },
-      { label: 'Patient History', path: '/patients/history', icon: FileIcon },
-    ],
+    items: [{ label: 'Patient Search', path: '/patients/search', icon: SearchIcon, implemented: true }],
   },
   {
     label: 'Reports',
     items: [
-      { label: 'My Reports', path: '/reports/my', icon: ReportsIcon },
+      { label: 'My Reports', path: '/reports/my', icon: ReportsIcon, implemented: true },
       { label: 'Clinical Statistics', path: '/reports/clinical-statistics', icon: ReportsIcon },
     ],
   },

@@ -20,6 +20,7 @@ interface PrescriptionItemInput {
   frequency?: string;
   duration?: string;
   route?: string;
+  instructions?: string;
   qty: number;
 }
 
@@ -28,6 +29,7 @@ interface CreatePrescriptionInput {
   items?: PrescriptionItemInput[];
   refill_of_prescription_id?: number;
   allergyAck?: boolean;
+  notes?: string;
 }
 
 const stockStatusFor = (medicine: { reorder_level: number; batches: { qty_on_hand: number; expiry_date: Date }[] }, qty: number) => {
@@ -68,6 +70,7 @@ export const createPrescription = async (input: CreatePrescriptionInput, actor: 
         frequency: i.frequency ?? undefined,
         duration: i.duration ?? undefined,
         route: i.route ?? undefined,
+        instructions: i.instructions ?? undefined,
         qty: i.qty,
       }));
     }
@@ -121,6 +124,7 @@ export const createPrescription = async (input: CreatePrescriptionInput, actor: 
         consultation_id: input.consultation_id,
         is_refill: !!input.refill_of_prescription_id,
         refill_of_id: input.refill_of_prescription_id,
+        notes: input.notes,
         items: {
           create: items!.map((i) => ({
             medicine_id: i.medicine_id,
@@ -128,6 +132,7 @@ export const createPrescription = async (input: CreatePrescriptionInput, actor: 
             frequency: i.frequency,
             duration: i.duration,
             route: i.route,
+            instructions: i.instructions,
             qty: i.qty,
           })),
         },
@@ -143,7 +148,7 @@ export const createPrescription = async (input: CreatePrescriptionInput, actor: 
 };
 
 export const getPrescriptionById = async (id: number) => {
-  return prisma.prescription.findUnique({
+  const prescription = await prisma.prescription.findUnique({
     where: { prescription_id: id },
     include: {
       items: { include: { medicine: true, batch: true, substituted_medicine: true } },
@@ -151,6 +156,19 @@ export const getPrescriptionById = async (id: number) => {
       refill_of: { select: { prescription_id: true, issued_at: true } },
     },
   });
+  if (!prescription) return null;
+
+  // Same "has this patient been seen before" signal used by the New Prescription builder's
+  // Visit Type badge — computed here too since the prescription detail view shows it as well.
+  const priorVisitCount = await prisma.consultation.count({
+    where: {
+      status: 'Finalized',
+      appointment: { patient_id: prescription.consultation.appointment.patient_id },
+      consultation_id: { not: prescription.consultation_id },
+    },
+  });
+
+  return { ...prescription, priorVisitCount };
 };
 
 interface ListPrescriptionsFilters {
@@ -158,6 +176,10 @@ interface ListPrescriptionsFilters {
   doctorId?: number;
   status?: string;
   medicineId?: number;
+  search?: string;
+  isRefill?: boolean;
+  from?: Date;
+  to?: Date;
   page?: number;
   limit?: number;
 }
@@ -169,14 +191,23 @@ export const listPrescriptions = async (filters: ListPrescriptionsFilters) => {
   const where: Prisma.PrescriptionWhereInput = {};
   if (filters.status) where.status = filters.status;
   if (filters.medicineId) where.items = { some: { medicine_id: filters.medicineId } };
-  if (filters.patientId || filters.doctorId) {
+  if (filters.isRefill !== undefined) where.is_refill = filters.isRefill;
+  if (filters.from || filters.to) {
+    where.issued_at = { ...(filters.from ? { gte: filters.from } : {}), ...(filters.to ? { lte: filters.to } : {}) };
+  }
+  if (filters.patientId || filters.doctorId || filters.search) {
     where.consultation = {
       appointment: {
         ...(filters.patientId ? { patient_id: filters.patientId } : {}),
         ...(filters.doctorId ? { doctor_id: filters.doctorId } : {}),
+        ...(filters.search
+          ? { OR: [{ patient: { full_name: { contains: filters.search } } }, { patient: { patient_id: { contains: filters.search } } }] }
+          : {}),
       },
     };
   }
+
+  const patientSelect = { patient_id: true, full_name: true, gender: true, dob: true, phone: true, photo_url: true } as const;
 
   const [total, prescriptions] = await Promise.all([
     prisma.prescription.count({ where }),
@@ -187,23 +218,78 @@ export const listPrescriptions = async (filters: ListPrescriptionsFilters) => {
       take: limit,
       include: {
         items: { include: { medicine: { select: { name: true } } } },
-        consultation: { include: { appointment: { include: { patient: { select: { patient_id: true, full_name: true } } } } } },
+        consultation: { include: { appointment: { include: { patient: { select: patientSelect }, doctor: { select: { user_id: true, username: true } } } } } },
       },
     }),
   ]);
 
   return {
+    // patientId/patientName stay flat (existing consumers, e.g. the admin app's Prescriptions
+    // Queue, already depend on this shape) — everything else here is purely additive.
     data: prescriptions.map((rx) => ({
       prescriptionId: rx.prescription_id,
       code: `RX${String(rx.prescription_id).padStart(6, '0')}`,
       status: rx.status,
       isRefill: rx.is_refill,
+      notes: rx.notes,
       issuedAt: rx.issued_at,
+      appointmentId: rx.consultation.appointment_id,
       patientId: rx.consultation.appointment.patient.patient_id,
       patientName: rx.consultation.appointment.patient.full_name,
-      items: rx.items.map((i) => ({ medicine: i.medicine.name, dosage: i.dosage, qty: i.qty })),
+      patientGender: rx.consultation.appointment.patient.gender,
+      patientDob: rx.consultation.appointment.patient.dob,
+      patientPhone: rx.consultation.appointment.patient.phone,
+      patientPhotoUrl: rx.consultation.appointment.patient.photo_url,
+      doctorId: rx.consultation.appointment.doctor.user_id,
+      doctorName: rx.consultation.appointment.doctor.username,
+      items: rx.items.map((i) => ({ medicine: i.medicine.name, dosage: i.dosage, qty: i.qty, dispensedAt: i.dispensed_at })),
     })),
     pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  };
+};
+
+const startOfMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1);
+const endOfMonth = (date: Date) => {
+  const d = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+  d.setHours(23, 59, 59, 999);
+  return d;
+};
+// Null means "no meaningful comparison" (last month was zero) rather than a fabricated 0%/100%.
+const changePct = (current: number, prior: number): number | null => {
+  if (prior === 0) return current === 0 ? 0 : null;
+  return Math.round(((current - prior) / prior) * 100);
+};
+
+export const getPrescriptionStats = async (doctorId?: number, isRefill?: boolean) => {
+  const now = new Date();
+  const monthStart = startOfMonth(now);
+  const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevMonthStart = startOfMonth(prevMonth);
+  const prevMonthEnd = endOfMonth(prevMonth);
+
+  const doctorFilter: Prisma.PrescriptionWhereInput = {
+    ...(doctorId ? { consultation: { appointment: { doctor_id: doctorId } } } : {}),
+    ...(isRefill !== undefined ? { is_refill: isRefill } : {}),
+  };
+
+  const [total, thisMonth, prevMonthCount, pending, preparing, dispensed, collected] = await Promise.all([
+    prisma.prescription.count({ where: doctorFilter }),
+    prisma.prescription.count({ where: { ...doctorFilter, issued_at: { gte: monthStart } } }),
+    prisma.prescription.count({ where: { ...doctorFilter, issued_at: { gte: prevMonthStart, lte: prevMonthEnd } } }),
+    prisma.prescription.count({ where: { ...doctorFilter, status: 'Pending' } }),
+    prisma.prescription.count({ where: { ...doctorFilter, status: 'Preparing' } }),
+    prisma.prescription.count({ where: { ...doctorFilter, status: 'Dispensed' } }),
+    prisma.prescription.count({ where: { ...doctorFilter, status: 'Collected' } }),
+  ]);
+
+  return {
+    total,
+    thisMonth,
+    thisMonthDeltaPct: changePct(thisMonth, prevMonthCount),
+    pending,
+    preparing,
+    dispensed,
+    collected,
   };
 };
 
@@ -252,6 +338,7 @@ export const getPrescriptionContext = async (consultationId: number) => {
       consultationId: consultation.consultation_id,
       status: consultation.status,
       diagnosis: consultation.diagnosis,
+      icd10Code: consultation.icd10_code,
     },
     appointment: {
       appointmentId: consultation.appointment.appointment_id,
@@ -263,12 +350,29 @@ export const getPrescriptionContext = async (consultationId: number) => {
     patientSummary: {
       allergies: consultation.appointment.patient.allergies,
       chronicConditions,
+      // Whether this patient has any other Finalized visit at all — lets the UI show
+      // "New Visit" vs "Return Visit" honestly, from the pastConsultations query already run
+      // for chronicConditions rather than a second lookup.
+      priorVisitCount: pastConsultations.length,
+      // The patient's most recent OTHER prescription's medicines — same "currently on" signal
+      // consultations/service.ts's getConsultationContext derives, just sourced from the
+      // pastPrescriptions query this function already runs rather than a second lookup.
+      currentMedications: pastPrescriptions[0]?.items.map((i) => i.medicine.name) ?? [],
     },
     pastPrescriptions: pastPrescriptions.map((rx) => ({
       prescriptionId: rx.prescription_id,
       code: `RX${String(rx.prescription_id).padStart(6, '0')}`,
       issuedAt: rx.issued_at,
-      items: rx.items.map((i) => ({ medicineId: i.medicine_id, medicine: i.medicine.name, dosage: i.dosage, frequency: i.frequency, duration: i.duration, route: i.route, qty: i.qty })),
+      items: rx.items.map((i) => ({
+        medicineId: i.medicine_id,
+        medicine: i.medicine.name,
+        dosage: i.dosage,
+        frequency: i.frequency,
+        duration: i.duration,
+        route: i.route,
+        instructions: i.instructions,
+        qty: i.qty,
+      })),
     })),
   };
 };

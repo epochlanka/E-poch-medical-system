@@ -17,6 +17,7 @@ const itemSchema = z.object({
   frequency: z.string().optional(),
   duration: z.string().optional(),
   route: z.string().optional(),
+  instructions: z.string().optional(),
   qty: z.number().int().positive(),
 });
 
@@ -27,6 +28,7 @@ const createSchema = z.object({
       items: z.array(itemSchema).min(1).optional(),
       refill_of_prescription_id: z.number().int().positive().optional(),
       allergyAck: z.boolean().optional(),
+      notes: z.string().optional(),
     })
     .refine((data) => !!data.items || !!data.refill_of_prescription_id, {
       message: 'Provide items, or refill_of_prescription_id to copy items from a prior prescription',
@@ -43,14 +45,27 @@ const listSchema = z.object({
     doctorId: z.coerce.number().int().positive().optional(),
     status: z.enum(['Pending', 'Preparing', 'Dispensed', 'Collected']).optional(),
     medicineId: z.coerce.number().int().positive().optional(),
+    search: z.string().optional(),
+    isRefill: z.coerce.boolean().optional(),
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
     page: z.coerce.number().int().positive().optional(),
     limit: z.coerce.number().int().positive().optional(),
   }),
 });
 
+const statsSchema = z.object({
+  query: z.object({
+    isRefill: z.coerce.boolean().optional(),
+  }),
+});
+
 const contextParamsSchema = z.object({ params: z.object({ consultationId: z.coerce.number().int().positive() }) });
 
+// Static-segment routes (/context/:x, /stats) are registered before the generic '/:prescriptionId'
+// catch-all, per this codebase's route-ordering convention.
 router.get('/context/:consultationId', requireRole(READ_ROLES), validate(contextParamsSchema), controller.context);
+router.get('/stats', requireRole(READ_ROLES), controller.stats);
 
 router.get('/', requireRole(READ_ROLES), validate(listSchema), controller.list);
 router.post('/', requireRole(WRITE_ROLES), validate(createSchema), controller.create);

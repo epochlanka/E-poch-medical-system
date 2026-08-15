@@ -20,12 +20,14 @@ const parseTypes = (types?: string) => (types ? (types.split(',').map((t) => t.t
 
 export const list = async (req: Request, res: Response) => {
   try {
-    const { search, status, gender, bloodGroup, page, limit } = req.query as any;
+    const { search, status, gender, bloodGroup, ageFrom, ageTo, page, limit } = req.query as any;
     const result = await service.listPatients({
       search,
       status,
       gender,
       bloodGroup,
+      ageFrom: ageFrom ? Number(ageFrom) : undefined,
+      ageTo: ageTo ? Number(ageTo) : undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });

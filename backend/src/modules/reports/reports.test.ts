@@ -140,6 +140,60 @@ describe('Reports API', () => {
       expect(res.status).toBe(200);
       expect(res.body.summary).toHaveProperty('overdue');
     });
+
+    it('scopes a doctor to their own prescriptions summary even if another doctorId is requested', async () => {
+      const res = await request(app)
+        .get('/api/v1/reports/doctor/prescriptions')
+        .query({ doctorId: 999999 })
+        .set('Authorization', `Bearer ${doctorToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.title).not.toContain('All Doctors');
+      expect(res.body.summary).toHaveProperty('totalPrescriptions');
+    });
+
+    it('returns consultations by diagnosis for a doctor', async () => {
+      const res = await request(app).get('/api/v1/reports/doctor/diagnoses').set('Authorization', `Bearer ${doctorToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.summary).toHaveProperty('distinctDiagnoses');
+    });
+
+    it('returns patient visit frequency for a doctor', async () => {
+      const res = await request(app).get('/api/v1/reports/doctor/patient-visits').set('Authorization', `Bearer ${doctorToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.summary).toHaveProperty('distinctPatients');
+    });
+
+    it('returns top prescribed medicines for a doctor', async () => {
+      const res = await request(app).get('/api/v1/reports/doctor/top-medicines').set('Authorization', `Bearer ${doctorToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.summary).toHaveProperty('totalUnitsPrescribed');
+    });
+
+    it('returns an appointment summary for a doctor', async () => {
+      const res = await request(app).get('/api/v1/reports/doctor/appointments').set('Authorization', `Bearer ${doctorToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.summary).toHaveProperty('attendanceRate');
+    });
+
+    it('lets admin view all-doctor prescription totals when no doctorId is given', async () => {
+      const res = await request(app).get('/api/v1/reports/doctor/prescriptions').set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.title).toContain('All Doctors');
+    });
+
+    it('rejects a pharmacist from the doctor prescriptions report', async () => {
+      const res = await request(app).get('/api/v1/reports/doctor/prescriptions').set('Authorization', `Bearer ${pharmacistToken}`);
+      expect(res.status).toBe(403);
+    });
+
+    it('exports the doctor diagnoses report as csv', async () => {
+      const res = await request(app)
+        .get('/api/v1/reports/doctor/diagnoses')
+        .query({ format: 'csv' })
+        .set('Authorization', `Bearer ${doctorToken}`);
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('text/csv');
+    });
   });
 
   describe('Pharmacist reports', () => {

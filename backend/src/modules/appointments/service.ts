@@ -143,6 +143,8 @@ export class AppointmentsService {
     doctorId?: number;
     status?: string;
     date?: Date;
+    dateFrom?: Date;
+    dateTo?: Date;
     page?: number;
     limit?: number;
   }) {
@@ -152,7 +154,14 @@ export class AppointmentsService {
     // i.e. any of the statuses the live queue itself treats as not-yet-resolved.
     if (filters.status === 'Upcoming') where.status = { in: ACTIVE_STATUSES };
     else if (filters.status) where.status = filters.status;
+    // `date` (single day) takes precedence when given; otherwise an open-ended dateFrom/dateTo
+    // range powers list views like Skip / Recall that filter across multiple days.
     if (filters.date) where.scheduled_at = { gte: startOfDay(filters.date), lte: endOfDay(filters.date) };
+    else if (filters.dateFrom || filters.dateTo)
+      where.scheduled_at = {
+        ...(filters.dateFrom ? { gte: startOfDay(filters.dateFrom) } : {}),
+        ...(filters.dateTo ? { lte: endOfDay(filters.dateTo) } : {}),
+      };
 
     if (filters.search) {
       const term = filters.search.trim();
@@ -291,7 +300,7 @@ export class AppointmentsService {
 
     return prisma.appointment.update({
       where: { appointment_id },
-      data: { status, ...(status === 'Waiting' && appointment.status === 'Skipped' ? { skip_reason: null } : {}) },
+      data: { status, ...(status === 'Waiting' && appointment.status === 'Skipped' ? { skip_reason: null, skipped_at: null } : {}) },
       include: { patient: { select: patientSelect }, doctor: { select: doctorSelect } },
     });
   }
@@ -307,9 +316,38 @@ export class AppointmentsService {
 
     return prisma.appointment.update({
       where: { appointment_id },
-      data: { status: 'Skipped', skip_reason: reason },
+      data: { status: 'Skipped', skip_reason: reason, skipped_at: new Date() },
       include: { patient: { select: patientSelect }, doctor: { select: doctorSelect } },
     });
+  }
+
+  /**
+   * KPI row for the Skip / Recall page. Recall clears skipped_at/skip_reason on the appointment
+   * itself (there's no separate skip-history log), so these figures only describe appointments
+   * still sitting in Skipped right now — there is no way to derive "recalled today" or "average
+   * recall time" without retaining a history the schema doesn't keep.
+   */
+  async getSkipStats(doctorId?: number, dateFrom?: Date, dateTo?: Date) {
+    const now = new Date();
+    const doctorFilter = doctorId ? { doctor_id: doctorId } : {};
+    const rangeFilter: Prisma.AppointmentWhereInput =
+      dateFrom || dateTo
+        ? { scheduled_at: { ...(dateFrom ? { gte: startOfDay(dateFrom) } : {}), ...(dateTo ? { lte: endOfDay(dateTo) } : {}) } }
+        : {};
+
+    const skipped = await prisma.appointment.findMany({
+      where: { status: 'Skipped', ...doctorFilter, ...rangeFilter },
+      select: { scheduled_at: true, skipped_at: true },
+    });
+
+    const waitMinutes = skipped.map((a) => Math.max(0, (now.getTime() - (a.skipped_at ?? a.scheduled_at).getTime()) / 60000));
+
+    return {
+      totalSkipped: skipped.length,
+      skippedToday: skipped.filter((a) => (a.skipped_at ?? a.scheduled_at) >= startOfDay(now) && (a.skipped_at ?? a.scheduled_at) <= endOfDay(now)).length,
+      skippedOver30: waitMinutes.filter((m) => m > 30).length,
+      longestSkippedWaitMinutes: waitMinutes.length ? Math.round(Math.max(...waitMinutes)) : 0,
+    };
   }
 
   /**

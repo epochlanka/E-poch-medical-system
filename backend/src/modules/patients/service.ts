@@ -158,9 +158,20 @@ interface ListPatientsFilters {
   status?: 'active' | 'inactive' | 'all';
   gender?: string;
   bloodGroup?: string;
+  ageFrom?: number;
+  ageTo?: number;
   page?: number;
   limit?: number;
 }
+
+// A person turns `age` on their birthday, so "at least ageFrom years old" means born on/before
+// today's date `ageFrom` years ago — i.e. dob <= that cutoff (older dob = higher age). The
+// ageTo bound is the mirror: dob must be after the cutoff for turning ageTo+1.
+const dobCutoffForMinAge = (age: number) => {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - age);
+  return d;
+};
 
 export const listPatients = async (filters: ListPatientsFilters) => {
   const page = filters.page && filters.page > 0 ? filters.page : 1;
@@ -171,6 +182,12 @@ export const listPatients = async (filters: ListPatientsFilters) => {
   else if (filters.status === 'inactive') where.is_active = false;
   if (filters.gender) where.gender = filters.gender;
   if (filters.bloodGroup) where.blood_group = filters.bloodGroup;
+  if (filters.ageFrom !== undefined || filters.ageTo !== undefined) {
+    where.dob = {
+      ...(filters.ageFrom !== undefined ? { lte: dobCutoffForMinAge(filters.ageFrom) } : {}),
+      ...(filters.ageTo !== undefined ? { gt: dobCutoffForMinAge(filters.ageTo + 1) } : {}),
+    };
+  }
 
   if (filters.search) {
     const term = filters.search.trim();
@@ -248,7 +265,41 @@ export const getPatientById = async (patientId: string) => {
   if (!patient) return null;
 
   const lastVisit = await prisma.appointment.aggregate({ _max: { scheduled_at: true }, where: { patient_id: patientId } });
-  return { ...patient, last_visit: lastVisit._max.scheduled_at ?? null };
+
+  // Same chronic-conditions/current-medications derivation consultations/service.ts and
+  // prescriptions/service.ts each already do for their own context calls — duplicated here
+  // rather than imported cross-module, per this codebase's convention for these small lookups.
+  const [pastConsultations, recentPrescription, nextFollowUp] = await Promise.all([
+    prisma.consultation.findMany({
+      where: { appointment: { patient_id: patientId }, status: 'Finalized' },
+      select: { medical_history_json: true },
+      take: 20,
+    }),
+    prisma.prescription.findFirst({
+      where: { consultation: { appointment: { patient_id: patientId } } },
+      include: { items: { include: { medicine: { select: { name: true } } } } },
+      orderBy: { issued_at: 'desc' },
+    }),
+    prisma.consultation.findFirst({
+      where: { appointment: { patient_id: patientId }, follow_up_date: { gte: new Date() } },
+      orderBy: { follow_up_date: 'asc' },
+      select: { follow_up_date: true, appointment: { select: { doctor: { select: { username: true } } } } },
+    }),
+  ]);
+
+  const chronicConditions = Array.from(
+    new Set(pastConsultations.flatMap((c) => (c.medical_history_json ? (JSON.parse(c.medical_history_json) as string[]) : [])))
+  );
+
+  return {
+    ...patient,
+    last_visit: lastVisit._max.scheduled_at ?? null,
+    clinicalSummary: {
+      chronicConditions,
+      currentMedications: recentPrescription?.items.map((i) => i.medicine.name) ?? [],
+      nextFollowUp: nextFollowUp ? { date: nextFollowUp.follow_up_date, doctorName: nextFollowUp.appointment.doctor.username } : null,
+    },
+  };
 };
 
 // ---- Update (with field-level change logging) ------------------------------
@@ -358,7 +409,7 @@ export const setPatientPhoto = async (patientId: string, photoUrl: string, actor
 
 // ---- Patient History Timeline ----------------------------------------------
 
-export type TimelineEventType = 'appointment' | 'consultation' | 'prescription' | 'invoice';
+export type TimelineEventType = 'appointment' | 'consultation' | 'prescription' | 'invoice' | 'document' | 'vitals';
 
 interface HistoryOptions {
   from?: Date;
@@ -369,8 +420,11 @@ interface HistoryOptions {
 export const getPatientHistory = async (patientId: string, opts: HistoryOptions) => {
   const wantType = (t: TimelineEventType) => !opts.types || opts.types.includes(t);
   const inRange = opts.from || opts.to ? { gte: opts.from, lte: opts.to } : undefined;
+  // 'vitals' isn't its own table — it's the vitals_json snapshot already on each Consultation —
+  // so it rides along on the same query as 'consultation' rather than a second lookup.
+  const needConsultations = wantType('consultation') || wantType('vitals');
 
-  const [appointments, consultations, prescriptions, invoices] = await Promise.all([
+  const [appointments, consultations, prescriptions, invoices, documents] = await Promise.all([
     wantType('appointment')
       ? prisma.appointment.findMany({
           where: { patient_id: patientId, ...(inRange ? { scheduled_at: inRange } : {}) },
@@ -378,7 +432,7 @@ export const getPatientHistory = async (patientId: string, opts: HistoryOptions)
           orderBy: { scheduled_at: 'desc' },
         })
       : Promise.resolve([]),
-    wantType('consultation')
+    needConsultations
       ? prisma.consultation.findMany({
           where: { appointment: { patient_id: patientId }, ...(inRange ? { created_at: inRange } : {}) },
           orderBy: { created_at: 'desc' },
@@ -397,6 +451,12 @@ export const getPatientHistory = async (patientId: string, opts: HistoryOptions)
           orderBy: { created_at: 'desc' },
         })
       : Promise.resolve([]),
+    wantType('document')
+      ? prisma.consultationDocument.findMany({
+          where: { consultation: { appointment: { patient_id: patientId } }, ...(inRange ? { uploaded_at: inRange } : {}) },
+          orderBy: { uploaded_at: 'desc' },
+        })
+      : Promise.resolve([]),
   ]);
 
   const events = [
@@ -407,14 +467,17 @@ export const getPatientHistory = async (patientId: string, opts: HistoryOptions)
       status: a.status,
       doctorName: a.doctor.username,
     })),
-    ...consultations.map((c) => ({
-      type: 'consultation' as const,
-      date: c.created_at,
-      consultationId: c.consultation_id,
-      diagnosis: c.diagnosis,
-      status: c.status,
-      followUpDate: c.follow_up_date,
-    })),
+    ...(wantType('consultation')
+      ? consultations.map((c) => ({
+          type: 'consultation' as const,
+          date: c.created_at,
+          consultationId: c.consultation_id,
+          appointmentId: c.appointment_id,
+          diagnosis: c.diagnosis,
+          status: c.status,
+          followUpDate: c.follow_up_date,
+        }))
+      : []),
     ...prescriptions.map((rx) => ({
       type: 'prescription' as const,
       date: rx.issued_at,
@@ -429,6 +492,28 @@ export const getPatientHistory = async (patientId: string, opts: HistoryOptions)
       totalAmount: inv.total_amount,
       paymentStatus: inv.payment_status,
     })),
+    ...documents.map((doc) => ({
+      type: 'document' as const,
+      date: doc.uploaded_at,
+      documentId: doc.document_id,
+      consultationId: doc.consultation_id,
+      filename: doc.filename,
+      originalName: doc.original_name,
+      mimeType: doc.mime_type,
+    })),
+    ...(wantType('vitals')
+      ? // vitals_json is only ever absent (empty vitals input serializes to the *string* "null",
+        // which is truthy) once actually parsed — so the null-check has to happen after JSON.parse.
+        consultations
+          .map((c) => ({ consultationId: c.consultation_id, created_at: c.created_at, vitals: c.vitals_json ? JSON.parse(c.vitals_json) : null }))
+          .filter((c): c is typeof c & { vitals: NonNullable<typeof c.vitals> } => c.vitals !== null)
+          .map((c) => ({
+            type: 'vitals' as const,
+            date: c.created_at,
+            consultationId: c.consultationId,
+            vitals: c.vitals,
+          }))
+      : []),
   ];
 
   events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());

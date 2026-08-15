@@ -54,6 +54,16 @@ const doctorScopedSchema = z.object({
   }),
 });
 
+const doctorTopMedicinesSchema = z.object({
+  query: z.object({
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
+    doctorId: z.coerce.number().int().positive().optional(),
+    limit: z.coerce.number().int().positive().optional(),
+    format: formatSchema,
+  }),
+});
+
 const expiringBatchesSchema = z.object({
   query: z.object({ days: z.coerce.number().int().positive().optional(), format: formatSchema }),
 });
@@ -69,6 +79,11 @@ router.get('/audit-log', requireRole(ADMIN_ONLY), validate(auditLogSchema), cont
 
 router.get('/doctor/consultations', requireRole(DOCTOR_ROLES), validate(doctorScopedSchema), controller.doctorConsultations);
 router.get('/doctor/follow-ups-due', requireRole(DOCTOR_ROLES), validate(doctorScopedSchema), controller.doctorFollowUpsDue);
+router.get('/doctor/prescriptions', requireRole(DOCTOR_ROLES), validate(doctorScopedSchema), controller.doctorPrescriptions);
+router.get('/doctor/diagnoses', requireRole(DOCTOR_ROLES), validate(doctorScopedSchema), controller.doctorDiagnoses);
+router.get('/doctor/patient-visits', requireRole(DOCTOR_ROLES), validate(doctorScopedSchema), controller.doctorPatientVisits);
+router.get('/doctor/top-medicines', requireRole(DOCTOR_ROLES), validate(doctorTopMedicinesSchema), controller.doctorTopMedicines);
+router.get('/doctor/appointments', requireRole(DOCTOR_ROLES), validate(doctorScopedSchema), controller.doctorAppointments);
 
 router.get('/pharmacist/low-stock', requireRole(PHARMACIST_ROLES), validate(noQuerySchema), controller.lowStock);
 router.get('/pharmacist/expiring-batches', requireRole(PHARMACIST_ROLES), validate(expiringBatchesSchema), controller.expiringBatches);

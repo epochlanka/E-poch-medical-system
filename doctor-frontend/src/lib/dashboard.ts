@@ -59,3 +59,38 @@ export interface DoctorDashboard {
 }
 
 export const getDoctorDashboard = () => api.get<DoctorDashboard>('/dashboard/doctor-overview').then((r) => r.data);
+
+export interface FollowUpRow {
+  consultationId: number;
+  appointmentId: number;
+  followUpDate: string;
+  lastVisitDate: string;
+  diagnosis: string | null;
+  complaint: string | null;
+  patient: { patient_id: string; full_name: string; gender: string; dob: string; phone: string | null; photo_url: string | null };
+  doctorId: number;
+  doctorName: string;
+}
+
+export interface FollowUpCounts {
+  total: number;
+  overdue: number;
+  dueToday: number;
+  dueThisWeek: number;
+  dueThisMonth: number;
+}
+
+export interface FollowUpsListParams {
+  bucket?: 'all' | 'overdue' | 'today' | 'week' | 'month';
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+export const getFollowUpsList = (params: FollowUpsListParams) =>
+  api
+    .get<{ data: FollowUpRow[]; pagination: { page: number; limit: number; total: number; totalPages: number }; counts: FollowUpCounts }>(
+      '/dashboard/follow-ups/list',
+      { params }
+    )
+    .then((r) => r.data);

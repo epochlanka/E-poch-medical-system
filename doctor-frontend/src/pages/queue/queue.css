@@ -243,6 +243,32 @@ tr.q-row-next {
   border-radius: 12px;
 }
 
+.q-filter-input {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: #334155;
+  background: white;
+  outline: none;
+}
+.q-filter-input:focus {
+  border-color: #2563eb;
+}
+.q-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.q-filter-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
 @media (max-width: 1180px) {
   .q-layout {
     grid-template-columns: 1fr !important;

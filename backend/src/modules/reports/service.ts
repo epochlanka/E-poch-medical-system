@@ -391,6 +391,256 @@ export const getDoctorFollowUpsDueReport = async (doctorId?: number): Promise<Re
   };
 };
 
+// ---- Doctor: Prescriptions Summary (own, or any/all for Admin) ---------------------------
+
+export const getDoctorPrescriptionsReport = async (input: DateRangeInput & { doctorId?: number }): Promise<ReportResult> => {
+  const { start, end } = resolveRange(input);
+
+  if (input.doctorId) {
+    const doctor = await prisma.user.findUnique({ where: { user_id: input.doctorId } });
+    if (!doctor) throw new NotFoundError('Doctor not found');
+
+    const prescriptions = await prisma.prescription.findMany({
+      where: { issued_at: { gte: start, lte: end }, consultation: { appointment: { doctor_id: input.doctorId } } },
+      select: { issued_at: true, items: { select: { qty: true } } },
+    });
+
+    const byDay = new Map<string, { prescriptions: number; itemsIssued: number }>();
+    for (const p of prescriptions) {
+      const key = localDateKey(p.issued_at);
+      if (!byDay.has(key)) byDay.set(key, { prescriptions: 0, itemsIssued: 0 });
+      const bucket = byDay.get(key)!;
+      bucket.prescriptions += 1;
+      bucket.itemsIssued += p.items.length;
+    }
+
+    const rows: Record<string, unknown>[] = [];
+    let cursor = new Date(start);
+    while (cursor <= end) {
+      const key = localDateKey(cursor);
+      const bucket = byDay.get(key) ?? { prescriptions: 0, itemsIssued: 0 };
+      rows.push({ date: key, ...bucket });
+      cursor = addDays(cursor, 1);
+    }
+
+    return {
+      title: `Prescriptions Summary — ${doctor.username}`,
+      range: { from: start, to: end },
+      columns: [
+        { key: 'date', label: 'Date' },
+        { key: 'prescriptions', label: 'Prescriptions' },
+        { key: 'itemsIssued', label: 'Medicine Items' },
+      ],
+      rows,
+      summary: { totalPrescriptions: prescriptions.length, totalItemsIssued: prescriptions.reduce((s, p) => s + p.items.length, 0) },
+    };
+  }
+
+  const prescriptions = await prisma.prescription.findMany({
+    where: { issued_at: { gte: start, lte: end } },
+    include: { items: { select: { qty: true } }, consultation: { include: { appointment: { include: { doctor: { select: { user_id: true, username: true } } } } } } },
+  });
+
+  const byDoctor = new Map<number, { doctorId: number; doctorName: string; prescriptions: number; itemsIssued: number }>();
+  for (const p of prescriptions) {
+    const doctor = p.consultation.appointment.doctor;
+    if (!byDoctor.has(doctor.user_id)) byDoctor.set(doctor.user_id, { doctorId: doctor.user_id, doctorName: doctor.username, prescriptions: 0, itemsIssued: 0 });
+    const agg = byDoctor.get(doctor.user_id)!;
+    agg.prescriptions += 1;
+    agg.itemsIssued += p.items.length;
+  }
+
+  return {
+    title: 'Prescriptions Summary — All Doctors',
+    range: { from: start, to: end },
+    columns: [
+      { key: 'doctorId', label: 'Doctor ID' },
+      { key: 'doctorName', label: 'Doctor' },
+      { key: 'prescriptions', label: 'Prescriptions' },
+      { key: 'itemsIssued', label: 'Medicine Items' },
+    ],
+    rows: Array.from(byDoctor.values()).sort((a, b) => b.prescriptions - a.prescriptions),
+    summary: { totalPrescriptions: prescriptions.length, totalItemsIssued: prescriptions.reduce((s, p) => s + p.items.length, 0) },
+  };
+};
+
+// ---- Doctor: Consultations by Diagnosis (own, or any/all for Admin) ----------------------
+
+export const getDoctorDiagnosesReport = async (input: DateRangeInput & { doctorId?: number }): Promise<ReportResult> => {
+  const { start, end } = resolveRange(input);
+
+  let doctorName = 'All Doctors';
+  if (input.doctorId) {
+    const doctor = await prisma.user.findUnique({ where: { user_id: input.doctorId } });
+    if (!doctor) throw new NotFoundError('Doctor not found');
+    doctorName = doctor.username;
+  }
+
+  const consultations = await prisma.consultation.findMany({
+    where: {
+      status: 'Finalized',
+      created_at: { gte: start, lte: end },
+      diagnosis: { not: null },
+      ...(input.doctorId ? { appointment: { doctor_id: input.doctorId } } : {}),
+    },
+    select: { diagnosis: true },
+  });
+
+  const byDiagnosis = new Map<string, number>();
+  for (const c of consultations) {
+    const key = (c.diagnosis as string).trim();
+    if (!key) continue;
+    byDiagnosis.set(key, (byDiagnosis.get(key) ?? 0) + 1);
+  }
+
+  const rows = Array.from(byDiagnosis.entries())
+    .map(([diagnosis, count]) => ({ diagnosis, count }))
+    .sort((a, b) => b.count - a.count);
+
+  return {
+    title: `Consultations by Diagnosis — ${doctorName}`,
+    range: { from: start, to: end },
+    columns: [
+      { key: 'diagnosis', label: 'Diagnosis' },
+      { key: 'count', label: 'Consultations' },
+    ],
+    rows,
+    summary: { totalDiagnosedConsultations: consultations.length, distinctDiagnoses: byDiagnosis.size },
+  };
+};
+
+// ---- Doctor: Patient Visit Frequency (own, or any/all for Admin) -------------------------
+
+export const getDoctorPatientVisitsReport = async (input: DateRangeInput & { doctorId?: number }): Promise<ReportResult> => {
+  const { start, end } = resolveRange(input);
+
+  let doctorName = 'All Doctors';
+  if (input.doctorId) {
+    const doctor = await prisma.user.findUnique({ where: { user_id: input.doctorId } });
+    if (!doctor) throw new NotFoundError('Doctor not found');
+    doctorName = doctor.username;
+  }
+
+  const appointments = await prisma.appointment.findMany({
+    where: { scheduled_at: { gte: start, lte: end }, ...(input.doctorId ? { doctor_id: input.doctorId } : {}) },
+    select: { patient_id: true, patient: { select: { full_name: true } } },
+  });
+
+  const byPatient = new Map<string, { patientId: string; patientName: string; visits: number }>();
+  for (const a of appointments) {
+    if (!byPatient.has(a.patient_id)) byPatient.set(a.patient_id, { patientId: a.patient_id, patientName: a.patient.full_name, visits: 0 });
+    byPatient.get(a.patient_id)!.visits += 1;
+  }
+
+  const rows = Array.from(byPatient.values()).sort((a, b) => b.visits - a.visits);
+
+  return {
+    title: `Patient Visit Frequency — ${doctorName}`,
+    range: { from: start, to: end },
+    columns: [
+      { key: 'patientId', label: 'Patient ID' },
+      { key: 'patientName', label: 'Patient' },
+      { key: 'visits', label: 'Visits' },
+    ],
+    rows,
+    summary: { totalVisits: appointments.length, distinctPatients: byPatient.size },
+  };
+};
+
+// ---- Doctor: Top Prescribed Medicines (own, or any/all for Admin) ------------------------
+
+export const getDoctorTopMedicinesReport = async (input: DateRangeInput & { doctorId?: number; limit?: number }): Promise<ReportResult> => {
+  const { start, end } = resolveRange(input);
+  const limit = input.limit && input.limit > 0 && input.limit <= 100 ? input.limit : 10;
+
+  let doctorName = 'All Doctors';
+  if (input.doctorId) {
+    const doctor = await prisma.user.findUnique({ where: { user_id: input.doctorId } });
+    if (!doctor) throw new NotFoundError('Doctor not found');
+    doctorName = doctor.username;
+  }
+
+  const grouped = await prisma.prescriptionItem.groupBy({
+    by: ['medicine_id'],
+    _sum: { qty: true },
+    where: {
+      prescription: {
+        issued_at: { gte: start, lte: end },
+        ...(input.doctorId ? { consultation: { appointment: { doctor_id: input.doctorId } } } : {}),
+      },
+    },
+    orderBy: { _sum: { qty: 'desc' } },
+    take: limit,
+  });
+
+  const medicines = await prisma.medicine.findMany({ where: { medicine_id: { in: grouped.map((g) => g.medicine_id) } } });
+  const byId = new Map(medicines.map((m) => [m.medicine_id, m]));
+
+  const rows = grouped.map((g) => ({
+    medicineId: g.medicine_id,
+    name: byId.get(g.medicine_id)?.name ?? 'Unknown',
+    unitsPrescribed: g._sum.qty ?? 0,
+  }));
+
+  return {
+    title: `Top Prescribed Medicines — ${doctorName}`,
+    range: { from: start, to: end },
+    columns: [
+      { key: 'medicineId', label: 'Medicine ID' },
+      { key: 'name', label: 'Medicine' },
+      { key: 'unitsPrescribed', label: 'Units Prescribed' },
+    ],
+    rows,
+    summary: { totalUnitsPrescribed: rows.reduce((s, r) => s + r.unitsPrescribed, 0) },
+  };
+};
+
+// ---- Doctor: Appointment Summary (own, or any/all for Admin) -----------------------------
+
+export const getDoctorAppointmentsReport = async (input: DateRangeInput & { doctorId?: number }): Promise<ReportResult> => {
+  const { start, end } = resolveRange(input);
+
+  let doctorName = 'All Doctors';
+  if (input.doctorId) {
+    const doctor = await prisma.user.findUnique({ where: { user_id: input.doctorId } });
+    if (!doctor) throw new NotFoundError('Doctor not found');
+    doctorName = doctor.username;
+  }
+
+  const appointments = await prisma.appointment.findMany({
+    where: { scheduled_at: { gte: start, lte: end }, ...(input.doctorId ? { doctor_id: input.doctorId } : {}) },
+    select: { status: true },
+  });
+
+  const byStatus = new Map<string, number>();
+  for (const a of appointments) byStatus.set(a.status, (byStatus.get(a.status) ?? 0) + 1);
+
+  const rows = Array.from(byStatus.entries())
+    .map(([status, count]) => ({ status, count }))
+    .sort((a, b) => b.count - a.count);
+
+  const completed = byStatus.get('Completed') ?? 0;
+  const noShow = byStatus.get('No Show') ?? 0;
+  const cancelled = byStatus.get('Cancelled') ?? 0;
+
+  return {
+    title: `Appointment Summary — ${doctorName}`,
+    range: { from: start, to: end },
+    columns: [
+      { key: 'status', label: 'Status' },
+      { key: 'count', label: 'Appointments' },
+    ],
+    rows,
+    summary: {
+      totalAppointments: appointments.length,
+      completed,
+      cancelled,
+      noShow,
+      attendanceRate: appointments.length ? Math.round((completed / appointments.length) * 1000) / 10 : 0,
+    },
+  };
+};
+
 // ---- Pharmacist: Low Stock -----------------------------------------------------------------
 
 export const getLowStockReport = async (): Promise<ReportResult> => {

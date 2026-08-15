@@ -7,6 +7,7 @@ export interface PrescriptionItemInput {
   frequency?: string;
   duration?: string;
   route?: string;
+  instructions?: string;
   qty: number;
 }
 
@@ -25,6 +26,7 @@ export interface PrescriptionItem {
   frequency: string | null;
   duration: string | null;
   route: string | null;
+  instructions: string | null;
   qty: number;
   medicine: { name: string; generic_name: string | null; strength: string | null; unit: string };
   stockStatus?: string;
@@ -36,17 +38,20 @@ export interface Prescription {
   status: 'Pending' | 'Preparing' | 'Dispensed' | 'Collected';
   is_refill: boolean;
   refill_of_id: number | null;
+  notes: string | null;
   issued_at: string;
   items: PrescriptionItem[];
 }
 
 export const createPrescription = (input: CreatePrescriptionInput) => api.post<Prescription>('/prescriptions', input);
 
-export const getPrescription = (id: number) => api.get<Prescription>(`/prescriptions/${id}`).then((r) => r.data);
-
 export interface ListPrescriptionsParams {
   patientId?: string;
-  status?: string;
+  status?: 'Pending' | 'Preparing' | 'Dispensed' | 'Collected';
+  search?: string;
+  isRefill?: boolean;
+  from?: string;
+  to?: string;
   page?: number;
   limit?: number;
 }
@@ -54,16 +59,81 @@ export interface ListPrescriptionsParams {
 export interface PrescriptionSummary {
   prescriptionId: number;
   code: string;
-  status: string;
+  status: 'Pending' | 'Preparing' | 'Dispensed' | 'Collected';
   isRefill: boolean;
+  notes: string | null;
   issuedAt: string;
+  appointmentId: number;
   patientId: string;
   patientName: string;
-  items: { medicine: string; dosage: string; qty: number }[];
+  patientGender: string;
+  patientDob: string;
+  patientPhone: string | null;
+  patientPhotoUrl: string | null;
+  doctorId: number;
+  doctorName: string;
+  items: { medicine: string; dosage: string; qty: number; dispensedAt: string | null }[];
+}
+
+export interface Pagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
 }
 
 export const listPrescriptions = (params: ListPrescriptionsParams) =>
-  api.get<{ data: PrescriptionSummary[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>('/prescriptions', { params }).then((r) => r.data);
+  api.get<{ data: PrescriptionSummary[]; pagination: Pagination }>('/prescriptions', { params }).then((r) => r.data);
+
+export interface PrescriptionStats {
+  total: number;
+  thisMonth: number;
+  thisMonthDeltaPct: number | null;
+  pending: number;
+  preparing: number;
+  dispensed: number;
+  collected: number;
+}
+
+export const getPrescriptionStats = (params?: { isRefill?: boolean }) => api.get<PrescriptionStats>('/prescriptions/stats', { params }).then((r) => r.data);
+
+export interface PrescriptionDetailItem {
+  rx_item_id: number;
+  medicine_id: number;
+  dosage: string;
+  frequency: string | null;
+  duration: string | null;
+  route: string | null;
+  instructions: string | null;
+  qty: number;
+  dispensed_at: string | null;
+  medicine: { name: string; generic_name: string | null; strength: string | null; unit: string };
+}
+
+export interface PrescriptionDetail {
+  prescription_id: number;
+  consultation_id: number;
+  status: 'Pending' | 'Preparing' | 'Dispensed' | 'Collected';
+  is_refill: boolean;
+  refill_of_id: number | null;
+  notes: string | null;
+  issued_at: string;
+  priorVisitCount: number;
+  items: PrescriptionDetailItem[];
+  consultation: {
+    consultation_id: number;
+    diagnosis: string | null;
+    icd10_code: string | null;
+    appointment: {
+      appointment_id: number;
+      scheduled_at: string;
+      patient: ConsultationPatient;
+      doctor: { user_id: number; username: string; registration_number: string | null };
+    };
+  };
+}
+
+export const getPrescriptionDetail = (id: number) => api.get<PrescriptionDetail>(`/prescriptions/${id}`).then((r) => r.data);
 
 export interface PastPrescriptionItem {
   medicineId: number;
@@ -72,6 +142,7 @@ export interface PastPrescriptionItem {
   frequency: string | null;
   duration: string | null;
   route: string | null;
+  instructions: string | null;
   qty: number;
 }
 
@@ -83,10 +154,10 @@ export interface PastPrescription {
 }
 
 export interface PrescriptionContext {
-  consultation: { consultationId: number; status: string; diagnosis: string | null };
+  consultation: { consultationId: number; status: string; diagnosis: string | null; icd10Code: string | null };
   appointment: { appointmentId: number; scheduledAt: string; patient: ConsultationPatient; doctor: { user_id: number; username: string; registration_number: string | null } };
   existingPrescriptions: { prescription_id: number; status: string; issued_at: string }[];
-  patientSummary: { allergies: string | null; chronicConditions: string[] };
+  patientSummary: { allergies: string | null; chronicConditions: string[]; currentMedications: string[]; priorVisitCount: number };
   pastPrescriptions: PastPrescription[];
 }
 

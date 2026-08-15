@@ -76,16 +76,32 @@ export class AppointmentsController {
 
   listAppointments = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { search, status, date, page, limit } = req.query as any;
+      const { search, status, date, dateFrom, dateTo, page, limit } = req.query as any;
       const result = await appointmentsService.listAppointments({
         search,
         doctorId: this.doctorScope(req),
         status,
         date: date ? new Date(date) : undefined,
+        dateFrom: dateFrom ? new Date(dateFrom) : undefined,
+        dateTo: dateTo ? new Date(dateTo) : undefined,
         page: page ? Number(page) : undefined,
         limit: limit ? Number(limit) : undefined,
       });
       res.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getSkipStats = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { dateFrom, dateTo } = req.query as any;
+      const stats = await appointmentsService.getSkipStats(
+        this.doctorScope(req),
+        dateFrom ? new Date(dateFrom) : undefined,
+        dateTo ? new Date(dateTo) : undefined
+      );
+      res.status(200).json(stats);
     } catch (error) {
       next(error);
     }
