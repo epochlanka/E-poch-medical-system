@@ -186,6 +186,13 @@ describe('Consultations API', () => {
     expect(logRes.body[0]).toMatchObject({ field: 'diagnosis', newValue: 'Corrected diagnosis', reason: 'Lab result came back different' });
   });
 
+  it("rejects a different doctor from reading another doctor's amendment log", async () => {
+    const res = await request(app)
+      .get(`/api/v1/consultations/${consultationId}/amendments`)
+      .set('Authorization', `Bearer ${secondDoctorToken}`);
+    expect(res.status).toBe(403);
+  });
+
   it('allows an Admin to amend a consultation the Admin did not create', async () => {
     const res = await request(app)
       .post(`/api/v1/consultations/${consultationId}/amend`)

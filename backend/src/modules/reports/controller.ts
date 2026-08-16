@@ -188,6 +188,42 @@ export const doctorAppointments = async (req: Request, res: Response) => {
   }
 };
 
+export const doctorClinicalStatistics = async (req: Request, res: Response) => {
+  try {
+    const who = actor(req);
+    const requestedDoctorId = req.query.doctorId ? Number(req.query.doctorId) : undefined;
+    const doctorId = who.role === 'Doctor' ? who.user_id : requestedDoctorId;
+    const result = await service.getDoctorClinicalStatistics({ ...parseDateRange(req), doctorId });
+    const format = parseFormat(req);
+
+    if (format === 'csv' || format === 'pdf') {
+      // The live dashboard needs the full nested shape (trend/outcomes/demographics/diagnoses),
+      // but csv/pdf export goes through the shared table-shaped `respond()` — reshape into that
+      // {title,columns,rows,summary} form using the day-by-day trend as the exportable rows.
+      return respond(req, res, {
+        title: result.title,
+        range: result.range,
+        columns: [
+          { key: 'date', label: 'Date' },
+          { key: 'count', label: 'Consultations' },
+        ],
+        rows: result.consultationsTrend,
+        summary: {
+          totalConsultations: result.kpis.totalConsultations,
+          newPatients: result.kpis.newPatients,
+          prescriptionsIssued: result.kpis.prescriptionsIssued,
+          followUpsScheduled: result.kpis.followUpsScheduled,
+          avgConsultationSeconds: result.kpis.avgConsultationSeconds,
+        },
+      });
+    }
+
+    return res.status(200).json(result);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
 export const lowStock = async (req: Request, res: Response) => {
   try {
     const result = await service.getLowStockReport();

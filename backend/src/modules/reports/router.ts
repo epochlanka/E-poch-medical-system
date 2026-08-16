@@ -84,6 +84,7 @@ router.get('/doctor/diagnoses', requireRole(DOCTOR_ROLES), validate(doctorScoped
 router.get('/doctor/patient-visits', requireRole(DOCTOR_ROLES), validate(doctorScopedSchema), controller.doctorPatientVisits);
 router.get('/doctor/top-medicines', requireRole(DOCTOR_ROLES), validate(doctorTopMedicinesSchema), controller.doctorTopMedicines);
 router.get('/doctor/appointments', requireRole(DOCTOR_ROLES), validate(doctorScopedSchema), controller.doctorAppointments);
+router.get('/doctor/clinical-statistics', requireRole(DOCTOR_ROLES), validate(doctorScopedSchema), controller.doctorClinicalStatistics);
 
 router.get('/pharmacist/low-stock', requireRole(PHARMACIST_ROLES), validate(noQuerySchema), controller.lowStock);
 router.get('/pharmacist/expiring-batches', requireRole(PHARMACIST_ROLES), validate(expiringBatchesSchema), controller.expiringBatches);

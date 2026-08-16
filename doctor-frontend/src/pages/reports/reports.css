@@ -103,3 +103,145 @@
     position: static;
   }
 }
+
+/* ---- Clinical Statistics: chart row ---- */
+.rpt-chart-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+  align-items: stretch;
+}
+.rpt-chart-row .card {
+  min-width: 0;
+}
+
+/* ---- Donut chart ---- */
+.rpt-donut-wrap {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.rpt-donut-total {
+  font-size: 20px;
+  font-weight: 700;
+  fill: #0f172a;
+}
+.rpt-donut-total-label {
+  font-size: 10px;
+  fill: #94a3b8;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.rpt-donut-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-width: 140px;
+}
+.rpt-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.rpt-legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.rpt-legend-label {
+  color: #334155;
+  font-weight: 600;
+  flex: 1;
+}
+.rpt-legend-value {
+  color: #94a3b8;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ---- Bar chart (patient demographics) ---- */
+.rpt-bar-chart {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  height: 190px;
+  padding-top: 10px;
+}
+.rpt-bar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  height: 100%;
+}
+.rpt-bar-track {
+  position: relative;
+  width: 100%;
+  max-width: 34px;
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  background: #f5f8ff;
+  border-radius: 6px 6px 0 0;
+}
+.rpt-bar-fill {
+  width: 100%;
+  min-height: 2px;
+  background: linear-gradient(180deg, #60a5fa, #2563eb);
+  border-radius: 6px 6px 0 0;
+}
+.rpt-bar-value {
+  position: absolute;
+  top: -18px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #334155;
+}
+.rpt-bar-label {
+  font-size: 10.5px;
+  color: #94a3b8;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* ---- Diagnosis share cell ---- */
+.rpt-share-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rpt-share-track {
+  width: 70px;
+  height: 6px;
+  border-radius: 4px;
+  background: #eef2f8;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.rpt-share-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #2563eb, #60a5fa);
+}
+
+@media (max-width: 1180px) {
+  .rpt-chart-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 720px) {
+  .rpt-chart-row {
+    grid-template-columns: 1fr;
+  }
+}

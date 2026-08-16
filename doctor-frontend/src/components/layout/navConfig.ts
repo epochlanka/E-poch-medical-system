@@ -62,7 +62,7 @@ export const navSections: NavSection[] = [
     label: 'Reports',
     items: [
       { label: 'My Reports', path: '/reports/my', icon: ReportsIcon, implemented: true },
-      { label: 'Clinical Statistics', path: '/reports/clinical-statistics', icon: ReportsIcon },
+      { label: 'Clinical Statistics', path: '/reports/clinical-statistics', icon: ReportsIcon, implemented: true },
     ],
   },
 ];

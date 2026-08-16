@@ -15,6 +15,7 @@ import MyPrescriptions from './pages/prescriptions/MyPrescriptions';
 import RepeatPrescription from './pages/prescriptions/RepeatPrescription';
 import PatientSearch from './pages/patients/PatientSearch';
 import MyReports from './pages/reports/MyReports';
+import ClinicalStatistics from './pages/reports/ClinicalStatistics';
 import ComingSoon from './pages/ComingSoon';
 import { navSections } from './components/layout/navConfig';
 
@@ -57,6 +58,7 @@ function App() {
           <Route path="/patients/search" element={<PatientSearch />} />
           <Route path="/patients/search/:patientId" element={<PatientSearch />} />
           <Route path="/reports/my" element={<MyReports />} />
+          <Route path="/reports/clinical-statistics" element={<ClinicalStatistics />} />
           {unimplementedPaths.map((path) => (
             <Route key={path} path={path} element={<ComingSoon />} />
           ))}

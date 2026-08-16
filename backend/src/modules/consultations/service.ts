@@ -221,7 +221,17 @@ export const amendConsultation = async (id: number, input: AmendConsultationInpu
   return serializeConsultation(consultation);
 };
 
-export const listAmendments = async (id: number) => {
+// Amendment reasons can contain sensitive clinical justification text, so a Doctor caller is
+// scoped to their own patients' consultations here too — same rule as amending itself, just not
+// blocking Admin/Receptionist/Pharmacist, who already have broader read access to consultations
+// elsewhere in this module.
+export const listAmendments = async (id: number, actor: Actor) => {
+  const consultation = await prisma.consultation.findUnique({ where: { consultation_id: id }, include: { appointment: true } });
+  if (!consultation) throw new NotFoundError('Consultation not found');
+  if (actor.role === 'Doctor' && actor.user_id !== consultation.appointment.doctor_id) {
+    throw new ForbiddenError('You do not have permission to view this consultation');
+  }
+
   const entries = await prisma.consultationAmendmentLog.findMany({
     where: { consultation_id: id },
     include: { amended_by_user: { select: { username: true } } },

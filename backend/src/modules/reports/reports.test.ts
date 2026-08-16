@@ -194,6 +194,42 @@ describe('Reports API', () => {
       expect(res.status).toBe(200);
       expect(res.headers['content-type']).toContain('text/csv');
     });
+
+    it('returns a bundled clinical statistics dashboard for a doctor', async () => {
+      const res = await request(app).get('/api/v1/reports/doctor/clinical-statistics').set('Authorization', `Bearer ${doctorToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.kpis).toHaveProperty('totalConsultations');
+      expect(res.body.kpis).toHaveProperty('avgConsultationSeconds');
+      expect(Array.isArray(res.body.consultationsTrend)).toBe(true);
+      expect(Array.isArray(res.body.appointmentOutcomes)).toBe(true);
+      expect(Array.isArray(res.body.patientDemographics)).toBe(true);
+      expect(res.body.patientDemographics).toHaveLength(5);
+      expect(Array.isArray(res.body.topDiagnoses)).toBe(true);
+    });
+
+    it('scopes a doctor to their own clinical statistics even if another doctorId is requested', async () => {
+      const res = await request(app)
+        .get('/api/v1/reports/doctor/clinical-statistics')
+        .query({ doctorId: 999999 })
+        .set('Authorization', `Bearer ${doctorToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.title).not.toContain('All Doctors');
+    });
+
+    it('exports clinical statistics as csv using the day-by-day trend as rows', async () => {
+      const res = await request(app)
+        .get('/api/v1/reports/doctor/clinical-statistics')
+        .query({ format: 'csv' })
+        .set('Authorization', `Bearer ${doctorToken}`);
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('text/csv');
+      expect(res.text.split('\r\n')[0]).toContain('Consultations');
+    });
+
+    it('rejects a pharmacist from clinical statistics', async () => {
+      const res = await request(app).get('/api/v1/reports/doctor/clinical-statistics').set('Authorization', `Bearer ${pharmacistToken}`);
+      expect(res.status).toBe(403);
+    });
   });
 
   describe('Pharmacist reports', () => {

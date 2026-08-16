@@ -641,6 +641,162 @@ export const getDoctorAppointmentsReport = async (input: DateRangeInput & { doct
   };
 };
 
+// ---- Doctor: Clinical Statistics dashboard (own, or any/all for Admin) -------------------
+// One bundled endpoint (same "one call per dashboard" pattern as the admin Overview report and
+// the doctor-frontend Dashboard/Consultation-context endpoints) rather than a waterfall of the
+// individual doctor/* report calls this page's numbers otherwise overlap with.
+
+export interface ClinicalStatisticsResult {
+  title: string;
+  range: { from: Date; to: Date };
+  kpis: {
+    totalConsultations: number;
+    priorTotalConsultations: number;
+    totalConsultationsChangePct: number | null;
+    newPatients: number;
+    priorNewPatients: number;
+    newPatientsChangePct: number | null;
+    prescriptionsIssued: number;
+    priorPrescriptionsIssued: number;
+    prescriptionsIssuedChangePct: number | null;
+    followUpsScheduled: number;
+    priorFollowUpsScheduled: number;
+    followUpsScheduledChangePct: number | null;
+    avgConsultationSeconds: number;
+    priorAvgConsultationSeconds: number;
+    avgConsultationSecondsChangePct: number | null;
+  };
+  consultationsTrend: { date: string; count: number }[];
+  appointmentOutcomes: { status: string; count: number }[];
+  patientDemographics: { label: string; count: number }[];
+  topDiagnoses: { diagnosis: string; count: number; percentage: number }[];
+}
+
+export const getDoctorClinicalStatistics = async (input: DateRangeInput & { doctorId?: number }): Promise<ClinicalStatisticsResult> => {
+  const { start, end, priorStart, priorEnd } = resolveRange(input);
+
+  let doctorName = 'All Doctors';
+  if (input.doctorId) {
+    const doctor = await prisma.user.findUnique({ where: { user_id: input.doctorId } });
+    if (!doctor) throw new NotFoundError('Doctor not found');
+    doctorName = doctor.username;
+  }
+  const apptWhere = input.doctorId ? { doctor_id: input.doctorId } : {};
+  const consultWhere = input.doctorId ? { appointment: { doctor_id: input.doctorId } } : {};
+
+  const [consultations, priorConsultations, appointments, prescriptionsCount, priorPrescriptionsCount, followUpsCount, priorFollowUpsCount] =
+    await Promise.all([
+      prisma.consultation.findMany({
+        where: { status: 'Finalized', created_at: { gte: start, lte: end }, ...consultWhere },
+        select: { created_at: true, finalized_at: true, diagnosis: true },
+      }),
+      prisma.consultation.findMany({
+        where: { status: 'Finalized', created_at: { gte: priorStart, lte: priorEnd }, ...consultWhere },
+        select: { created_at: true, finalized_at: true },
+      }),
+      // Fetched from the start of time (not just this range) so a patient's *first ever*
+      // appointment with this doctor can be found even if it happened long before `start`.
+      prisma.appointment.findMany({
+        where: { scheduled_at: { lte: end }, ...apptWhere },
+        select: { patient_id: true, scheduled_at: true, status: true, patient: { select: { dob: true } } },
+        orderBy: { scheduled_at: 'asc' },
+      }),
+      prisma.prescription.count({ where: { issued_at: { gte: start, lte: end }, consultation: consultWhere } }),
+      prisma.prescription.count({ where: { issued_at: { gte: priorStart, lte: priorEnd }, consultation: consultWhere } }),
+      prisma.consultation.count({ where: { created_at: { gte: start, lte: end }, follow_up_date: { not: null }, ...consultWhere } }),
+      prisma.consultation.count({ where: { created_at: { gte: priorStart, lte: priorEnd }, follow_up_date: { not: null }, ...consultWhere } }),
+    ]);
+
+  // Consultations trend, day-bucketed over the full range.
+  const byDay = new Map<string, number>();
+  for (const c of consultations) byDay.set(localDateKey(c.created_at), (byDay.get(localDateKey(c.created_at)) ?? 0) + 1);
+  const consultationsTrend: { date: string; count: number }[] = [];
+  let cursor = new Date(start);
+  while (cursor <= end) {
+    const key = localDateKey(cursor);
+    consultationsTrend.push({ date: key, count: byDay.get(key) ?? 0 });
+    cursor = addDays(cursor, 1);
+  }
+
+  // Average consultation duration: finalized_at - created_at is the only real timing this
+  // domain model tracks (no separate start/end-of-visit timestamps exist).
+  const durationOf = (c: { created_at: Date; finalized_at: Date | null }) => ((c.finalized_at as Date).getTime() - c.created_at.getTime()) / 1000;
+  const avgOf = (list: number[]) => (list.length ? Math.round(list.reduce((s, d) => s + d, 0) / list.length) : 0);
+  const durations = consultations.filter((c) => c.finalized_at).map(durationOf);
+  const priorDurations = priorConsultations.filter((c) => c.finalized_at).map(durationOf);
+  const avgConsultationSeconds = avgOf(durations);
+  const priorAvgConsultationSeconds = avgOf(priorDurations);
+
+  // New patients: the first appointment this doctor ever had with each patient, bucketed by
+  // whether that first visit falls in the current vs prior period.
+  const firstSeen = new Map<string, Date>();
+  for (const a of appointments) if (!firstSeen.has(a.patient_id)) firstSeen.set(a.patient_id, a.scheduled_at);
+  let newPatients = 0;
+  let priorNewPatients = 0;
+  for (const date of firstSeen.values()) {
+    if (date >= start && date <= end) newPatients += 1;
+    else if (date >= priorStart && date <= priorEnd) priorNewPatients += 1;
+  }
+
+  // Appointment outcomes + patient demographics are both scoped to this period's appointments only.
+  const appointmentsInRange = appointments.filter((a) => a.scheduled_at >= start && a.scheduled_at <= end);
+  const byStatus = new Map<string, number>();
+  for (const a of appointmentsInRange) byStatus.set(a.status, (byStatus.get(a.status) ?? 0) + 1);
+  const appointmentOutcomes = Array.from(byStatus.entries())
+    .map(([status, count]) => ({ status, count }))
+    .sort((a, b) => b.count - a.count);
+
+  const now = new Date();
+  const seenPatients = new Map<string, Date>();
+  for (const a of appointmentsInRange) if (!seenPatients.has(a.patient_id)) seenPatients.set(a.patient_id, a.patient.dob as Date);
+  const patientDemographics = AGE_BUCKETS.map((bucket) => ({
+    label: bucket.label,
+    count: Array.from(seenPatients.values()).filter((dob) => {
+      const age = ageInYears(dob, now);
+      return age >= bucket.min && age <= bucket.max;
+    }).length,
+  }));
+
+  const byDiagnosis = new Map<string, number>();
+  for (const c of consultations) {
+    if (!c.diagnosis) continue;
+    const key = c.diagnosis.trim();
+    if (!key) continue;
+    byDiagnosis.set(key, (byDiagnosis.get(key) ?? 0) + 1);
+  }
+  const diagnosedTotal = Array.from(byDiagnosis.values()).reduce((s, v) => s + v, 0);
+  const topDiagnoses = Array.from(byDiagnosis.entries())
+    .map(([diagnosis, count]) => ({ diagnosis, count, percentage: diagnosedTotal ? Math.round((count / diagnosedTotal) * 1000) / 10 : 0 }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+
+  return {
+    title: `Clinical Statistics — ${doctorName}`,
+    range: { from: start, to: end },
+    kpis: {
+      totalConsultations: consultations.length,
+      priorTotalConsultations: priorConsultations.length,
+      totalConsultationsChangePct: changePct(consultations.length, priorConsultations.length),
+      newPatients,
+      priorNewPatients,
+      newPatientsChangePct: changePct(newPatients, priorNewPatients),
+      prescriptionsIssued: prescriptionsCount,
+      priorPrescriptionsIssued: priorPrescriptionsCount,
+      prescriptionsIssuedChangePct: changePct(prescriptionsCount, priorPrescriptionsCount),
+      followUpsScheduled: followUpsCount,
+      priorFollowUpsScheduled: priorFollowUpsCount,
+      followUpsScheduledChangePct: changePct(followUpsCount, priorFollowUpsCount),
+      avgConsultationSeconds,
+      priorAvgConsultationSeconds,
+      avgConsultationSecondsChangePct: changePct(avgConsultationSeconds, priorAvgConsultationSeconds),
+    },
+    consultationsTrend,
+    appointmentOutcomes,
+    patientDemographics,
+    topDiagnoses,
+  };
+};
+
 // ---- Pharmacist: Low Stock -----------------------------------------------------------------
 
 export const getLowStockReport = async (): Promise<ReportResult> => {

@@ -93,7 +93,7 @@ export const amend = async (req: Request, res: Response) => {
 
 export const amendments = async (req: Request, res: Response) => {
   try {
-    const entries = await service.listAmendments(idParam(req));
+    const entries = await service.listAmendments(idParam(req), actor(req));
     res.status(200).json(entries);
   } catch (error) {
     handleError(req, res, error);

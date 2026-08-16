@@ -3,8 +3,9 @@ import type { ChangeEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import { fileUrl } from '../../lib/api';
-import { getConsultationContext, createConsultation, updateConsultation, finalizeConsultation } from '../../lib/consultations';
-import type { ConsultationInput } from '../../lib/consultations';
+import { getConsultationContext, createConsultation, updateConsultation, finalizeConsultation, listAmendments, AMENDABLE_FIELDS } from '../../lib/consultations';
+import type { ConsultationInput, AmendmentEntry, AmendableField } from '../../lib/consultations';
+import AmendModal from './AmendModal';
 import { getLiveQueue, calculateAge, tokenNumber } from '../../lib/queue';
 import {
   ChevronLeftIcon,
@@ -159,6 +160,9 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
   const [saving, setSaving] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [showAmendModal, setShowAmendModal] = useState(false);
+  const [amendments, setAmendments] = useState<AmendmentEntry[] | null>(null);
+  const [amendReloadToken, setAmendReloadToken] = useState(0);
 
   useEffect(() => {
     if (!context) return;
@@ -187,6 +191,24 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
     });
   }, [context]);
 
+  const isConsultationFinalized = context?.consultation?.status === 'Finalized';
+  useEffect(() => {
+    if (!consultationId || !isConsultationFinalized) {
+      setAmendments(null);
+      return;
+    }
+    let cancelled = false;
+    listAmendments(consultationId).then((entries) => {
+      if (!cancelled) setAmendments(entries);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Re-fetches after a successful amend too (amendReloadToken bump), not just on mount/status
+    // change — consultationId and status both stay the same across an amend, so without this the
+    // freshly-saved entry silently wouldn't show up until the next full page load.
+  }, [consultationId, isConsultationFinalized, amendReloadToken]);
+
   if (loading) return <p style={{ padding: 24, color: '#64748b' }}>Loading consultation…</p>;
   if (error || !context) return <div className="dash-error-banner">Couldn't load this appointment: {error}</div>;
 
@@ -196,6 +218,21 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
   const isFinalized = consultation?.status === 'Finalized';
   const canStart = appointment.status === 'Consulting';
   const canEdit = !isFinalized && (canStart || !!consultation);
+
+  const amendCurrentValues: Record<AmendableField, string> = {
+    complaint: form.complaint,
+    history_of_present_illness: form.history_of_present_illness,
+    examination_findings: form.examination_findings,
+    diagnosis: form.diagnosis,
+    icd10_code: form.icd10_code,
+    notes: form.notes,
+    follow_up_date: followUpDate,
+  };
+  const handleAmended = () => {
+    setShowAmendModal(false);
+    reload();
+    setAmendReloadToken((t) => t + 1);
+  };
 
   const setField = (field: keyof Omit<FormState, 'vitals' | 'medical_history' | 'allergies_ack'>) => (e: ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) =>
     setForm((f) => ({ ...f, [field]: e.target.value }));
@@ -574,6 +611,35 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
                   <span className="cons-recent-date">{formatDate(c.date)}</span>
                 </div>
               ))}
+
+              {isFinalized && (
+                <>
+                  <div className="cons-box-title" style={{ marginTop: 20 }}>
+                    Amendment History
+                  </div>
+                  {amendments === null && <div className="pat-empty">Loading…</div>}
+                  {amendments !== null && amendments.length === 0 && <div className="pat-empty">No amendments have been made to this record.</div>}
+                  {amendments !== null &&
+                    amendments.map((a) => (
+                      <div className="cons-recent-row" key={a.id} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                          <span className="cons-recent-diagnosis">
+                            {AMENDABLE_FIELDS.find((f) => f.field === a.field)?.label ?? a.field}
+                          </span>
+                          <span className="cons-recent-date">
+                            {formatDate(a.amendedAt)}, {formatTime(a.amendedAt)}
+                          </span>
+                        </div>
+                        <span className="pat-muted" style={{ fontSize: 12 }}>
+                          "{a.oldValue || '—'}" → "{a.newValue || '—'}"
+                        </span>
+                        <span className="pat-muted" style={{ fontSize: 12 }}>
+                          Reason: {a.reason} — by {a.amendedBy}
+                        </span>
+                      </div>
+                    ))}
+                </>
+              )}
             </div>
           )}
         </div>
@@ -731,9 +797,23 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
                 {isFinalized ? 'Finalized' : consultation ? 'Draft' : 'Not Started'}
               </span>
             </div>
+
+            {isFinalized && consultationId && (
+              <button
+                className="pat-btn"
+                style={{ width: '100%', justifyContent: 'center', marginTop: 12 }}
+                onClick={() => setShowAmendModal(true)}
+              >
+                <EditIcon /> Amend Record
+              </button>
+            )}
           </div>
         </div>
       </div>
+
+      {showAmendModal && consultationId && (
+        <AmendModal consultationId={consultationId} currentValues={amendCurrentValues} onClose={() => setShowAmendModal(false)} onAmended={handleAmended} />
+      )}
     </div>
   );
 };

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import { REPORT_DEFS, getReport, downloadReport } from '../../lib/reports';
 import type { ReportKind, ReportResult } from '../../lib/reports';
@@ -49,13 +50,20 @@ const formatCell = (value: unknown) => {
 };
 const slug = (name: string) => name.trim().toLowerCase().replace(/\s+/g, '_');
 
+const REPORT_KINDS = REPORT_DEFS.map((d) => d.kind);
+const isReportKind = (v: string | null): v is ReportKind => !!v && (REPORT_KINDS as string[]).includes(v);
+
 const MyReports = () => {
+  const [searchParams] = useSearchParams();
   const [from, setFrom] = useState(isoDaysAgo(29));
   const [to, setTo] = useState(todayIso());
   const [appliedFrom, setAppliedFrom] = useState(from);
   const [appliedTo, setAppliedTo] = useState(to);
 
-  const [selectedKind, setSelectedKind] = useState<ReportKind | null>(null);
+  // Supports deep-linking from other pages (e.g. Clinical Statistics' "View Full Report" links)
+  // straight into a preselected report row via ?report=<kind>.
+  const deepLinkedKind = searchParams.get('report');
+  const [selectedKind, setSelectedKind] = useState<ReportKind | null>(isReportKind(deepLinkedKind) ? deepLinkedKind : null);
   const [selectedReport, setSelectedReport] = useState<ReportResult | null>(null);
   const [selectedLoading, setSelectedLoading] = useState(false);
   const [exportingAll, setExportingAll] = useState(false);

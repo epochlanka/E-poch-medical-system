@@ -13,7 +13,15 @@ export interface ReportResult {
   summary: Record<string, unknown>;
 }
 
-export type ReportKind = 'consultations' | 'diagnoses' | 'patient-visits' | 'prescriptions' | 'top-medicines' | 'follow-ups-due' | 'appointments';
+export type ReportKind =
+  | 'consultations'
+  | 'diagnoses'
+  | 'patient-visits'
+  | 'prescriptions'
+  | 'top-medicines'
+  | 'follow-ups-due'
+  | 'appointments'
+  | 'clinical-statistics';
 
 export interface ReportDef {
   kind: ReportKind;
@@ -43,6 +51,7 @@ const ENDPOINT: Record<ReportKind, string> = {
   'top-medicines': '/reports/doctor/top-medicines',
   'follow-ups-due': '/reports/doctor/follow-ups-due',
   appointments: '/reports/doctor/appointments',
+  'clinical-statistics': '/reports/doctor/clinical-statistics',
 };
 
 export interface ReportParams {
@@ -61,3 +70,32 @@ export const downloadReport = async (kind: ReportKind, params: ReportParams, for
   a.click();
   URL.revokeObjectURL(url);
 };
+
+export interface ClinicalStatistics {
+  title: string;
+  range: { from: string; to: string };
+  kpis: {
+    totalConsultations: number;
+    priorTotalConsultations: number;
+    totalConsultationsChangePct: number | null;
+    newPatients: number;
+    priorNewPatients: number;
+    newPatientsChangePct: number | null;
+    prescriptionsIssued: number;
+    priorPrescriptionsIssued: number;
+    prescriptionsIssuedChangePct: number | null;
+    followUpsScheduled: number;
+    priorFollowUpsScheduled: number;
+    followUpsScheduledChangePct: number | null;
+    avgConsultationSeconds: number;
+    priorAvgConsultationSeconds: number;
+    avgConsultationSecondsChangePct: number | null;
+  };
+  consultationsTrend: { date: string; count: number }[];
+  appointmentOutcomes: { status: string; count: number }[];
+  patientDemographics: { label: string; count: number }[];
+  topDiagnoses: { diagnosis: string; count: number; percentage: number }[];
+}
+
+export const getClinicalStatistics = (params: ReportParams) =>
+  api.get<ClinicalStatistics>('/reports/doctor/clinical-statistics', { params }).then((r) => r.data);

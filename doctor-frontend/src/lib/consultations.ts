@@ -93,6 +93,35 @@ export const updateConsultation = (consultationId: number, input: ConsultationIn
 export const finalizeConsultation = (consultationId: number) =>
   api.post<Consultation>(`/consultations/${consultationId}/finalize`).then((r) => r.data);
 
+// A Finalized consultation can never be edited through the same form as a Draft (BR-08/FR-037) —
+// a correction goes through this logged amend path instead, one field at a time with a reason.
+export const AMENDABLE_FIELDS = [
+  { field: 'complaint', label: 'Chief Complaint' },
+  { field: 'history_of_present_illness', label: 'History of Present Illness' },
+  { field: 'examination_findings', label: 'Examination Findings' },
+  { field: 'diagnosis', label: 'Diagnosis' },
+  { field: 'icd10_code', label: 'ICD-10 Code' },
+  { field: 'notes', label: 'Notes' },
+  { field: 'follow_up_date', label: 'Follow-up Date' },
+] as const;
+export type AmendableField = (typeof AMENDABLE_FIELDS)[number]['field'];
+
+export const amendConsultation = (consultationId: number, field: AmendableField, new_value: string | null, reason: string) =>
+  api.post<Consultation>(`/consultations/${consultationId}/amend`, { field, new_value, reason }).then((r) => r.data);
+
+export interface AmendmentEntry {
+  id: number;
+  field: string;
+  oldValue: string | null;
+  newValue: string | null;
+  reason: string;
+  amendedBy: string;
+  amendedAt: string;
+}
+
+export const listAmendments = (consultationId: number) =>
+  api.get<AmendmentEntry[]>(`/consultations/${consultationId}/amendments`).then((r) => r.data);
+
 export interface ConsultationSummary {
   consultationId: number;
   appointmentId: number;
