@@ -3,7 +3,6 @@ import { NotFoundError, ForbiddenError } from './errors';
 
 const prisma = new PrismaClient();
 
-<<<<<<< Updated upstream
 interface Actor {
   user_id: number;
   role: string;
@@ -48,129 +47,13 @@ const endOfWeek = (date: Date) => {
 const localDateKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 const ACTIVE_STATUSES = ['Waiting', 'Called', 'Consulting'];
-=======
-// Your Appointment.status is a plain string column (no DB enum), so we can safely
-// extend the validated value set beyond the original queue statuses to also cover
-// the scheduling states the Appointments UI needs (Cancelled / No Show).
-// No migration required for this — only the zod enum in router.ts needs updating.
-export const STATUS_VALUES = ['Waiting', 'Called', 'Consulting', 'Completed', 'Skipped', 'Cancelled', 'No Show'] as const;
-export type AppointmentStatus = (typeof STATUS_VALUES)[number];
-
-const APPOINTMENT_INCLUDE = {
-  patient: {
-    select: {
-      patient_id: true,
-      full_name: true,
-      gender: true,
-      dob: true,
-      phone: true,
-    },
-  },
-  doctor: {
-    select: {
-      user_id: true,
-      username: true,
-      registration_number: true,
-    },
-  },
-};
-
-function calcAge(dob: Date | null): number | null {
-  if (!dob) return null;
-  const diffMs = Date.now() - dob.getTime();
-  return Math.floor(diffMs / (1000 * 60 * 60 * 24 * 365.25));
-}
-
-// Display-only code like APT-2025-00126. Since appointment_id is a single global
-// autoincrement (not reset per year), this won't perfectly match a "resets every
-// January" sequence — flagging that now so it's not a surprise later.
-function formatCode(appointment_id: number, scheduled_at: Date) {
-  return `APT-${scheduled_at.getFullYear()}-${String(appointment_id).padStart(5, '0')}`;
-}
-
-function serialize(a: any) {
-  return {
-    appointment_id: a.appointment_id,
-    code: formatCode(a.appointment_id, a.scheduled_at),
-    patient: {
-      patient_id: a.patient.patient_id,
-      full_name: a.patient.full_name,
-      phone: a.patient.phone,
-      gender: a.patient.gender,
-      age: calcAge(a.patient.dob),
-    },
-    doctor: {
-      user_id: a.doctor.user_id,
-      username: a.doctor.username,
-      registration_number: a.doctor.registration_number,
-    },
-    scheduled_at: a.scheduled_at,
-    reason: a.reason ?? null,
-    status: a.status,
-  };
-}
-
-function dayRange(date: Date) {
-  const start = new Date(date);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  return { start, end };
-}
-
-function currentWeekRange() {
-  const now = new Date();
-  const start = new Date(now);
-  start.setDate(now.getDate() - now.getDay()); // Sunday
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(start.getDate() + 7);
-  return { start, end };
-}
-
-function tabWhere(tab: string, date?: string) {
-  switch (tab) {
-    case 'today': {
-      const { start, end } = dayRange(date ? new Date(date) : new Date());
-      return { scheduled_at: { gte: start, lt: end } };
-    }
-    case 'upcoming':
-      return {
-        scheduled_at: { gte: new Date() },
-        status: { in: ['Waiting', 'Called', 'Consulting'] },
-      };
-    case 'completed':
-      return { status: 'Completed' };
-    case 'cancelled':
-      return { status: 'Cancelled' };
-    case 'no-show':
-      return { status: 'No Show' };
-    default: {
-      if (!date) return {};
-      const { start, end } = dayRange(new Date(date));
-      return { scheduled_at: { gte: start, lt: end } };
-    }
-  }
-}
->>>>>>> Stashed changes
 
 export class AppointmentsService {
   /**
    * Create a new appointment
    */
-<<<<<<< Updated upstream
   async createAppointment(data: { patient_id: string; doctor_id: number; scheduled_at: Date; reason?: string; created_by: number }) {
     return prisma.appointment.create({
-=======
-  async createAppointment(data: {
-    patient_id: string;
-    doctor_id: number;
-    scheduled_at: Date;
-    reason?: string;
-    created_by: number;
-  }) {
-    const appointment = await prisma.appointment.create({
->>>>>>> Stashed changes
       data: {
         patient_id: data.patient_id,
         doctor_id: data.doctor_id,
@@ -179,17 +62,11 @@ export class AppointmentsService {
         created_by: data.created_by,
         status: 'Waiting',
       },
-<<<<<<< Updated upstream
       include: { patient: { select: patientSelect }, doctor: { select: doctorSelect } },
-=======
-      include: APPOINTMENT_INCLUDE,
->>>>>>> Stashed changes
     });
-    return serialize(appointment);
   }
 
   /**
-<<<<<<< Updated upstream
    * Fetch the live queue for today — optionally scoped to one doctor (a Doctor caller is
    * always scoped to themselves; other roles may pass doctorId to filter or omit it for all).
    * Scoped to today's scheduled_at — without this, a stray appointment from days ago that was
@@ -205,17 +82,8 @@ export class AppointmentsService {
         ...(doctorId ? { doctor_id: doctorId } : {}),
       },
       include: { patient: { select: patientSelect }, doctor: { select: doctorSelect }, consultation: { select: { created_at: true } } },
-=======
-   * Fetch the live queue (Waiting / Called / Consulting)
-   */
-  async getLiveQueue() {
-    const rows = await prisma.appointment.findMany({
-      where: { status: { in: ['Waiting', 'Called', 'Consulting'] } },
-      include: APPOINTMENT_INCLUDE,
->>>>>>> Stashed changes
       orderBy: { scheduled_at: 'asc' },
     });
-    return rows.map(serialize);
   }
 
   /**
@@ -257,32 +125,17 @@ export class AppointmentsService {
    */
   async getDoctors(search?: string) {
     const where: any = { role: 'Doctor', is_active: true };
-<<<<<<< Updated upstream
     if (search) where.username = { contains: search };
 
     return prisma.user.findMany({
       where,
       select: doctorSelect,
-=======
-    if (search) {
-      where.username = { contains: search };
-    }
-
-    return prisma.user.findMany({
-      where,
-      select: {
-        user_id: true,
-        username: true,
-        registration_number: true,
-      },
->>>>>>> Stashed changes
       orderBy: { username: 'asc' },
       take: 20,
     });
   }
 
   /**
-<<<<<<< Updated upstream
    * Paginated, filterable appointment list — the "Appointments" management page's main table.
    */
   async listAppointments(filters: {
@@ -349,131 +202,12 @@ export class AppointmentsService {
       where,
       include: { patient: { select: { full_name: true, gender: true } }, doctor: { select: { username: true } } },
       orderBy: { scheduled_at: 'desc' },
-=======
-   * Fetch appointments for the Appointments page: search + doctor/status/date
-   * filters + tab (all/today/upcoming/completed/cancelled/no-show) + pagination.
-   */
-  async getAllAppointments(filters: {
-    page: number;
-    limit: number;
-    search?: string;
-    doctor_id?: number;
-    status?: string;
-    date?: string;
-    tab: string;
-  }) {
-    const { page, limit, search, doctor_id, status, date, tab } = filters;
-
-    const where: any = {
-      AND: [
-        tabWhere(tab, date),
-        doctor_id ? { doctor_id } : {},
-        status && status !== 'ALL' ? { status } : {},
-        search
-          ? {
-              OR: [
-                { patient: { full_name: { contains: search } } },
-                { patient: { phone: { contains: search } } },
-                { patient_id: { contains: search } },
-              ],
-            }
-          : {},
-      ],
-    };
-
-    const [rows, total] = await Promise.all([
-      prisma.appointment.findMany({
-        where,
-        include: APPOINTMENT_INCLUDE,
-        orderBy: { scheduled_at: 'asc' },
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
-      prisma.appointment.count({ where }),
-    ]);
-
-    return {
-      data: rows.map(serialize),
-      pagination: { page, limit, total, totalPages: Math.max(Math.ceil(total / limit), 1) },
-    };
-  }
-
-  /**
-   * Stat cards: today's count + this-week upcoming/completed/cancelled/no-show
-   */
-  async getAppointmentStats() {
-    const { start: weekStart, end: weekEnd } = currentWeekRange();
-    const { start: todayStart, end: todayEnd } = dayRange(new Date());
-
-    const [today, upcoming, completed, cancelled, noShow] = await Promise.all([
-      prisma.appointment.count({ where: { scheduled_at: { gte: todayStart, lt: todayEnd } } }),
-      prisma.appointment.count({
-        where: { scheduled_at: { gte: weekStart, lt: weekEnd }, status: { in: ['Waiting', 'Called', 'Consulting'] } },
-      }),
-      prisma.appointment.count({ where: { scheduled_at: { gte: weekStart, lt: weekEnd }, status: 'Completed' } }),
-      prisma.appointment.count({ where: { scheduled_at: { gte: weekStart, lt: weekEnd }, status: 'Cancelled' } }),
-      prisma.appointment.count({ where: { scheduled_at: { gte: weekStart, lt: weekEnd }, status: 'No Show' } }),
-    ]);
-
-    return { today, upcomingThisWeek: upcoming, completedThisWeek: completed, cancelledThisWeek: cancelled, noShowThisWeek: noShow };
-  }
-
-  /**
-   * Calendar dots: day (YYYY-MM-DD) -> list of statuses scheduled that day
-   */
-  async getCalendarSummary(year: number, month: number) {
-    const start = new Date(year, month - 1, 1);
-    const end = new Date(year, month, 1);
-
-    const rows = await prisma.appointment.findMany({
-      where: { scheduled_at: { gte: start, lt: end } },
-      select: { scheduled_at: true, status: true },
->>>>>>> Stashed changes
     });
-
-    const byDay: Record<string, string[]> = {};
-    for (const r of rows) {
-      const key = r.scheduled_at.toISOString().slice(0, 10);
-      (byDay[key] ||= []).push(r.status);
-    }
-    return byDay;
-  }
-
-  /**
-   * Today's Schedule side-panel blocks
-   */
-  async getTodaysScheduleBlocks() {
-    const { start, end } = dayRange(new Date());
-    const rows = await prisma.appointment.findMany({
-      where: { scheduled_at: { gte: start, lt: end } },
-      select: { scheduled_at: true },
-    });
-
-    const blocks = [
-      { label: '09:00 AM - 11:00 AM', from: 9, to: 11 },
-      { label: '11:00 AM - 01:00 PM', from: 11, to: 13 },
-      { label: '02:00 PM - 04:00 PM', from: 14, to: 16 },
-      { label: '04:00 PM - 06:00 PM', from: 16, to: 18 },
-    ];
-
-    return blocks.map((b) => ({
-      label: b.label,
-      count: rows.filter((r) => {
-        const h = r.scheduled_at.getHours();
-        return h >= b.from && h < b.to;
-      }).length,
-    }));
-  }
-
-  async getAppointmentById(appointment_id: number) {
-    const a = await prisma.appointment.findUnique({ where: { appointment_id }, include: APPOINTMENT_INCLUDE });
-    return a ? serialize(a) : null;
   }
 
   /**
    * Stat cards for the Appointments dashboard: today's count plus this-week outcome counts.
    */
-<<<<<<< Updated upstream
   async getStats() {
     const now = new Date();
     const weekStart = startOfWeek(now);
@@ -584,15 +318,7 @@ export class AppointmentsService {
       where: { appointment_id },
       data: { status: 'Skipped', skip_reason: reason, skipped_at: new Date() },
       include: { patient: { select: patientSelect }, doctor: { select: doctorSelect } },
-=======
-  async updateStatus(appointment_id: number, status: string) {
-    const a = await prisma.appointment.update({
-      where: { appointment_id },
-      data: { status },
-      include: APPOINTMENT_INCLUDE,
->>>>>>> Stashed changes
     });
-    return serialize(a);
   }
 
   /**
@@ -628,20 +354,11 @@ export class AppointmentsService {
    * Update appointment time
    */
   async updateTime(appointment_id: number, scheduled_at: Date) {
-    const a = await prisma.appointment.update({
+    return prisma.appointment.update({
       where: { appointment_id },
       data: { scheduled_at },
-<<<<<<< Updated upstream
       include: { patient: { select: patientSelect }, doctor: { select: doctorSelect } },
-=======
-      include: APPOINTMENT_INCLUDE,
->>>>>>> Stashed changes
     });
-    return serialize(a);
-  }
-
-  async deleteAppointment(appointment_id: number) {
-    return prisma.appointment.delete({ where: { appointment_id } });
   }
 }
 
