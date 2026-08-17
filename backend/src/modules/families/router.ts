@@ -18,6 +18,8 @@ const createSchema = z.object({
   body: z.object({
     family_name: z.string().min(1, 'Family name is required'),
     address: z.string().optional(),
+    city: z.string().optional(),
+    family_type: z.string().optional(),
     contact_no: z.string().optional(),
   }),
 });
@@ -27,6 +29,8 @@ const updateSchema = z.object({
   body: z.object({
     family_name: z.string().min(1).optional(),
     address: z.string().optional(),
+    city: z.string().optional(),
+    family_type: z.string().optional(),
     contact_no: z.string().optional(),
   }),
 });
@@ -35,6 +39,8 @@ const listSchema = z.object({
   query: z.object({
     search: z.string().optional(),
     status: z.enum(['active', 'inactive', 'all']).optional(),
+    familyType: z.string().optional(),
+    city: z.string().optional(),
     page: z.coerce.number().int().positive().optional(),
     limit: z.coerce.number().int().positive().optional(),
   }),

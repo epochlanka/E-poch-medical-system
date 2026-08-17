@@ -9,17 +9,23 @@ const prisma = new PrismaClient();
 interface ListFamiliesFilters {
   search?: string;
   status?: 'active' | 'inactive' | 'all';
+  familyType?: string;
+  city?: string;
   page?: number;
   limit?: number;
 }
 
 export const listFamilies = async (filters: ListFamiliesFilters) => {
   const page = filters.page && filters.page > 0 ? filters.page : 1;
-  const limit = filters.limit && filters.limit > 0 && filters.limit <= 100 ? filters.limit : 20;
+  // Capped higher than most list endpoints (vs. the usual 100) because this also backs the
+  // Patients page's Family filter dropdown, which needs every active family in one unpaginated call.
+  const limit = filters.limit && filters.limit > 0 && filters.limit <= 500 ? filters.limit : 20;
 
   const where: Prisma.FamilyWhereInput = {};
   if (filters.status === 'active') where.is_active = true;
   else if (filters.status === 'inactive') where.is_active = false;
+  if (filters.familyType) where.family_type = filters.familyType;
+  if (filters.city) where.city = filters.city;
 
   if (filters.search) {
     const term = filters.search.trim();
@@ -27,10 +33,11 @@ export const listFamilies = async (filters: ListFamiliesFilters) => {
       { family_name: { contains: term } },
       { address: { contains: term } },
       { contact_no: { contains: term } },
+      { head_patient: { full_name: { contains: term } } },
     ];
   }
 
-  const [total, families] = await Promise.all([
+  const [total, families, cityRows, familyTypeRows] = await Promise.all([
     prisma.family.count({ where }),
     prisma.family.findMany({
       where,
@@ -42,9 +49,19 @@ export const listFamilies = async (filters: ListFamiliesFilters) => {
         _count: { select: { patients: true } },
       },
     }),
+    // Filter-dropdown option lists — distinct real values actually present, not a fixed enum,
+    // since both fields are free-text (same "derive filter options from real data" pattern
+    // already used for Duplicate Review's Reviewed-By filter).
+    prisma.family.findMany({ where: { city: { not: null } }, select: { city: true }, distinct: ['city'] }),
+    prisma.family.findMany({ where: { family_type: { not: null } }, select: { family_type: true }, distinct: ['family_type'] }),
   ]);
 
-  return { data: families, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+  return {
+    data: families,
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    cityOptions: cityRows.map((r) => r.city as string).sort(),
+    familyTypeOptions: familyTypeRows.map((r) => r.family_type as string).sort(),
+  };
 };
 
 // ---- Summary stats for the Families list header cards ------------------------
@@ -61,13 +78,14 @@ export const getFamilyStats = async () => {
   const thisMonthStart = startOfMonth(now);
   const lastMonthStart = startOfMonth(new Date(now.getFullYear(), now.getMonth() - 1, 1));
 
-  const [totalFamilies, newThisMonth, newLastMonth, totalFamilyMembers, activeFamilies, inactiveFamilies] = await Promise.all([
+  const [totalFamilies, newThisMonth, newLastMonth, totalFamilyMembers, activeFamilies, inactiveFamilies, headsOfFamily] = await Promise.all([
     prisma.family.count(),
     prisma.family.count({ where: { created_at: { gte: thisMonthStart } } }),
     prisma.family.count({ where: { created_at: { gte: lastMonthStart, lt: thisMonthStart } } }),
     prisma.patient.count(),
     prisma.family.count({ where: { is_active: true } }),
     prisma.family.count({ where: { is_active: false } }),
+    prisma.family.count({ where: { head_patient_id: { not: null } } }),
   ]);
 
   return {
@@ -79,13 +97,14 @@ export const getFamilyStats = async () => {
     activeFamiliesPct: totalFamilies === 0 ? 0 : (activeFamilies / totalFamilies) * 100,
     inactiveFamilies,
     inactiveFamiliesPct: totalFamilies === 0 ? 0 : (inactiveFamilies / totalFamilies) * 100,
+    headsOfFamily,
   };
 };
 
 // A Family can exist before any patient is assigned to it (BR-01) — a receptionist
 // can create the household shell first, then attach members via patient registration.
 export const createFamily = async (
-  input: { family_name: string; address?: string; contact_no?: string },
+  input: { family_name: string; address?: string; city?: string; family_type?: string; contact_no?: string },
   actorUserId: number
 ) => {
   return prisma.$transaction(async (tx) => {
@@ -107,7 +126,7 @@ export const getFamilyById = async (familyId: number) => {
 
 export const updateFamily = async (
   familyId: number,
-  updates: { family_name?: string; address?: string; contact_no?: string },
+  updates: { family_name?: string; address?: string; city?: string; family_type?: string; contact_no?: string },
   actorUserId: number
 ) => {
   const existing = await prisma.family.findUnique({ where: { family_id: familyId } });
@@ -150,15 +169,24 @@ export const getFamilyMembers = async (familyId: number) => {
       family_id: family.family_id,
       family_name: family.family_name,
       address: family.address,
+      city: family.city,
+      family_type: family.family_type,
       contact_no: family.contact_no,
       is_active: family.is_active,
       head_patient: family.head_patient,
     },
+    // nic/phone/photo_url/relationship_to_head were already fetched (no `select` restricts the
+    // `patients` include above) — just not returned; widened here for the Family Member Roster
+    // page, which needs all of them, without touching the query itself.
     members: family.patients.map((p) => ({
       patient_id: p.patient_id,
       full_name: p.full_name,
       dob: p.dob,
       gender: p.gender,
+      nic: p.nic,
+      phone: p.phone,
+      photo_url: p.photo_url,
+      relationship_to_head: p.relationship_to_head,
       is_active: p.is_active,
       is_head: p.patient_id === family.head_patient_id,
     })),

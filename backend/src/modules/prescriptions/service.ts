@@ -178,6 +178,7 @@ interface ListPrescriptionsFilters {
   medicineId?: number;
   search?: string;
   isRefill?: boolean;
+  consultationType?: string;
   from?: Date;
   to?: Date;
   page?: number;
@@ -195,11 +196,12 @@ export const listPrescriptions = async (filters: ListPrescriptionsFilters) => {
   if (filters.from || filters.to) {
     where.issued_at = { ...(filters.from ? { gte: filters.from } : {}), ...(filters.to ? { lte: filters.to } : {}) };
   }
-  if (filters.patientId || filters.doctorId || filters.search) {
+  if (filters.patientId || filters.doctorId || filters.search || filters.consultationType) {
     where.consultation = {
       appointment: {
         ...(filters.patientId ? { patient_id: filters.patientId } : {}),
         ...(filters.doctorId ? { doctor_id: filters.doctorId } : {}),
+        ...(filters.consultationType ? { consultation_type: filters.consultationType } : {}),
         ...(filters.search
           ? { OR: [{ patient: { full_name: { contains: filters.search } } }, { patient: { patient_id: { contains: filters.search } } }] }
           : {}),
@@ -218,7 +220,9 @@ export const listPrescriptions = async (filters: ListPrescriptionsFilters) => {
       take: limit,
       include: {
         items: { include: { medicine: { select: { name: true } } } },
-        consultation: { include: { appointment: { include: { patient: { select: patientSelect }, doctor: { select: { user_id: true, username: true } } } } } },
+        consultation: {
+          include: { appointment: { include: { patient: { select: patientSelect }, doctor: { select: { user_id: true, username: true } } } } },
+        },
       },
     }),
   ]);
@@ -234,6 +238,7 @@ export const listPrescriptions = async (filters: ListPrescriptionsFilters) => {
       notes: rx.notes,
       issuedAt: rx.issued_at,
       appointmentId: rx.consultation.appointment_id,
+      consultationType: rx.consultation.appointment.consultation_type,
       patientId: rx.consultation.appointment.patient.patient_id,
       patientName: rx.consultation.appointment.patient.full_name,
       patientGender: rx.consultation.appointment.patient.gender,

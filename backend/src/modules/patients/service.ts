@@ -1,5 +1,5 @@
 import { Prisma, PrismaClient, Patient } from '@prisma/client';
-import { isFuzzyNameMatch } from './nameMatch';
+import { isFuzzyNameMatch, stringSimilarityPct } from './nameMatch';
 import { NotFoundError, ValidationError, DuplicatePatientError } from './errors';
 
 const prisma = new PrismaClient();
@@ -17,6 +17,15 @@ interface RegisterPatientInput {
   phone?: string;
   blood_group?: string;
   allergies?: string;
+  nationality?: string;
+  marital_status?: string;
+  occupation?: string;
+  employer_school?: string;
+  relationship_to_head?: string;
+  chronic_conditions?: string;
+  current_medications?: string;
+  emergency_contact_name?: string;
+  emergency_contact_phone?: string;
   family_id?: number;
   new_family?: { family_name: string; address?: string; contact_no?: string };
 }
@@ -131,6 +140,15 @@ export const registerPatient = async (input: RegisterPatientInput, actorUserId: 
         phone: input.phone,
         blood_group: input.blood_group,
         allergies: input.allergies,
+        nationality: input.nationality,
+        marital_status: input.marital_status,
+        occupation: input.occupation,
+        employer_school: input.employer_school,
+        relationship_to_head: input.relationship_to_head,
+        chronic_conditions: input.chronic_conditions,
+        current_medications: input.current_medications,
+        emergency_contact_name: input.emergency_contact_name,
+        emergency_contact_phone: input.emergency_contact_phone,
       },
     });
 
@@ -160,6 +178,7 @@ interface ListPatientsFilters {
   bloodGroup?: string;
   ageFrom?: number;
   ageTo?: number;
+  familyId?: number;
   page?: number;
   limit?: number;
 }
@@ -182,6 +201,7 @@ export const listPatients = async (filters: ListPatientsFilters) => {
   else if (filters.status === 'inactive') where.is_active = false;
   if (filters.gender) where.gender = filters.gender;
   if (filters.bloodGroup) where.blood_group = filters.bloodGroup;
+  if (filters.familyId) where.family_id = filters.familyId;
   if (filters.ageFrom !== undefined || filters.ageTo !== undefined) {
     where.dob = {
       ...(filters.ageFrom !== undefined ? { lte: dobCutoffForMinAge(filters.ageFrom) } : {}),
@@ -311,11 +331,36 @@ interface UpdatePatientInput {
   allergies?: string;
   gender?: string;
   guardian_nic?: string;
+  nationality?: string;
+  marital_status?: string;
+  occupation?: string;
+  employer_school?: string;
+  relationship_to_head?: string;
+  chronic_conditions?: string;
+  current_medications?: string;
+  emergency_contact_name?: string;
+  emergency_contact_phone?: string;
   family_id?: number;
   reason?: string;
 }
 
-const EDITABLE_FIELDS = ['full_name', 'phone', 'blood_group', 'allergies', 'gender', 'guardian_nic'] as const;
+const EDITABLE_FIELDS = [
+  'full_name',
+  'phone',
+  'blood_group',
+  'allergies',
+  'gender',
+  'guardian_nic',
+  'nationality',
+  'marital_status',
+  'occupation',
+  'employer_school',
+  'relationship_to_head',
+  'chronic_conditions',
+  'current_medications',
+  'emergency_contact_name',
+  'emergency_contact_phone',
+] as const;
 
 export const updatePatient = async (patientId: string, updates: UpdatePatientInput, actorUserId: number) => {
   const existing = await prisma.patient.findUnique({ where: { patient_id: patientId } });
@@ -550,15 +595,186 @@ export const getPatientAuditLog = async (patientId: string, page = 1, limit = 50
 
 // ---- Duplicate / Near-Duplicate Review Queue --------------------------------
 
-export const listDuplicateFlags = async (status: 'Pending' | 'Dismissed' | 'Merged' | 'All' = 'Pending') => {
-  return prisma.patientDuplicateFlag.findMany({
-    where: status === 'All' ? {} : { status },
+type MatchFieldStatus = 'exact' | 'similar' | 'different' | 'unavailable';
+interface MatchField {
+  status: MatchFieldStatus;
+  detail: string;
+  value: string | null;
+}
+
+const maskTail = (value: string) => (value.length <= 2 ? value : `${value.slice(0, -1)}*`);
+
+// Real, per-field comparison of the two flagged patients' actual current values — computed live
+// on every read rather than stored at flag-creation time, so it reflects the records as they are
+// now (e.g. if a phone number was corrected after the flag was raised) instead of going stale.
+const compareNic = (a: string | null, b: string | null): MatchField => {
+  if (!a || !b) return { status: 'unavailable', detail: 'Not available', value: null };
+  if (a === b) return { status: 'exact', detail: 'Exact Match', value: a };
+  const pct = stringSimilarityPct(a, b);
+  if (pct >= 60) return { status: 'similar', detail: `Similar (${pct}% match)`, value: maskTail(a) };
+  return { status: 'different', detail: 'Different', value: maskTail(a) };
+};
+
+const comparePhone = (a: string | null, b: string | null): MatchField => {
+  if (!a || !b) return { status: 'unavailable', detail: 'Not available', value: null };
+  if (a === b) return { status: 'exact', detail: 'Exact Match', value: a };
+  for (const n of [7, 6, 5]) {
+    if (a.length >= n && b.length >= n && a.slice(-n) === b.slice(-n)) {
+      return { status: 'similar', detail: `Similar (Last ${n} digits match)`, value: a };
+    }
+  }
+  return { status: 'different', detail: 'Different', value: a };
+};
+
+const compareAddress = (a: string | null, b: string | null): MatchField => {
+  if (!a || !b) return { status: 'unavailable', detail: 'Not available', value: a ?? b };
+  if (a.trim().toLowerCase() === b.trim().toLowerCase()) return { status: 'exact', detail: a, value: a };
+  return { status: 'different', detail: a, value: a };
+};
+
+const MATCH_WEIGHTS = { dob: 25, name: 40, nic: 20, phone: 15 } as const;
+
+type DuplicatePairPatient = { full_name: string; dob: Date; nic: string | null; phone: string | null; family: { address: string | null } | null };
+
+const computeMatchDetails = (a: DuplicatePairPatient, b: DuplicatePairPatient) => {
+  const dobExact = a.dob.getTime() === b.dob.getTime();
+  const namePct = stringSimilarityPct(a.full_name, b.full_name);
+  const nic = compareNic(a.nic, b.nic);
+  const phone = comparePhone(a.phone, b.phone);
+  const address = compareAddress(a.family?.address ?? null, b.family?.address ?? null);
+
+  const fieldScores: { weight: number; score: number }[] = [
+    { weight: MATCH_WEIGHTS.dob, score: dobExact ? 100 : 0 },
+    { weight: MATCH_WEIGHTS.name, score: namePct },
+  ];
+  if (nic.status !== 'unavailable') fieldScores.push({ weight: MATCH_WEIGHTS.nic, score: nic.status === 'exact' ? 100 : nic.status === 'similar' ? 65 : 20 });
+  if (phone.status !== 'unavailable') fieldScores.push({ weight: MATCH_WEIGHTS.phone, score: phone.status === 'exact' ? 100 : phone.status === 'similar' ? 70 : 20 });
+
+  const totalWeight = fieldScores.reduce((s, f) => s + f.weight, 0);
+  const matchScorePct = Math.round(fieldScores.reduce((s, f) => s + f.weight * f.score, 0) / totalWeight);
+  const matchLabel = matchScorePct >= 95 ? 'Very High Match' : matchScorePct >= 80 ? 'High Match' : matchScorePct >= 61 ? 'Moderate Match' : 'Low Match';
+  const matchBand = matchScorePct >= 95 ? 'very-high' : matchScorePct >= 80 ? 'high' : matchScorePct >= 61 ? 'moderate' : 'low';
+
+  return {
+    matchScorePct,
+    matchLabel,
+    matchBand,
+    breakdown: {
+      dob: { status: dobExact ? 'exact' : 'different', detail: dobExact ? 'Exact Match' : 'Different', value: a.dob.toISOString() } as MatchField,
+      nic,
+      phone,
+      address,
+    },
+  };
+};
+
+interface ListDuplicateFlagsFilters {
+  status?: 'Pending' | 'Dismissed' | 'Merged' | 'All';
+  search?: string;
+  matchBand?: 'very-high' | 'high' | 'moderate' | 'low' | 'all';
+  dateFrom?: Date;
+  dateTo?: Date;
+  reviewedBy?: string;
+  page?: number;
+  limit?: number;
+}
+
+const duplicatePatientSelect = {
+  patient_id: true,
+  full_name: true,
+  dob: true,
+  nic: true,
+  phone: true,
+  is_active: true,
+  photo_url: true,
+  family: { select: { address: true } },
+} as const;
+
+export const listDuplicateFlags = async (filters: ListDuplicateFlagsFilters = {}) => {
+  const page = filters.page && filters.page > 0 ? filters.page : 1;
+  const limit = filters.limit && filters.limit > 0 && filters.limit <= 100 ? filters.limit : 5;
+
+  const where: Prisma.PatientDuplicateFlagWhereInput = {};
+  if (filters.status && filters.status !== 'All') where.status = filters.status;
+  if (filters.dateFrom || filters.dateTo) {
+    where.created_at = { ...(filters.dateFrom ? { gte: filters.dateFrom } : {}), ...(filters.dateTo ? { lte: filters.dateTo } : {}) };
+  }
+  if (filters.reviewedBy) where.reviewer = { username: filters.reviewedBy };
+  if (filters.search) {
+    const term = filters.search.trim();
+    const patientMatch = { OR: [{ patient_id: { contains: term } }, { full_name: { contains: term } }, { nic: { contains: term } }, { phone: { contains: term } }] };
+    where.OR = [{ patient: patientMatch }, { matched_patient: patientMatch }];
+  }
+
+  // Every field this page needs to filter/sort/paginate by (match score, band) is computed, not
+  // stored — same "fetch-all, derive, filter, paginate in-memory" tradeoff already established
+  // for Medicines' stock-status filter and Invoices' type filter, safe here since duplicate flags
+  // are a bounded, small-scale dataset (staff review queue), not clinic-scale transactional data.
+  const all = await prisma.patientDuplicateFlag.findMany({
+    where,
     include: {
-      patient: { select: { patient_id: true, full_name: true, dob: true, nic: true, is_active: true } },
-      matched_patient: { select: { patient_id: true, full_name: true, dob: true, nic: true, is_active: true } },
+      patient: { select: duplicatePatientSelect },
+      matched_patient: { select: duplicatePatientSelect },
+      reviewer: { select: { username: true } },
     },
     orderBy: { created_at: 'desc' },
   });
+
+  const enriched = all.map((flag) => {
+    const match = computeMatchDetails(flag.patient, flag.matched_patient);
+    return {
+      flagId: flag.flag_id,
+      status: flag.status,
+      matchReason: flag.match_reason,
+      createdAt: flag.created_at,
+      reviewedAt: flag.reviewed_at,
+      reviewedBy: flag.reviewer?.username ?? null,
+      addedBy: 'System' as const, // every flag today is raised automatically by flagNearDuplicates() at registration
+      patient: flag.patient,
+      matchedPatient: flag.matched_patient,
+      ...match,
+    };
+  });
+
+  const reviewedByOptions = Array.from(new Set(enriched.map((f) => f.reviewedBy).filter((v): v is string => !!v))).sort();
+
+  const bandFiltered =
+    filters.matchBand && filters.matchBand !== 'all' ? enriched.filter((f) => f.matchBand === filters.matchBand) : enriched;
+
+  const sorted = bandFiltered.sort((a, b) => b.matchScorePct - a.matchScorePct || b.createdAt.getTime() - a.createdAt.getTime());
+
+  const total = sorted.length;
+  const pageRows = sorted.slice((page - 1) * limit, (page - 1) * limit + limit);
+
+  return {
+    data: pageRows,
+    pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
+    reviewedByOptions,
+  };
+};
+
+const startOfDay = (date = new Date()) => {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+const endOfDay = (date = new Date()) => {
+  const d = new Date(date);
+  d.setHours(23, 59, 59, 999);
+  return d;
+};
+
+export const getDuplicateFlagStats = async () => {
+  const todayStart = startOfDay();
+  const todayEnd = endOfDay();
+
+  const [pendingReview, mergedToday, dismissedToday] = await Promise.all([
+    prisma.patientDuplicateFlag.count({ where: { status: 'Pending' } }),
+    prisma.patientDuplicateFlag.count({ where: { status: 'Merged', reviewed_at: { gte: todayStart, lte: todayEnd } } }),
+    prisma.patientDuplicateFlag.count({ where: { status: 'Dismissed', reviewed_at: { gte: todayStart, lte: todayEnd } } }),
+  ]);
+
+  return { pendingReview, reviewedToday: mergedToday + dismissedToday, mergedToday, dismissedToday };
 };
 
 export const dismissDuplicateFlag = async (flagId: number, actorUserId: number) => {

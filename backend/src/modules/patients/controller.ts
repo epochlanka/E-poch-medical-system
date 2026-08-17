@@ -20,7 +20,7 @@ const parseTypes = (types?: string) => (types ? (types.split(',').map((t) => t.t
 
 export const list = async (req: Request, res: Response) => {
   try {
-    const { search, status, gender, bloodGroup, ageFrom, ageTo, page, limit } = req.query as any;
+    const { search, status, gender, bloodGroup, ageFrom, ageTo, familyId, page, limit } = req.query as any;
     const result = await service.listPatients({
       search,
       status,
@@ -28,6 +28,7 @@ export const list = async (req: Request, res: Response) => {
       bloodGroup,
       ageFrom: ageFrom ? Number(ageFrom) : undefined,
       ageTo: ageTo ? Number(ageTo) : undefined,
+      familyId: familyId ? Number(familyId) : undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });
@@ -68,6 +69,15 @@ export const register = async (req: Request, res: Response) => {
         phone: body.phone,
         blood_group: body.blood_group,
         allergies: body.allergies,
+        nationality: body.nationality,
+        marital_status: body.marital_status,
+        occupation: body.occupation,
+        employer_school: body.employer_school,
+        relationship_to_head: body.relationship_to_head,
+        chronic_conditions: body.chronic_conditions,
+        current_medications: body.current_medications,
+        emergency_contact_name: body.emergency_contact_name,
+        emergency_contact_phone: body.emergency_contact_phone,
         family_id: body.family_id,
         new_family: body.new_family,
       },
@@ -165,9 +175,27 @@ export const auditLog = async (req: Request, res: Response) => {
 
 export const listDuplicates = async (req: Request, res: Response) => {
   try {
-    const { status } = req.query as any;
-    const flags = await service.listDuplicateFlags(status);
+    const { status, search, matchBand, dateFrom, dateTo, reviewedBy, page, limit } = req.query as any;
+    const flags = await service.listDuplicateFlags({
+      status,
+      search,
+      matchBand,
+      dateFrom: dateFrom ? new Date(dateFrom) : undefined,
+      dateTo: dateTo ? new Date(dateTo) : undefined,
+      reviewedBy,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
     res.status(200).json(flags);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const duplicateStats = async (req: Request, res: Response) => {
+  try {
+    const stats = await service.getDuplicateFlagStats();
+    res.status(200).json(stats);
   } catch (error) {
     handleError(req, res, error);
   }

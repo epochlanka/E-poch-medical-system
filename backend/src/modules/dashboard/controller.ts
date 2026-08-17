@@ -9,6 +9,8 @@ import {
   getRecentPrescriptions,
   getTopMedicines,
   getDoctorDashboard,
+  getReceptionistOverview,
+  getPharmacistOverview,
 } from './service';
 
 const parseThresholdDays = (value: unknown, fallback = 90) => {
@@ -114,6 +116,26 @@ export const doctorDashboard = async (req: Request, res: Response) => {
   } catch (error: any) {
     req.log.error(error);
     res.status(500).json({ message: 'Failed to load doctor dashboard' });
+  }
+};
+
+export const receptionistDashboard = async (req: Request, res: Response) => {
+  try {
+    const data = await getReceptionistOverview();
+    res.status(200).json(data);
+  } catch (error: any) {
+    req.log.error(error);
+    res.status(500).json({ message: 'Failed to load receptionist dashboard' });
+  }
+};
+
+export const pharmacistDashboard = async (req: Request, res: Response) => {
+  try {
+    const data = await getPharmacistOverview();
+    res.status(200).json(data);
+  } catch (error: any) {
+    req.log.error(error);
+    res.status(500).json({ message: 'Failed to load pharmacist dashboard' });
   }
 };
 

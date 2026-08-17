@@ -192,6 +192,19 @@ describe('Prescriptions API', () => {
     expect(Array.isArray(res.body.data)).toBe(true);
   });
 
+  it('includes consultationType on each listed prescription and can filter by it', async () => {
+    const allRes = await request(app).get('/api/v1/prescriptions').set('Authorization', `Bearer ${doctorToken}`).query({ limit: 1 });
+    expect(allRes.status).toBe(200);
+    expect(allRes.body.data[0]).toHaveProperty('consultationType');
+
+    const filteredRes = await request(app)
+      .get('/api/v1/prescriptions')
+      .set('Authorization', `Bearer ${doctorToken}`)
+      .query({ consultationType: 'General Consultation', limit: 5 });
+    expect(filteredRes.status).toBe(200);
+    expect(filteredRes.body.data.every((rx: any) => rx.consultationType === 'General Consultation')).toBe(true);
+  });
+
   describe('Prescription Builder Context (GET /prescriptions/context/:consultationId)', () => {
     it('returns patient/allergy context and past prescriptions for the New Prescription page', async () => {
       const patient = await makePatient({ allergies: 'Penicillin' });

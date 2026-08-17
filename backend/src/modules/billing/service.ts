@@ -128,6 +128,27 @@ export const createInvoice = async (input: CreateInvoiceInput, actor: Actor) => 
   return getInvoiceById(created.invoice_id);
 };
 
+// Additive nested include used by both getInvoiceById and listInvoices — pulls the visit's
+// doctor/consultation-type context through the Invoice→Consultation→Appointment chain (an
+// Invoice has no doctor column of its own; every visit's doctor lives on its Appointment).
+// Needed for the receptionist Consolidated Invoice page to honestly group real invoices "by
+// visit" (date/doctor/consultation type) rather than inventing a fake per-visit code.
+const visitContextInclude = {
+  consultation: {
+    select: {
+      appointment: {
+        select: {
+          doctor: { select: { user_id: true, username: true, registration_number: true } },
+          consultation_type: true,
+          scheduled_at: true,
+          is_walk_in: true,
+          visit_type: true,
+        },
+      },
+    },
+  },
+} as const;
+
 export const getInvoiceById = async (invoiceId: number) => {
   const invoice = await prisma.invoice.findUnique({
     where: { invoice_id: invoiceId },
@@ -137,6 +158,7 @@ export const getInvoiceById = async (invoiceId: number) => {
       payments: { include: { receiver: { select: { username: true } } } },
       creator: { select: { username: true } },
       voided_by_user: { select: { username: true } },
+      ...visitContextInclude,
     },
   });
   if (!invoice) throw new NotFoundError('Invoice not found');
@@ -187,7 +209,16 @@ export const listInvoices = async (filters: ListInvoicesFilters) => {
     ];
   }
 
-  const include = { patient: { select: { patient_id: true, full_name: true, phone: true } }, items: { select: { item_type: true } } } as const;
+  // Full items and payments (not just item_type) so a single list call already carries
+  // everything the Consolidated Invoice page's per-visit breakdown and Payment Information
+  // panel need, avoiding an N+1 of getInvoiceById calls for what's usually a handful of
+  // invoices per patient. Matches getInvoiceById's own include shape below for consistency.
+  const include = {
+    patient: { select: { patient_id: true, full_name: true, phone: true } },
+    items: true,
+    payments: { include: { receiver: { select: { username: true } } } },
+    ...visitContextInclude,
+  } as const;
 
   // 'type' isn't a stored column, so it can't be pushed into the Prisma `where` — filtering by
   // it means fetching every DB-level match, deriving the type in JS, then paginating in memory
@@ -325,7 +356,16 @@ export const listPayments = async (filters: ListPaymentsFilters) => {
   }
 
   const include = {
-    invoice: { select: { invoice_id: true, payment_status: true, created_at: true, patient: { select: { patient_id: true, full_name: true, phone: true } } } },
+    invoice: {
+      select: {
+        invoice_id: true,
+        payment_status: true,
+        created_at: true,
+        subtotal: true,
+        discount_total: true,
+        patient: { select: { patient_id: true, full_name: true, phone: true } },
+      },
+    },
     receiver: { select: { username: true } },
   } as const;
 
@@ -339,6 +379,12 @@ export const listPayments = async (filters: ListPaymentsFilters) => {
     invoiceId: p.invoice_id,
     invoiceStatus: p.invoice.payment_status,
     invoiceCreatedAt: p.invoice.created_at,
+    // The invoice's own subtotal/discount, shown alongside this payment row so a receptionist
+    // can see what the visit was charged and discounted — NOT this specific payment's own
+    // amount (that's `amount` below); for a fully-paid, non-split invoice these will visually
+    // reconcile (subtotal - discount = amount), but they needn't for a split/partial payment.
+    invoiceSubtotal: p.invoice.subtotal,
+    invoiceDiscount: p.invoice.discount_total,
     patientId: p.invoice.patient.patient_id,
     patientName: p.invoice.patient.full_name,
     patientPhone: p.invoice.patient.phone,
@@ -353,25 +399,78 @@ export const listPayments = async (filters: ListPaymentsFilters) => {
 
 type StatsRange = 'month' | 'quarter' | 'year' | 'all';
 
+// Monday-start week, matching the same convention already used for OPD roster planning in the
+// appointments module's own startOfWeek — kept as a local copy since billing has no reason to
+// import across modules for one helper (matches this project's "small error classes/helpers
+// duplicated per-module" convention).
+const startOfWeek = (date: Date) => {
+  const d = startOfDay(date);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d;
+};
+
+const sumPayments = (from: Date, to: Date) => prisma.payment.aggregate({ _sum: { amount: true }, _count: true, where: { received_at: { gte: from, lte: to } } });
+
 // KPIs are all-time cumulative (matches a "Total Payments" style counter); the by-method
 // breakdown is windowed by `range` since that's what the mockup's "This Month ▾" toggle implies.
+// The today/week/month figures below (with their prior-period counterparts for %-change deltas)
+// are additive, added for the receptionist Payments page's KPI row — kept alongside the
+// existing fields rather than replacing them, since the admin app's own Payments page already
+// depends on totalReceivedThisMonth/outstandingInvoices/voidedInvoices as they are.
 export const getPaymentsStats = async (range: StatsRange = 'month') => {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastMonthEnd = endOfDay(new Date(now.getFullYear(), now.getMonth(), 0));
+  const todayStart = startOfDay(now);
+  const todayEnd = endOfDay(now);
+  const yesterday = new Date(todayStart);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const weekStart = startOfWeek(now);
+  const lastWeekStart = new Date(weekStart);
+  lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+  const lastWeekEnd = endOfDay(new Date(weekStart.getTime() - 24 * 60 * 60 * 1000));
 
   let rangeStart: Date | undefined;
   if (range === 'month') rangeStart = monthStart;
   else if (range === 'quarter') rangeStart = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
   else if (range === 'year') rangeStart = new Date(now.getFullYear(), 0, 1);
 
-  const [totalPayments, totalReceivedAgg, totalReceivedThisMonthAgg, outstandingInvoices, voidedInvoices, methodGroups, invoiceStatusGroups] = await Promise.all([
+  const [
+    totalPayments,
+    totalReceivedAgg,
+    totalReceivedThisMonthAgg,
+    outstandingInvoices,
+    voidedInvoices,
+    outstandingAmountAgg,
+    methodGroups,
+    invoiceStatusGroups,
+    today,
+    yesterdayAgg,
+    thisWeek,
+    lastWeekAgg,
+    lastMonthAgg,
+    thisMonth,
+  ] = await Promise.all([
     prisma.payment.count(),
     prisma.payment.aggregate({ _sum: { amount: true } }),
     prisma.payment.aggregate({ _sum: { amount: true }, where: { received_at: { gte: monthStart } } }),
     prisma.invoice.count({ where: { payment_status: { in: ['Outstanding', 'PartiallyPaid'] } } }),
     prisma.invoice.count({ where: { payment_status: 'Voided' } }),
+    prisma.invoice.aggregate({
+      _sum: { total_amount: true, paid_amount: true },
+      where: { payment_status: { in: ['Outstanding', 'PartiallyPaid'] } },
+    }),
     prisma.payment.groupBy({ by: ['method'], _sum: { amount: true }, _count: true, where: rangeStart ? { received_at: { gte: rangeStart } } : undefined }),
     prisma.invoice.groupBy({ by: ['payment_status'], _count: true }),
+    sumPayments(todayStart, todayEnd),
+    sumPayments(yesterday, endOfDay(yesterday)),
+    sumPayments(weekStart, endOfDay(now)),
+    sumPayments(lastWeekStart, lastWeekEnd),
+    sumPayments(lastMonthStart, lastMonthEnd),
+    sumPayments(monthStart, endOfDay(now)),
   ]);
 
   return {
@@ -381,8 +480,15 @@ export const getPaymentsStats = async (range: StatsRange = 'month') => {
     totalReceivedThisMonth: totalReceivedThisMonthAgg._sum.amount ?? 0,
     outstandingInvoices,
     voidedInvoices,
+    outstandingAmount: (outstandingAmountAgg._sum.total_amount ?? 0) - (outstandingAmountAgg._sum.paid_amount ?? 0),
     byMethod: methodGroups.map((g) => ({ method: g.method, amount: g._sum.amount ?? 0, count: g._count })),
     byInvoiceStatus: invoiceStatusGroups.map((g) => ({ status: g.payment_status, count: g._count })),
+    today: { total: today._sum.amount ?? 0, count: today._count },
+    yesterdayTotal: yesterdayAgg._sum.amount ?? 0,
+    thisWeek: { total: thisWeek._sum.amount ?? 0, count: thisWeek._count },
+    lastWeekTotal: lastWeekAgg._sum.amount ?? 0,
+    thisMonth: { total: thisMonth._sum.amount ?? 0, count: thisMonth._count },
+    lastMonthTotal: lastMonthAgg._sum.amount ?? 0,
   };
 };
 

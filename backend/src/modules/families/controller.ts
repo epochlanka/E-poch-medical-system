@@ -14,10 +14,12 @@ const handleError = (req: Request, res: Response, error: any) => {
 
 export const list = async (req: Request, res: Response) => {
   try {
-    const { search, status, page, limit } = req.query as any;
+    const { search, status, familyType, city, page, limit } = req.query as any;
     const result = await service.listFamilies({
       search,
       status,
+      familyType,
+      city,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });

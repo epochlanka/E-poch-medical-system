@@ -47,6 +47,7 @@ const listSchema = z.object({
     medicineId: z.coerce.number().int().positive().optional(),
     search: z.string().optional(),
     isRefill: z.coerce.boolean().optional(),
+    consultationType: z.string().optional(),
     from: z.coerce.date().optional(),
     to: z.coerce.date().optional(),
     page: z.coerce.number().int().positive().optional(),

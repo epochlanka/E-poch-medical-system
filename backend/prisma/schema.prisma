@@ -12,6 +12,8 @@ model Family {
   family_name     String
   head_patient_id String?
   address         String?
+  city            String?
+  family_type     String? // e.g. Nuclear Family, Extended Family, Single Parent, Joint Family, Other — free-text, not enforced against a fixed list
   contact_no      String?
   is_active       Boolean   @default(true)
   created_at      DateTime  @default(now())
@@ -36,6 +38,17 @@ model Patient {
   photo_url    String?
   is_active    Boolean   @default(true)
   created_at   DateTime  @default(now())
+
+  // Additional intake fields captured by the Register New Patient wizard (receptionist-frontend).
+  nationality           String?
+  marital_status        String?
+  occupation             String?
+  employer_school        String?
+  relationship_to_head   String? // e.g. Spouse/Child/Parent/Other — free-text, not enforced against a fixed list
+  chronic_conditions     String? // free-text, captured at registration per FR-013
+  current_medications    String? // free-text, captured at registration alongside allergies/chronic conditions
+  emergency_contact_name  String?
+  emergency_contact_phone String?
 
   family       Family    @relation("FamilyPatients", fields: [family_id], references: [family_id])
   family_head  Family[]  @relation("FamilyHead")
@@ -93,7 +106,11 @@ model Appointment {
   status         String   @default("Waiting") // Waiting, Called, Consulting, Completed, Skipped, Cancelled, No Show
   skip_reason    String?  // captured when a doctor skips a called-but-unresponsive patient (FR-029); cleared on recall
   skipped_at     DateTime? // when the skip happened; cleared alongside skip_reason on recall
->>>>>>> 12759f3aaf19042afaeecd1a23568d3e4052e41f
+  is_walk_in     Boolean   @default(false) // true if added directly to today's queue without a pre-booked slot (FR-026)
+  consultation_type String? // e.g. General Consultation, Specialist Consultation, Emergency — free-text, not enforced against a fixed list
+  visit_type     String    @default("Appointment") // Appointment | Follow-up — booking-time categorization, independent of is_walk_in
+  priority       String    @default("Normal") // Normal, Urgent, Emergency — triage priority captured at booking/walk-in time
+  notes          String?   // internal receptionist notes, distinct from `reason` (the patient-facing reason for visit)
   created_by     Int
 
   patient        Patient  @relation(fields: [patient_id], references: [patient_id])
@@ -101,6 +118,26 @@ model Appointment {
   receptionist   User     @relation("ReceptionistAppointments", fields: [created_by], references: [user_id])
 
   consultation   Consultation?
+  queue_logs     AppointmentQueueLog[]
+}
+
+// Append-only audit trail of Skip/Recall events (Skip / Recall Log page) — separate from the
+// live skip_reason/skipped_at columns on Appointment above, which only ever describe the
+// *current* skip and are cleared on recall (fine for the live queue board, but a historical log
+// needs every past event retained), same "log table alongside a mutable current-state field"
+// pattern as ConsultationAmendmentLog.
+model AppointmentQueueLog {
+  log_id         Int      @id @default(autoincrement())
+  appointment_id Int
+  action         String   // Skipped | Recalled
+  reason         String?  // required for Skipped at the API layer; optional for Recalled
+  actor_id       Int
+  created_at     DateTime @default(now())
+
+  appointment    Appointment @relation(fields: [appointment_id], references: [appointment_id])
+  actor          User        @relation(fields: [actor_id], references: [user_id])
+
+  @@index([appointment_id, created_at])
 }
 
 model Consultation {
@@ -469,6 +506,7 @@ model User {
   backups_created           DbBackup[]
   sessions                  UserSession[]
   consultation_documents    ConsultationDocument[]
+  queue_log_actions         AppointmentQueueLog[]
 }
 
 model UserSession {

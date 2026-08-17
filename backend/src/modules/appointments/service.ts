@@ -1,5 +1,5 @@
 import { PrismaClient, Prisma } from '@prisma/client';
-import { NotFoundError, ForbiddenError } from './errors';
+import { NotFoundError, ForbiddenError, ValidationError } from './errors';
 
 const prisma = new PrismaClient();
 
@@ -50,20 +50,88 @@ const ACTIVE_STATUSES = ['Waiting', 'Called', 'Consulting'];
 
 export class AppointmentsService {
   /**
-   * Create a new appointment
+   * Create a new appointment. Rejects a doctor double-booking (FR-025) — the same doctor
+   * can't hold two active appointments at the exact same scheduled_at. Walk-ins are exempt
+   * (their scheduled_at is "now", and the whole point of a walk-in is joining the queue
+   * alongside whoever's already booked, not claiming an exclusive slot).
    */
-  async createAppointment(data: { patient_id: string; doctor_id: number; scheduled_at: Date; reason?: string; created_by: number }) {
+  async createAppointment(data: {
+    patient_id: string;
+    doctor_id: number;
+    scheduled_at: Date;
+    reason?: string;
+    is_walk_in?: boolean;
+    consultation_type?: string;
+    visit_type?: string;
+    priority?: string;
+    notes?: string;
+    created_by: number;
+  }) {
+    if (!data.is_walk_in) {
+      const conflict = await prisma.appointment.findFirst({
+        where: { doctor_id: data.doctor_id, scheduled_at: data.scheduled_at, status: { in: ACTIVE_STATUSES } },
+      });
+      if (conflict) throw new ValidationError('This doctor already has an appointment booked at that time');
+    }
+
     return prisma.appointment.create({
       data: {
         patient_id: data.patient_id,
         doctor_id: data.doctor_id,
         scheduled_at: data.scheduled_at,
         reason: data.reason,
+        is_walk_in: data.is_walk_in ?? false,
+        consultation_type: data.consultation_type,
+        visit_type: data.visit_type ?? 'Appointment',
+        priority: data.priority ?? 'Normal',
+        notes: data.notes,
         created_by: data.created_by,
         status: 'Waiting',
       },
       include: { patient: { select: patientSelect }, doctor: { select: doctorSelect } },
     });
+  }
+
+  /**
+   * Real-time slot availability for the Book Appointment picker — a fixed daily OPD template
+   * (09:00-13:00, 14:00-17:00, 30-min slots, matching the clinic-hours convention already used
+   * elsewhere in this app, e.g. the receptionist dashboard's "Today's Schedule" blocks) checked
+   * against this doctor's actual active appointments for that local calendar day. This is the
+   * same check createAppointment enforces server-side — shown here so the picker doesn't let a
+   * receptionist click a slot only to have it rejected on submit.
+   */
+  async getAvailability(doctorId: number, date: Date) {
+    const dayStart = startOfDay(date);
+    const dayEnd = endOfDay(date);
+    const now = new Date();
+
+    const booked = await prisma.appointment.findMany({
+      where: { doctor_id: doctorId, scheduled_at: { gte: dayStart, lte: dayEnd }, status: { in: ACTIVE_STATUSES }, is_walk_in: false },
+      select: { scheduled_at: true },
+    });
+    const bookedTimes = new Set(booked.map((b) => b.scheduled_at.getTime()));
+
+    const blocks = [
+      { startHour: 9, endHour: 13 },
+      { startHour: 14, endHour: 17 },
+    ];
+
+    const slots: { scheduledAt: string; label: string; available: boolean }[] = [];
+    for (const block of blocks) {
+      for (let hour = block.startHour; hour < block.endHour; hour++) {
+        for (const minute of [0, 30]) {
+          const slotDate = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, minute, 0, 0);
+          const label = slotDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+          slots.push({
+            scheduledAt: slotDate.toISOString(),
+            label,
+            available: !bookedTimes.has(slotDate.getTime()) && slotDate.getTime() > now.getTime(),
+          });
+        }
+      }
+    }
+
+    return { date: localDateKey(date), slots };
   }
 
   /**
@@ -117,7 +185,92 @@ export class AppointmentsService {
       completedToday,
       avgWaitingTimeMinutes: waitingMinutes.length ? Math.round(waitingMinutes.reduce((s, m) => s + m, 0) / waitingMinutes.length) : 0,
       longestWaitingTimeMinutes: waitingMinutes.length ? Math.round(Math.max(...waitingMinutes)) : 0,
+      // Additive, finer-grained breakdown (kept alongside the fields above rather than redefining
+      // them) for pages that need Waiting/Called/Consulting shown as three distinct buckets, e.g.
+      // the receptionist Walk-in page's "Current Queue Summary" panel.
+      waitingCount: active.filter((a) => a.status === 'Waiting').length,
+      calledCount: active.filter((a) => a.status === 'Called').length,
     };
+  }
+
+  /**
+   * The receptionist Live Queue Board's 4-column view (Waiting / With Doctor / In Pharmacy /
+   * Completed Today) plus an "Upcoming (next 3 hours)" list and a Skipped list used to populate
+   * the Recall picker. "In Pharmacy" is NOT a real Appointment.status — finalizeConsultation
+   * (consultations/service.ts) flips the appointment straight to 'Completed' the moment a doctor
+   * finalizes, regardless of whether a prescription has been written or dispensed yet, so the
+   * only place that distinction exists is Prescription.status on the linked consultation. A
+   * Completed appointment is bucketed into "In Pharmacy" if any of its prescriptions are still
+   * Pending/Preparing, otherwise "Completed Today" — same "derive, don't fake a status" pattern
+   * already used for e.g. medicines' stock-status and purchase orders' summarizePo().
+   */
+  async getQueueBoard(filters: { doctorId?: number; consultationType?: string; date?: Date }) {
+    const day = filters.date ?? new Date();
+    const now = new Date();
+    const isToday = localDateKey(day) === localDateKey(now);
+
+    const appointments = await prisma.appointment.findMany({
+      where: {
+        scheduled_at: { gte: startOfDay(day), lte: endOfDay(day) },
+        status: { in: [...ACTIVE_STATUSES, 'Completed', 'Skipped'] },
+        ...(filters.doctorId ? { doctor_id: filters.doctorId } : {}),
+        ...(filters.consultationType ? { consultation_type: filters.consultationType } : {}),
+      },
+      include: {
+        patient: { select: patientSelect },
+        doctor: { select: doctorSelect },
+        consultation: { select: { created_at: true, finalized_at: true, prescriptions: { select: { status: true } } } },
+      },
+      orderBy: { scheduled_at: 'asc' },
+    });
+
+    const waiting: unknown[] = [];
+    const upcoming: unknown[] = [];
+    const withDoctor: unknown[] = [];
+    const inPharmacy: unknown[] = [];
+    const completedToday: unknown[] = [];
+    const skipped: unknown[] = [];
+
+    // A single day-wide token sequence (by real scheduled_at order) spans every bucket below —
+    // same "derive a display code from real stable ordering" convention as doctor-frontend's
+    // T-0xx tokens — rather than a per-column counter, so a card's number is stable regardless
+    // of which column it's currently sitting in.
+    appointments.forEach((a, i) => {
+      const card = {
+        appointment_id: a.appointment_id,
+        token: i + 1,
+        patient_id: a.patient.patient_id,
+        patient_name: a.patient.full_name,
+        dob: a.patient.dob,
+        gender: a.patient.gender,
+        phone: a.patient.phone,
+        doctor_id: a.doctor_id,
+        doctor_name: a.doctor.username,
+        scheduled_at: a.scheduled_at,
+        status: a.status,
+        is_walk_in: a.is_walk_in,
+        visit_type: a.visit_type,
+        priority: a.priority,
+        since: a.consultation?.created_at ?? null,
+        completed_at: a.consultation?.finalized_at ?? null,
+      };
+
+      if (a.status === 'Skipped') {
+        skipped.push(card);
+      } else if (a.status === 'Consulting') {
+        withDoctor.push(card);
+      } else if (a.status === 'Completed') {
+        const prescriptions = a.consultation?.prescriptions ?? [];
+        const stillDispensing = prescriptions.some((p) => p.status === 'Pending' || p.status === 'Preparing');
+        (stillDispensing ? inPharmacy : completedToday).push(card);
+      } else if (isToday && a.scheduled_at.getTime() > now.getTime()) {
+        upcoming.push(card);
+      } else {
+        waiting.push(card);
+      }
+    });
+
+    return { waiting, upcoming, withDoctor, inPharmacy, completedToday, skipped, isToday };
   }
 
   /**
@@ -291,34 +444,109 @@ export class AppointmentsService {
 
   /**
    * Update appointment status. A recall (back to Waiting from Skipped) clears any prior
-   * skip_reason — it's a fresh re-entry into the queue, not a continuation of the old skip.
+   * skip_reason — it's a fresh re-entry into the queue, not a continuation of the old skip —
+   * and writes a 'Recalled' row to AppointmentQueueLog (the recall's own optional reason is
+   * independent of whatever skip_reason it's clearing) so the Skip/Recall Log page has a real
+   * historical record even though the live skip_reason/skipped_at columns get wiped.
    */
-  async updateStatus(appointment_id: number, status: string, actor: Actor) {
+  async updateStatus(appointment_id: number, status: string, actor: Actor, reason?: string) {
     const appointment = await prisma.appointment.findUnique({ where: { appointment_id } });
     if (!appointment) throw new NotFoundError('Appointment not found');
     assertDoctorOwnsIfDoctor(actor, appointment.doctor_id);
 
-    return prisma.appointment.update({
+    const isRecall = status === 'Waiting' && appointment.status === 'Skipped';
+
+    const updated = await prisma.appointment.update({
       where: { appointment_id },
-      data: { status, ...(status === 'Waiting' && appointment.status === 'Skipped' ? { skip_reason: null, skipped_at: null } : {}) },
+      data: { status, ...(isRecall ? { skip_reason: null, skipped_at: null } : {}) },
       include: { patient: { select: patientSelect }, doctor: { select: doctorSelect } },
     });
+
+    if (isRecall) {
+      await prisma.appointmentQueueLog.create({ data: { appointment_id, action: 'Recalled', reason: reason || null, actor_id: actor.user_id } });
+    }
+
+    return updated;
   }
 
   /**
    * Skip a called-but-unresponsive patient with a required reason (FR-029) — the patient
-   * re-enters the queue later via updateStatus(..., 'Waiting'), not dropped from it.
+   * re-enters the queue later via updateStatus(..., 'Waiting'), not dropped from it. Also
+   * writes a 'Skipped' row to AppointmentQueueLog — see updateStatus's recall-side note above.
    */
   async skipAppointment(appointment_id: number, reason: string, actor: Actor) {
     const appointment = await prisma.appointment.findUnique({ where: { appointment_id } });
     if (!appointment) throw new NotFoundError('Appointment not found');
     assertDoctorOwnsIfDoctor(actor, appointment.doctor_id);
 
-    return prisma.appointment.update({
+    const updated = await prisma.appointment.update({
       where: { appointment_id },
       data: { status: 'Skipped', skip_reason: reason, skipped_at: new Date() },
       include: { patient: { select: patientSelect }, doctor: { select: doctorSelect } },
     });
+
+    await prisma.appointmentQueueLog.create({ data: { appointment_id, action: 'Skipped', reason, actor_id: actor.user_id } });
+
+    return updated;
+  }
+
+  /**
+   * Paginated Skip/Recall Log (receptionist "Skip / Recall Log" page) — every historical Skip
+   * and Recall event, joined with the appointment/patient/doctor/actor context each row needs.
+   */
+  async listQueueLog(filters: {
+    dateFrom?: Date;
+    dateTo?: Date;
+    doctorId?: number;
+    consultationType?: string;
+    action?: 'Skipped' | 'Recalled';
+    search?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const where: Prisma.AppointmentQueueLogWhereInput = {
+      ...(filters.action ? { action: filters.action } : {}),
+      ...(filters.dateFrom || filters.dateTo
+        ? { created_at: { ...(filters.dateFrom ? { gte: startOfDay(filters.dateFrom) } : {}), ...(filters.dateTo ? { lte: endOfDay(filters.dateTo) } : {}) } }
+        : {}),
+      appointment: {
+        ...(filters.doctorId ? { doctor_id: filters.doctorId } : {}),
+        ...(filters.consultationType ? { consultation_type: filters.consultationType } : {}),
+        ...(filters.search
+          ? { OR: [{ patient: { full_name: { contains: filters.search } } }, { patient_id: { contains: filters.search } }] }
+          : {}),
+      },
+    };
+
+    const page = filters.page && filters.page > 0 ? filters.page : 1;
+    const limit = filters.limit && filters.limit > 0 && filters.limit <= 100 ? filters.limit : 10;
+
+    const [total, rows] = await Promise.all([
+      prisma.appointmentQueueLog.count({ where }),
+      prisma.appointmentQueueLog.findMany({
+        where,
+        include: {
+          actor: { select: { username: true, role: true } },
+          appointment: {
+            select: {
+              appointment_id: true,
+              scheduled_at: true,
+              visit_type: true,
+              consultation_type: true,
+              priority: true,
+              is_walk_in: true,
+              patient: { select: patientSelect },
+              doctor: { select: doctorSelect },
+            },
+          },
+        },
+        orderBy: { created_at: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+    ]);
+
+    return { data: rows, pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) } };
   }
 
   /**

@@ -260,9 +260,12 @@ describe('Patients API', () => {
   });
 
   it('lists the pending duplicate review queue and dismisses a flag', async () => {
-    const listRes = await request(app).get('/api/v1/patients/duplicates').set('Authorization', `Bearer ${adminToken}`);
+    const listRes = await request(app)
+      .get('/api/v1/patients/duplicates')
+      .query({ search: patientNameTypo, limit: 20 })
+      .set('Authorization', `Bearer ${adminToken}`);
     expect(listRes.status).toBe(200);
-    expect(listRes.body.some((f: any) => f.flag_id === flagId)).toBe(true);
+    expect(listRes.body.data.some((f: any) => f.flagId === flagId)).toBe(true);
 
     const dismissRes = await request(app)
       .post(`/api/v1/patients/duplicates/${flagId}/dismiss`)

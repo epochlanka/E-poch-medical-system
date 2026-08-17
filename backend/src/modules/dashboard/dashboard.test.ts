@@ -4,6 +4,7 @@ import app from '../../app';
 describe('Dashboard API', () => {
   let token: string;
   let doctorToken: string;
+  let pharmacistToken: string;
 
   beforeAll(async () => {
     // Note: The database must be seeded (npm run prisma:migrate, which seeds automatically) for this to pass.
@@ -14,6 +15,9 @@ describe('Dashboard API', () => {
 
     const doctorRes = await request(app).post('/api/v1/auth/login').send({ username: 'doctor', password: 'doctor123' });
     doctorToken = doctorRes.body.token;
+
+    const pharmacistRes = await request(app).post('/api/v1/auth/login').send({ username: 'pharmacist', password: 'pharmacist123' });
+    pharmacistToken = pharmacistRes.body.token;
   });
 
   it('rejects unauthenticated requests', async () => {
@@ -111,6 +115,41 @@ describe('Dashboard API', () => {
       expect(Array.isArray(res.body.consultationsOverview)).toBe(true);
       expect(res.body.consultationsOverview).toHaveLength(7);
       expect(Array.isArray(res.body.recentPrescriptions)).toBe(true);
+    });
+  });
+
+  describe('GET /dashboard/pharmacist-overview', () => {
+    it('rejects a non-Pharmacist role, even Admin', async () => {
+      const res = await request(app).get('/api/v1/dashboard/pharmacist-overview').set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(403);
+    });
+
+    it('returns pharmacist dashboard KPIs, queue overview, dispensing trend, alert summary, expiring batches, and top dispensed medicines', async () => {
+      const res = await request(app).get('/api/v1/dashboard/pharmacist-overview').set('Authorization', `Bearer ${pharmacistToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.kpis).toHaveProperty('prescriptionsInQueue');
+      expect(res.body.kpis).toHaveProperty('dispensedTodayPrescriptions');
+      expect(res.body.kpis).toHaveProperty('dispensedTodayItems');
+      expect(res.body.kpis).toHaveProperty('lowStockItemsCount');
+      expect(res.body.kpis).toHaveProperty('expiringBatchesCount');
+      expect(res.body.kpis).toHaveProperty('todaysSalesPharmacy');
+      expect(res.body.queueOverview).toHaveProperty('pending');
+      expect(res.body.queueOverview).toHaveProperty('preparing');
+      expect(res.body.queueOverview.total).toBe(
+        res.body.queueOverview.pending + res.body.queueOverview.preparing + res.body.queueOverview.dispensedToday + res.body.queueOverview.collectedToday
+      );
+      expect(Array.isArray(res.body.dispensingTrend)).toBe(true);
+      expect(res.body.dispensingTrend).toHaveLength(7);
+      expect(res.body.alertSummary).toHaveProperty('veryLowStockCount');
+      expect(res.body.alertSummary).toHaveProperty('lowStockCount');
+      expect(res.body.alertSummary).toHaveProperty('expiringWithin30Count');
+      expect(res.body.alertSummary).toHaveProperty('expiringWithin31To90Count');
+      // lowStockItemsCount must equal the sum of the two low-stock tiers — same underlying
+      // computation, just split into "very low" (out of stock) vs "low" (below reorder level).
+      expect(res.body.kpis.lowStockItemsCount).toBe(res.body.alertSummary.veryLowStockCount + res.body.alertSummary.lowStockCount);
+      expect(res.body.kpis.expiringBatchesCount).toBe(res.body.alertSummary.expiringWithin30Count + res.body.alertSummary.expiringWithin31To90Count);
+      expect(Array.isArray(res.body.expiringBatches)).toBe(true);
+      expect(Array.isArray(res.body.topDispensedToday)).toBe(true);
     });
   });
 });

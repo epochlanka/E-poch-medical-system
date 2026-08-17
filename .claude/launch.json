@@ -12,6 +12,18 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "doctor-frontend"],
       "port": 5174
+    },
+    {
+      "name": "receptionist-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "receptionist-frontend"],
+      "port": 5175
+    },
+    {
+      "name": "pharmacist-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "pharmacist-frontend"],
+      "port": 5176
     }
   ]
 }

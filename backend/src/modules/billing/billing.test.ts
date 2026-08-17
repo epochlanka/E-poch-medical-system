@@ -319,6 +319,19 @@ describe('Billing API', () => {
       expect(res.body).toHaveProperty('voidedInvoices');
     });
 
+    it('includes today/this-week/this-month totals with counts and prior-period totals for the receptionist Payments page KPI row', async () => {
+      const res = await request(app).get('/api/v1/invoices/payments/stats').set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.today).toHaveProperty('total');
+      expect(res.body.today).toHaveProperty('count');
+      expect(res.body.thisWeek).toHaveProperty('total');
+      expect(res.body.thisMonth).toHaveProperty('total');
+      expect(typeof res.body.yesterdayTotal).toBe('number');
+      expect(typeof res.body.lastWeekTotal).toBe('number');
+      expect(typeof res.body.lastMonthTotal).toBe('number');
+      expect(typeof res.body.outstandingAmount).toBe('number');
+    });
+
     it('rejects an invalid range', async () => {
       const res = await request(app).get('/api/v1/invoices/payments/stats').query({ range: 'decade' }).set('Authorization', `Bearer ${adminToken}`);
       expect(res.status).toBe(400);

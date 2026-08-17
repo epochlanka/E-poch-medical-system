@@ -12,6 +12,11 @@ export class AppointmentsController {
         doctor_id: req.body.doctor_id,
         scheduled_at: new Date(req.body.scheduled_at),
         reason: req.body.reason,
+        is_walk_in: req.body.is_walk_in ?? false,
+        consultation_type: req.body.consultation_type,
+        visit_type: req.body.visit_type,
+        priority: req.body.priority,
+        notes: req.body.notes,
         created_by,
       };
 
@@ -44,6 +49,20 @@ export class AppointmentsController {
     try {
       const stats = await appointmentsService.getQueueStats(this.doctorScope(req));
       res.status(200).json(stats);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getQueueBoard = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { consultationType, date } = req.query as any;
+      const board = await appointmentsService.getQueueBoard({
+        doctorId: this.doctorScope(req),
+        consultationType,
+        date: date ? new Date(date) : undefined,
+      });
+      res.status(200).json(board);
     } catch (error) {
       next(error);
     }
@@ -125,6 +144,17 @@ export class AppointmentsController {
     }
   };
 
+  getAvailability = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const doctorId = Number(req.query.doctorId);
+      const date = new Date(String(req.query.date));
+      const result = await appointmentsService.getAvailability(doctorId, date);
+      res.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
   getCalendarSummary = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const year = Number(req.query.year);
@@ -139,10 +169,29 @@ export class AppointmentsController {
   updateStatus = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const appointment_id = Number(req.params.id);
-      const { status } = req.body;
+      const { status, reason } = req.body;
 
-      const updated = await appointmentsService.updateStatus(appointment_id, status, (req as any).user);
+      const updated = await appointmentsService.updateStatus(appointment_id, status, (req as any).user, reason);
       res.status(200).json(updated);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listQueueLog = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { dateFrom, dateTo, consultationType, action, search, page, limit } = req.query as any;
+      const result = await appointmentsService.listQueueLog({
+        doctorId: this.doctorScope(req),
+        dateFrom: dateFrom ? new Date(dateFrom) : undefined,
+        dateTo: dateTo ? new Date(dateTo) : undefined,
+        consultationType,
+        action,
+        search,
+        page: page ? Number(page) : undefined,
+        limit: limit ? Number(limit) : undefined,
+      });
+      res.status(200).json(result);
     } catch (error) {
       next(error);
     }

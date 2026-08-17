@@ -60,6 +60,15 @@ const registerSchema = z.object({
       phone: z.string().optional(),
       blood_group: z.string().optional(),
       allergies: z.string().optional(),
+      nationality: z.string().optional(),
+      marital_status: z.string().optional(),
+      occupation: z.string().optional(),
+      employer_school: z.string().optional(),
+      relationship_to_head: z.string().optional(),
+      chronic_conditions: z.string().optional(),
+      current_medications: z.string().optional(),
+      emergency_contact_name: z.string().optional(),
+      emergency_contact_phone: z.string().optional(),
       family_id: z.number().int().positive().optional(),
       new_family: z
         .object({
@@ -99,6 +108,7 @@ const listSchema = z.object({
     bloodGroup: z.string().optional(),
     ageFrom: z.coerce.number().int().min(0).optional(),
     ageTo: z.coerce.number().int().min(0).optional(),
+    familyId: z.coerce.number().int().positive().optional(),
     page: z.coerce.number().int().positive().optional(),
     limit: z.coerce.number().int().positive().optional(),
   }),
@@ -113,6 +123,15 @@ const updateSchema = z.object({
     allergies: z.string().optional(),
     gender: z.string().optional(),
     guardian_nic: z.string().optional(),
+    nationality: z.string().optional(),
+    marital_status: z.string().optional(),
+    occupation: z.string().optional(),
+    employer_school: z.string().optional(),
+    relationship_to_head: z.string().optional(),
+    chronic_conditions: z.string().optional(),
+    current_medications: z.string().optional(),
+    emergency_contact_name: z.string().optional(),
+    emergency_contact_phone: z.string().optional(),
     family_id: z.number().int().positive().optional(),
     reason: z.string().optional(),
   }),
@@ -143,7 +162,16 @@ const auditLogSchema = z.object({
 const patientIdParamsSchema = z.object({ params: patientIdParams });
 
 const duplicatesListSchema = z.object({
-  query: z.object({ status: z.enum(['Pending', 'Dismissed', 'Merged', 'All']).optional() }),
+  query: z.object({
+    status: z.enum(['Pending', 'Dismissed', 'Merged', 'All']).optional(),
+    search: z.string().optional(),
+    matchBand: z.enum(['very-high', 'high', 'moderate', 'low', 'all']).optional(),
+    dateFrom: z.coerce.date().optional(),
+    dateTo: z.coerce.date().optional(),
+    reviewedBy: z.string().optional(),
+    page: z.coerce.number().int().positive().optional(),
+    limit: z.coerce.number().int().positive().optional(),
+  }),
 });
 
 const flagIdParams = z.object({ flagId: z.coerce.number().int().positive() });
@@ -159,6 +187,7 @@ router.get('/stats', requireRole(READ_ROLES), controller.stats);
 router.get('/check-duplicate', requireRole(WRITE_ROLES), validate(checkDuplicateSchema), controller.checkDuplicate);
 
 router.get('/duplicates', requireRole(WRITE_ROLES), validate(duplicatesListSchema), controller.listDuplicates);
+router.get('/duplicates/stats', requireRole(WRITE_ROLES), controller.duplicateStats);
 router.post('/duplicates/:flagId/dismiss', requireRole(WRITE_ROLES), validate(dismissSchema), controller.dismissDuplicate);
 router.post('/duplicates/:flagId/merge', requireRole(WRITE_ROLES), validate(mergeSchema), controller.mergeDuplicate);
 

@@ -107,7 +107,7 @@ export const stats = async (req: Request, res: Response) => {
 
 export const list = async (req: Request, res: Response) => {
   try {
-    const { patientId, status, medicineId, search, from, to, page, limit } = req.query as any;
+    const { patientId, status, medicineId, search, consultationType, from, to, page, limit } = req.query as any;
     const result = await service.listPrescriptions({
       patientId,
       doctorId: doctorScope(req),
@@ -115,6 +115,7 @@ export const list = async (req: Request, res: Response) => {
       medicineId: medicineId ? Number(medicineId) : undefined,
       search,
       isRefill: isRefillFilter(req),
+      consultationType,
       from: from ? new Date(from) : undefined,
       to: to ? new Date(to) : undefined,
       page: page ? Number(page) : undefined,

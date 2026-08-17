@@ -2,7 +2,7 @@ export const normalizeName = (name: string) =>
   name.trim().toLowerCase().replace(/\s+/g, ' ');
 
 // Classic Levenshtein edit distance — small alphabet, short strings (person names), so O(n*m) is fine.
-const levenshtein = (a: string, b: string): number => {
+export const levenshtein = (a: string, b: string): number => {
   const rows = a.length + 1;
   const cols = b.length + 1;
   const dist: number[][] = Array.from({ length: rows }, (_, i) => [i, ...Array(cols - 1).fill(0)]);
@@ -27,4 +27,14 @@ export const isFuzzyNameMatch = (nameA: string, nameB: string): boolean => {
   const maxLen = Math.max(a.length, b.length);
   const threshold = maxLen <= 5 ? 1 : maxLen <= 10 ? 2 : 3;
   return levenshtein(a, b) <= threshold;
+};
+
+// Generic 0-100 similarity for the Duplicate Review match-score breakdown — not name-specific
+// (used for names, NICs, and other short identifier strings alike).
+export const stringSimilarityPct = (a: string, b: string): number => {
+  const normA = a.trim().toLowerCase();
+  const normB = b.trim().toLowerCase();
+  if (normA === normB) return 100;
+  const maxLen = Math.max(normA.length, normB.length) || 1;
+  return Math.max(0, Math.round((1 - levenshtein(normA, normB) / maxLen) * 100));
 };
