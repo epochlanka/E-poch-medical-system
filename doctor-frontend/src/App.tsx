@@ -10,6 +10,7 @@ import SkipRecall from './pages/queue/SkipRecall';
 import ConsultationWorkspace from './pages/consultations/ConsultationWorkspace';
 import MyConsultations from './pages/consultations/MyConsultations';
 import NewPrescription from './pages/prescriptions/NewPrescription';
+import AddLabTest from './pages/labTestOrders/AddLabTest';
 import FollowUpsDue from './pages/consultations/FollowUpsDue';
 import MyPrescriptions from './pages/prescriptions/MyPrescriptions';
 import RepeatPrescription from './pages/prescriptions/RepeatPrescription';
@@ -52,6 +53,8 @@ function App() {
           <Route path="/consultations/my" element={<MyConsultations />} />
           <Route path="/prescriptions/new" element={<NewPrescription />} />
           <Route path="/prescriptions/new/:consultationId" element={<NewPrescription />} />
+          <Route path="/lab-orders/new" element={<AddLabTest />} />
+          <Route path="/lab-orders/new/:consultationId" element={<AddLabTest />} />
           <Route path="/consultations/follow-ups" element={<FollowUpsDue />} />
           <Route path="/prescriptions/my" element={<MyPrescriptions />} />
           <Route path="/prescriptions/repeat" element={<RepeatPrescription />} />

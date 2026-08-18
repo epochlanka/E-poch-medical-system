@@ -15,6 +15,7 @@ import LiveQueueBoard from './pages/appointments/LiveQueueBoard';
 import SkipRecallLog from './pages/appointments/SkipRecallLog';
 import ConsolidatedInvoice from './pages/billing/ConsolidatedInvoice';
 import Payments from './pages/billing/Payments';
+import LabTestOrders from './pages/labTestOrders/LabTestOrders';
 import ComingSoon from './pages/ComingSoon';
 import { navSections } from './components/layout/navConfig';
 
@@ -55,6 +56,7 @@ function App() {
           <Route path="/queue/skip-recall" element={<SkipRecallLog />} />
           <Route path="/billing/invoices" element={<ConsolidatedInvoice />} />
           <Route path="/billing/payments" element={<Payments />} />
+          <Route path="/lab-tests/queue" element={<LabTestOrders />} />
           {unimplementedPaths.map((path) => (
             <Route key={path} path={path} element={<ComingSoon />} />
           ))}

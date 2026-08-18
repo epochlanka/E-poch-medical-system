@@ -6,6 +6,9 @@ import { listPatients, getPatientById, getPatientHistory, downloadPatientHistory
 import type { TimelineEvent } from '../../lib/patients';
 import { listConsultations } from '../../lib/consultations';
 import { listPrescriptions, downloadPrescriptionPdf } from '../../lib/prescriptions';
+import { listLabTestOrders, reviewLabTestOrder, printLabTestOrder } from '../../lib/labTestOrders';
+import type { LabTestOrder } from '../../lib/labTestOrders';
+import EnterLabResultModal from './EnterLabResultModal';
 import { calculateAge } from '../../lib/queue';
 import {
   SearchIcon,
@@ -24,6 +27,7 @@ import {
   StethoscopeIcon,
   ClipboardIcon,
   MapPinIcon,
+  PrintIcon,
 } from '../../components/layout/Icons';
 import '../dashboard/dashboard.css';
 import '../../styles/shared.css';
@@ -339,6 +343,24 @@ const PatientHistoryPanel = ({ patientId, onBack }: { patientId: string; onBack:
   );
   const { data: consultResult } = useApiData(() => listConsultations({ patientId, limit: 50 }), [patientId]);
   const { data: rxResult } = useApiData(() => listPrescriptions({ patientId, limit: 50 }), [patientId]);
+  const { data: labResult, reload: reloadLabTestOrders } = useApiData(() => listLabTestOrders({ patientId, limit: 100 }), [patientId]);
+
+  const [resultModalOrder, setResultModalOrder] = useState<LabTestOrder | null>(null);
+  const [reviewingOrderId, setReviewingOrderId] = useState<number | null>(null);
+  const [reviewNote, setReviewNote] = useState('');
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+
+  const submitReview = async (orderId: number) => {
+    setReviewSubmitting(true);
+    try {
+      await reviewLabTestOrder(orderId, reviewNote.trim() || undefined);
+      setReviewingOrderId(null);
+      setReviewNote('');
+      reloadLabTestOrders();
+    } finally {
+      setReviewSubmitting(false);
+    }
+  };
 
   if (patientLoading || !patient) {
     return (
@@ -353,6 +375,15 @@ const PatientHistoryPanel = ({ patientId, onBack }: { patientId: string; onBack:
   const consultations = consultResult?.data ?? [];
   const prescriptions = rxResult?.data ?? [];
   const notesEntries = consultations.filter((c) => c.notes);
+  const labTestOrders = labResult?.data ?? [];
+  const pendingLabTests = labTestOrders.filter((o) => o.status === 'Pending');
+  const completedLabTests = labTestOrders.filter((o) => o.status === 'Result Received' || o.status === 'Reviewed');
+  const LAB_STATUS_BADGE: Record<LabTestOrder['status'], string> = {
+    Pending: 'badge-amber',
+    'Result Received': 'badge-blue',
+    Reviewed: 'badge-green',
+    Cancelled: 'badge-gray',
+  };
 
   return (
     <div>
@@ -614,13 +645,145 @@ const PatientHistoryPanel = ({ patientId, onBack }: { patientId: string; onBack:
       )}
 
       {tab === 'lab' && (
-        <div className="card">
-          <div className="cons-coming-soon">
-            <ClipboardIcon />
-            <h3 style={{ margin: '12px 0 4px', color: '#334155' }}>Lab Results — Coming Soon</h3>
-            <p style={{ fontSize: 13, margin: 0 }}>Ordering lab tests and recording results isn't built yet.</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="card">
+            <div className="pth-side-card-title">
+              <ClipboardIcon /> Pending Tests
+            </div>
+            {pendingLabTests.length === 0 && <div className="card-empty">No pending lab tests for this patient.</div>}
+            {pendingLabTests.map((o) => (
+              <div className="pth-list-row" key={o.lab_test_order_id}>
+                <div>
+                  <div style={{ fontWeight: 600, color: '#0f172a' }}>
+                    {o.test_name} {o.priority !== 'Routine' && <span className="badge badge-red">{o.priority}</span>}
+                  </div>
+                  <span className="pat-muted" style={{ fontSize: 11.5 }}>
+                    LAB{String(o.lab_test_order_id).padStart(6, '0')} · Ordered {formatDateTime(o.order_date)} by Dr. {o.doctor?.username}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="pat-btn" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={() => printLabTestOrder(o.lab_test_order_id)}>
+                    <PrintIcon /> Print Request
+                  </button>
+                  <button className="pat-btn primary" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={() => setResultModalOrder(o)}>
+                    Enter Result
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="card">
+            <div className="pth-side-card-title">
+              <ClipboardIcon /> Completed Tests
+            </div>
+            {completedLabTests.length === 0 && <div className="card-empty">No completed lab results for this patient.</div>}
+            {completedLabTests.map((o) => (
+              <div key={o.lab_test_order_id} style={{ marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid #f1f5f9' }}>
+                <div className="pth-list-row" style={{ padding: 0, border: 'none' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, color: '#0f172a' }}>{o.test_name}</div>
+                    <span className="pat-muted" style={{ fontSize: 11.5 }}>
+                      LAB{String(o.lab_test_order_id).padStart(6, '0')} · Result {o.result_date ? formatDateTime(o.result_date) : '—'}
+                      {o.entered_by_user ? ` by ${o.entered_by_user.username}` : ''}
+                    </span>
+                  </div>
+                  <span className={`badge ${LAB_STATUS_BADGE[o.status]}`}>{o.status}</span>
+                </div>
+                <div style={{ fontSize: 13, color: '#334155', marginTop: 6 }}>
+                  <strong>Result:</strong> {o.result_value} {o.unit}
+                  {o.reference_range && <span className="pat-muted"> (Ref: {o.reference_range})</span>}
+                </div>
+                {o.laboratory_name && <div className="pat-muted" style={{ fontSize: 12 }}>Laboratory: {o.laboratory_name}</div>}
+                {o.result_notes && <div className="pat-muted" style={{ fontSize: 12 }}>Notes: {o.result_notes}</div>}
+                {o.status === 'Reviewed' && o.review_notes && (
+                  <div className="pat-muted" style={{ fontSize: 12, marginTop: 4 }}>
+                    Doctor review ({o.reviewed_by_user?.username}, {o.reviewed_date ? formatDateTime(o.reviewed_date) : ''}): {o.review_notes}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  {o.report_file_path && (
+                    <button className="pat-btn" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={() => window.open(fileUrl(o.report_file_path!), '_blank')}>
+                      View / Print Report
+                    </button>
+                  )}
+                  {o.status === 'Result Received' && reviewingOrderId !== o.lab_test_order_id && (
+                    <button className="pat-btn primary" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={() => setReviewingOrderId(o.lab_test_order_id)}>
+                      Doctor Review
+                    </button>
+                  )}
+                </div>
+
+                {reviewingOrderId === o.lab_test_order_id && (
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <input
+                      className="cons-input"
+                      style={{ flex: 1 }}
+                      placeholder="Review note (optional)"
+                      value={reviewNote}
+                      onChange={(e) => setReviewNote(e.target.value)}
+                    />
+                    <button className="pat-btn primary" style={{ fontSize: 11.5, padding: '5px 10px' }} disabled={reviewSubmitting} onClick={() => submitReview(o.lab_test_order_id)}>
+                      {reviewSubmitting ? 'Saving…' : 'Mark Reviewed'}
+                    </button>
+                    <button className="pat-btn" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={() => setReviewingOrderId(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="card">
+            <div className="pth-side-card-title">
+              <ClipboardIcon /> Test History
+            </div>
+            {labTestOrders.length === 0 && <div className="card-empty">No lab tests have been ordered for this patient.</div>}
+            {labTestOrders.length > 0 && (
+              <div className="pat-table-scroll">
+                <table className="pat-table">
+                  <thead>
+                    <tr>
+                      <th>Order</th>
+                      <th>Test</th>
+                      <th>Doctor</th>
+                      <th>Ordered</th>
+                      <th>Priority</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {labTestOrders.map((o) => (
+                      <tr key={o.lab_test_order_id}>
+                        <td>LAB{String(o.lab_test_order_id).padStart(6, '0')}</td>
+                        <td>{o.test_name}</td>
+                        <td>Dr. {o.doctor?.username}</td>
+                        <td>{formatDateTime(o.order_date)}</td>
+                        <td>{o.priority}</td>
+                        <td>
+                          <span className={`badge ${LAB_STATUS_BADGE[o.status]}`}>{o.status}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
+      )}
+
+      {resultModalOrder && (
+        <EnterLabResultModal
+          order={resultModalOrder}
+          onClose={() => setResultModalOrder(null)}
+          onSaved={() => {
+            setResultModalOrder(null);
+            reloadLabTestOrders();
+          }}
+        />
       )}
 
       {tab === 'documents' && (

@@ -1,10 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import { fileUrl } from '../../lib/api';
 import { getConsultationContext, createConsultation, updateConsultation, finalizeConsultation, listAmendments, AMENDABLE_FIELDS } from '../../lib/consultations';
 import type { ConsultationInput, AmendmentEntry, AmendableField } from '../../lib/consultations';
+import { searchIcd11 } from '../../lib/icd11';
+import type { Icd11Match } from '../../lib/icd11';
+import { listLabTestOrders } from '../../lib/labTestOrders';
+import type { LabTestOrder } from '../../lib/labTestOrders';
 import AmendModal from './AmendModal';
 import { getLiveQueue, calculateAge, tokenNumber } from '../../lib/queue';
 import {
@@ -164,11 +168,18 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
   const [amendments, setAmendments] = useState<AmendmentEntry[] | null>(null);
   const [amendReloadToken, setAmendReloadToken] = useState(0);
 
+  const [diagnosisResults, setDiagnosisResults] = useState<Icd11Match[]>([]);
+  const [diagnosisOpen, setDiagnosisOpen] = useState(false);
+  const [diagnosisError, setDiagnosisError] = useState(false);
+  const diagnosisBoxRef = useRef<HTMLDivElement>(null);
+  const skipNextDiagnosisSearchRef = useRef(false);
+
   useEffect(() => {
     if (!context) return;
     const c = context.consultation;
     setConsultationId(c?.consultation_id ?? null);
     setFollowUpDate(c?.follow_up_date ? c.follow_up_date.slice(0, 10) : '');
+    skipNextDiagnosisSearchRef.current = true;
     setForm({
       complaint: c?.complaint ?? '',
       history_of_present_illness: c?.history_of_present_illness ?? '',
@@ -209,6 +220,52 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
     // freshly-saved entry silently wouldn't show up until the next full page load.
   }, [consultationId, isConsultationFinalized, amendReloadToken]);
 
+  const [labTestOrders, setLabTestOrders] = useState<LabTestOrder[]>([]);
+  const reloadLabTestOrders = () => {
+    if (!consultationId) {
+      setLabTestOrders([]);
+      return;
+    }
+    listLabTestOrders({ consultationId }).then((result) => setLabTestOrders(result.data));
+  };
+  useEffect(reloadLabTestOrders, [consultationId]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (diagnosisBoxRef.current && !diagnosisBoxRef.current.contains(e.target as Node)) setDiagnosisOpen(false);
+    };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, []);
+
+  // Debounced ICD-11 search as the doctor types — skipped once right after loading a consultation
+  // or picking a suggestion, so the dropdown doesn't pop back open from a programmatic change.
+  useEffect(() => {
+    if (skipNextDiagnosisSearchRef.current) {
+      skipNextDiagnosisSearchRef.current = false;
+      return;
+    }
+    if (form.diagnosis.trim().length < 2) {
+      setDiagnosisResults([]);
+      setDiagnosisError(false);
+      return;
+    }
+    const t = setTimeout(() => {
+      searchIcd11(form.diagnosis)
+        .then((results) => {
+          setDiagnosisResults(results);
+          setDiagnosisError(false);
+          setDiagnosisOpen(true);
+        })
+        .catch(() => {
+          setDiagnosisResults([]);
+          setDiagnosisError(true);
+          setDiagnosisOpen(true);
+        });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [form.diagnosis]);
+
   if (loading) return <p style={{ padding: 24, color: '#64748b' }}>Loading consultation…</p>;
   if (error || !context) return <div className="dash-error-banner">Couldn't load this appointment: {error}</div>;
 
@@ -238,6 +295,14 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
     setForm((f) => ({ ...f, [field]: e.target.value }));
   const setVital = (field: keyof FormState['vitals']) => (e: ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, vitals: { ...f.vitals, [field]: e.target.value } }));
+
+  const selectDiagnosis = (m: Icd11Match) => {
+    skipNextDiagnosisSearchRef.current = true;
+    setForm((f) => ({ ...f, diagnosis: m.title, icd10_code: m.code }));
+    setDiagnosisOpen(false);
+    setDiagnosisResults([]);
+  };
+  const clearIcd11Code = () => setForm((f) => ({ ...f, icd10_code: '' }));
 
   const weightNum = parseFloat(form.vitals.weight);
   const heightNum = parseFloat(form.vitals.height);
@@ -335,7 +400,13 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
           <button className="pat-btn" onClick={() => navigate('/queue/call-next')}>
             <ChevronLeftIcon /> Back to Queue
           </button>
-          <button className="pat-btn" onClick={reload}>
+          <button
+            className="pat-btn"
+            onClick={() => {
+              reload();
+              reloadLabTestOrders();
+            }}
+          >
             <RefreshIcon /> Refresh
           </button>
         </div>
@@ -485,13 +556,43 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
                 </div>
               </div>
 
-              <div className="cons-box">
+              <div className="cons-box span-2" ref={diagnosisBoxRef}>
                 <div className="cons-box-title">Provisional Diagnosis</div>
-                <input className="cons-input" disabled={!canEdit} value={form.diagnosis} onChange={setField('diagnosis')} placeholder="e.g. Viral Fever" />
-              </div>
-              <div className="cons-box">
-                <div className="cons-box-title">ICD-10 (Optional)</div>
-                <input className="cons-input" disabled={!canEdit} value={form.icd10_code} onChange={setField('icd10_code')} placeholder="e.g. B34.9" />
+                <div className="cons-diag-row">
+                  <input
+                    className="cons-input"
+                    disabled={!canEdit}
+                    value={form.diagnosis}
+                    onChange={setField('diagnosis')}
+                    onFocus={() => diagnosisResults.length > 0 && setDiagnosisOpen(true)}
+                    placeholder="Type to search WHO ICD-11 diagnoses, e.g. diabetes"
+                  />
+                  {diagnosisOpen && (
+                    <div className="cons-diag-dropdown">
+                      {diagnosisError && (
+                        <div className="cons-diag-empty">Suggestions unavailable — you can still type a diagnosis manually.</div>
+                      )}
+                      {!diagnosisError && diagnosisResults.length === 0 && <div className="cons-diag-empty">No matching ICD-11 diagnoses found.</div>}
+                      {!diagnosisError &&
+                        diagnosisResults.map((m) => (
+                          <div className="cons-diag-result" key={m.code} onClick={() => selectDiagnosis(m)}>
+                            <span className="cons-diag-result-code">{m.code}</span>
+                            <span className="cons-diag-result-title">{m.title}</span>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+                {form.icd10_code && (
+                  <span className="cons-diag-code-chip">
+                    ICD-11: {form.icd10_code}
+                    {canEdit && (
+                      <button type="button" onClick={clearIcd11Code} aria-label="Clear ICD-11 code">
+                        ×
+                      </button>
+                    )}
+                  </span>
+                )}
               </div>
 
               <div className="cons-box span-2">
@@ -567,11 +668,41 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
 
           {tab === 'laborders' && (
             <div className="cons-box">
-              <div className="cons-coming-soon">
-                <ClipboardIcon />
-                <h3 style={{ margin: '12px 0 4px', color: '#334155' }}>Lab Orders — Coming Soon</h3>
-                <p style={{ fontSize: 13, margin: 0 }}>Ordering lab tests and recording results isn't built yet.</p>
+              <div className="cons-box-title">Lab Tests for this Visit</div>
+              {labTestOrders.length === 0 && <div className="pat-empty">No lab tests ordered for this consultation yet.</div>}
+              {labTestOrders.map((o) => (
+                <div key={o.lab_test_order_id} className="cons-rx-row">
+                  <span>
+                    LAB{String(o.lab_test_order_id).padStart(6, '0')} — {o.test_name}
+                    {o.priority !== 'Routine' && <span className="badge badge-red" style={{ marginLeft: 6 }}>{o.priority}</span>}
+                    {o.status === 'Result Received' && o.result_value && (
+                      <span className="pat-muted" style={{ marginLeft: 8, fontSize: 12 }}>
+                        Result: {o.result_value}
+                      </span>
+                    )}
+                  </span>
+                  <span
+                    className={`badge ${
+                      o.status === 'Reviewed' ? 'badge-green' : o.status === 'Result Received' ? 'badge-blue' : o.status === 'Cancelled' ? 'badge-gray' : 'badge-amber'
+                    }`}
+                  >
+                    {o.status}
+                  </span>
+                </div>
+              ))}
+              <div style={{ marginTop: 14 }}>
+                <button
+                  className="cons-btn primary"
+                  disabled={!consultationId}
+                  title={consultationId ? undefined : 'Save this consultation as a draft first'}
+                  onClick={() => consultationId && navigate(`/lab-orders/new/${consultationId}`)}
+                >
+                  <ClipboardIcon /> Add Lab Test
+                </button>
               </div>
+              <p className="pat-muted" style={{ fontSize: 12, marginTop: 10 }}>
+                View pending/completed results and doctor review for all of this patient's visits under Patient Search → Lab Results.
+              </p>
             </div>
           )}
 
@@ -755,6 +886,17 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
                   <PrescriptionIcon />
                 </span>
                 <span className="qa-label">New Prescription</span>
+              </button>
+              <button
+                className="qa-btn"
+                disabled={!consultationId}
+                title={consultationId ? undefined : 'Save this consultation as a draft first'}
+                onClick={() => consultationId && navigate(`/lab-orders/new/${consultationId}`)}
+              >
+                <span className="qa-icon" style={{ background: '#fdf2e9', color: '#c2410c' }}>
+                  <ClipboardIcon />
+                </span>
+                <span className="qa-label">Add Lab Test</span>
               </button>
               <button className="qa-btn" onClick={() => setTab('followup')}>
                 <span className="qa-icon" style={{ background: '#dcfce7', color: '#16a34a' }}>

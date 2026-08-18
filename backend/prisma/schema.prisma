@@ -58,6 +58,7 @@ model Patient {
   change_logs  PatientChangeLog[]
   duplicate_flags_as_new     PatientDuplicateFlag[] @relation("NewPatientFlags")
   duplicate_flags_as_matched PatientDuplicateFlag[] @relation("MatchedPatientFlags")
+  lab_test_orders LabTestOrder[]
 
   @@index([full_name])
   @@index([phone])
@@ -162,6 +163,7 @@ model Consultation {
   amendments      ConsultationAmendmentLog[]
   invoices        Invoice[]
   documents       ConsultationDocument[]
+  lab_test_orders LabTestOrder[]
 }
 
 model ConsultationDocument {
@@ -260,6 +262,47 @@ model Medicine {
   @@index([name])
   @@index([generic_name])
   @@index([category])
+}
+
+model LabTestOrder {
+  lab_test_order_id Int       @id @default(autoincrement())
+  patient_id        String
+  doctor_id         Int
+  consultation_id   Int
+  test_name         String
+  test_category     String?
+  instructions      String?
+  priority          String    @default("Routine") // Routine, Urgent, STAT
+  additional_notes  String?
+  status            String    @default("Pending") // Pending, Result Received, Reviewed, Cancelled
+  order_date        DateTime  @default(now())
+
+  result_value      String?
+  unit              String?
+  reference_range   String?
+  result_notes      String?
+  result_date       DateTime?
+  laboratory_name   String?
+  report_file_path  String?
+  entered_by        Int? // audit: who entered/last updated the result
+  entered_at        DateTime?
+
+  reviewed_by       Int?
+  review_notes      String?
+  reviewed_date     DateTime?
+
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  patient          Patient      @relation(fields: [patient_id], references: [patient_id])
+  doctor           User         @relation("LabTestOrderDoctor", fields: [doctor_id], references: [user_id])
+  consultation     Consultation @relation(fields: [consultation_id], references: [consultation_id])
+  entered_by_user  User?        @relation("LabTestOrderEnteredBy", fields: [entered_by], references: [user_id])
+  reviewed_by_user User?        @relation("LabTestOrderReviewedBy", fields: [reviewed_by], references: [user_id])
+
+  @@index([patient_id])
+  @@index([consultation_id])
+  @@index([status])
 }
 
 model MedicineSubstitution {
@@ -507,6 +550,9 @@ model User {
   sessions                  UserSession[]
   consultation_documents    ConsultationDocument[]
   queue_log_actions         AppointmentQueueLog[]
+  lab_test_orders_ordered   LabTestOrder[] @relation("LabTestOrderDoctor")
+  lab_test_orders_entered   LabTestOrder[] @relation("LabTestOrderEnteredBy")
+  lab_test_orders_reviewed  LabTestOrder[] @relation("LabTestOrderReviewedBy")
 }
 
 model UserSession {

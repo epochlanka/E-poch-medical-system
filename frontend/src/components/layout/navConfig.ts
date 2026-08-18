@@ -16,6 +16,7 @@ import {
   ReportsIcon,
   UsersIcon,
   SettingsIcon,
+  ClipboardIcon,
 } from './Icons';
 
 export interface NavItem {
@@ -42,6 +43,7 @@ export const navSections: NavSection[] = [
       { label: 'Book Appointment', path: '/book-appointment', icon: CalendarIcon, implemented: true },
       { label: 'Consultations', path: '/consultations', icon: StethoscopeIcon, implemented: true },
       { label: 'Prescriptions', path: '/prescriptions', icon: PrescriptionIcon, implemented: true },
+      { label: 'Lab Test Orders', path: '/lab-test-orders', icon: ClipboardIcon, implemented: true },
     ],
   },
   {

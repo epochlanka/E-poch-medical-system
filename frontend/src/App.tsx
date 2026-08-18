@@ -22,6 +22,7 @@ import Consultation from './pages/consultations/Consultation';
 import PrescriptionsQueue from './pages/prescriptions/PrescriptionsQueue';
 import NewPrescription from './pages/prescriptions/NewPrescription';
 import PrescriptionView from './pages/prescriptions/PrescriptionView';
+import LabTestOrders from './pages/labTestOrders/LabTestOrders';
 import ComingSoon from './pages/ComingSoon';
 import QueueDashboard from './pages/QueueDashboard';
 import BookAppointment from './pages/BookAppointment';
@@ -70,6 +71,7 @@ function App() {
           <Route path="/prescriptions" element={<PrescriptionsQueue />} />
           <Route path="/prescriptions/new/:consultationId" element={<NewPrescription />} />
           <Route path="/prescriptions/:prescriptionId" element={<PrescriptionView />} />
+          <Route path="/lab-test-orders" element={<LabTestOrders />} />
           <Route path="/queue" element={<QueueDashboard />} />
           <Route path="/book-appointment" element={<BookAppointment />} />
           {unimplementedPaths.map((path) => (

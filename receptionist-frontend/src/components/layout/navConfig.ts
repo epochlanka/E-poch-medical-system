@@ -17,6 +17,7 @@ import {
   DollarIcon,
   CheckCircleIcon,
   ReportsIcon,
+  ClipboardIcon,
 } from './Icons';
 
 export interface NavItem {
@@ -63,6 +64,10 @@ export const navSections: NavSection[] = [
       { label: 'Live Queue Board', path: '/queue/live', icon: ClockIcon, implemented: true },
       { label: 'Skip / Recall Log', path: '/queue/skip-recall', icon: RefreshIcon, implemented: true },
     ],
+  },
+  {
+    label: 'Lab Tests',
+    items: [{ label: 'Lab Test Orders', path: '/lab-tests/queue', icon: ClipboardIcon, implemented: true }],
   },
   {
     label: 'Billing',
