@@ -232,4 +232,78 @@ describe('Prescriptions API', () => {
       expect(res.status).toBe(404);
     });
   });
+
+  describe('Qty auto-calc validation', () => {
+    it('rejects a qty that does not match a calculable frequency × duration', async () => {
+      const { consultationId } = await makeDraftConsultation(doctorToken, doctorId);
+      const res = await request(app)
+        .post('/api/v1/prescriptions')
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ consultation_id: consultationId, items: [{ medicine_id: 1, dosage: '1 tablet', frequency: 'TDS', duration: '6 Days', qty: 10 }] });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/should be 18/);
+    });
+
+    it('accepts a qty that matches the calculated TDS × 6 days = 18', async () => {
+      const { consultationId } = await makeDraftConsultation(doctorToken, doctorId);
+      const res = await request(app)
+        .post('/api/v1/prescriptions')
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ consultation_id: consultationId, items: [{ medicine_id: 1, dosage: '1 tablet', frequency: 'TDS', duration: '6 Days', qty: 18 }] });
+      expect(res.status).toBe(201);
+    });
+
+    it('does not validate qty for a non-calculable frequency (PRN) or duration ("Ongoing")', async () => {
+      const { consultationId } = await makeDraftConsultation(doctorToken, doctorId);
+      const res = await request(app)
+        .post('/api/v1/prescriptions')
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ consultation_id: consultationId, items: [{ medicine_id: 1, dosage: '1 tablet', frequency: 'PRN', duration: 'Ongoing', qty: 7 }] });
+      expect(res.status).toBe(201);
+    });
+  });
+
+  describe('External Purchase', () => {
+    it('persists external_qty per item and rejects an out-of-range value', async () => {
+      const { consultationId } = await makeDraftConsultation(doctorToken, doctorId);
+      const badRes = await request(app)
+        .post('/api/v1/prescriptions')
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ consultation_id: consultationId, items: [{ medicine_id: 1, dosage: '1 tablet', qty: 10, external_qty: 11 }] });
+      expect(badRes.status).toBe(400);
+
+      const { consultationId: consultationId2 } = await makeDraftConsultation(doctorToken, doctorId);
+      const res = await request(app)
+        .post('/api/v1/prescriptions')
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ consultation_id: consultationId2, items: [{ medicine_id: 1, dosage: '1 tablet', qty: 10, external_qty: 4 }] });
+      expect(res.status).toBe(201);
+      expect(res.body.items[0].external_qty).toBe(4);
+    });
+
+    it('external-slip returns 400 when no items are marked External Purchase, and a PDF once one is', async () => {
+      const { consultationId } = await makeDraftConsultation(doctorToken, doctorId);
+      const clinicOnly = await request(app)
+        .post('/api/v1/prescriptions')
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ consultation_id: consultationId, items: [{ medicine_id: 1, dosage: '1 tablet', qty: 5 }] });
+
+      const noSlipRes = await request(app)
+        .get(`/api/v1/prescriptions/${clinicOnly.body.prescription_id}/external-slip`)
+        .set('Authorization', `Bearer ${doctorToken}`);
+      expect(noSlipRes.status).toBe(400);
+
+      const { consultationId: consultationId2 } = await makeDraftConsultation(doctorToken, doctorId);
+      const withExternal = await request(app)
+        .post('/api/v1/prescriptions')
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ consultation_id: consultationId2, items: [{ medicine_id: 1, dosage: '1 tablet', qty: 5, external_qty: 5 }] });
+
+      const slipRes = await request(app)
+        .get(`/api/v1/prescriptions/${withExternal.body.prescription_id}/external-slip`)
+        .set('Authorization', `Bearer ${doctorToken}`);
+      expect(slipRes.status).toBe(200);
+      expect(slipRes.headers['content-type']).toBe('application/pdf');
+    });
+  });
 });

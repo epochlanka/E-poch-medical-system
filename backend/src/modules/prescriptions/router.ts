@@ -19,6 +19,7 @@ const itemSchema = z.object({
   route: z.string().optional(),
   instructions: z.string().optional(),
   qty: z.number().int().positive(),
+  external_qty: z.number().int().min(0).optional(),
 });
 
 const createSchema = z.object({
@@ -72,5 +73,6 @@ router.get('/', requireRole(READ_ROLES), validate(listSchema), controller.list);
 router.post('/', requireRole(WRITE_ROLES), validate(createSchema), controller.create);
 router.get('/:prescriptionId', requireRole(READ_ROLES), validate(prescriptionIdParamsSchema), controller.getById);
 router.get('/:prescriptionId/pdf', requireRole(READ_ROLES), validate(prescriptionIdParamsSchema), controller.getPdf);
+router.get('/:prescriptionId/external-slip', requireRole(READ_ROLES), validate(prescriptionIdParamsSchema), controller.getExternalSlip);
 
 export default router;

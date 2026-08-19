@@ -1,5 +1,6 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import { NotFoundError, ValidationError, ForbiddenError, AllergyConflictError } from './errors';
+import { computeExpectedQty } from './qtyCalc';
 
 const prisma = new PrismaClient();
 
@@ -22,6 +23,7 @@ interface PrescriptionItemInput {
   route?: string;
   instructions?: string;
   qty: number;
+  external_qty?: number;
 }
 
 interface CreatePrescriptionInput {
@@ -96,6 +98,21 @@ export const createPrescription = async (input: CreatePrescriptionInput, actor: 
     );
   }
 
+  // Authoritative qty check — only enforced when frequency/duration are both mechanically
+  // calculable (e.g. "BD" + "5 Days"); free text or PRN/"Ongoing" is left to the doctor's entry.
+  for (const i of items) {
+    const expectedQty = computeExpectedQty(i.frequency, i.duration);
+    if (expectedQty !== null && expectedQty !== i.qty) {
+      const name = medicineById.get(i.medicine_id)!.name;
+      throw new ValidationError(`Qty for ${name} should be ${expectedQty} for ${i.frequency} × ${i.duration} (got ${i.qty})`);
+    }
+    const externalQty = i.external_qty ?? 0;
+    if (externalQty < 0 || externalQty > i.qty) {
+      const name = medicineById.get(i.medicine_id)!.name;
+      throw new ValidationError(`External purchase qty for ${name} must be between 0 and ${i.qty}`);
+    }
+  }
+
   const allergyText = (consultation.appointment.patient.allergies || '').toLowerCase().trim();
   const conflicts = allergyText
     ? items.filter((i) => {
@@ -134,6 +151,7 @@ export const createPrescription = async (input: CreatePrescriptionInput, actor: 
             route: i.route,
             instructions: i.instructions,
             qty: i.qty,
+            external_qty: i.external_qty ?? 0,
           })),
         },
       },

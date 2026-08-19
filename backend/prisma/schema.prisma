@@ -223,6 +223,7 @@ model PrescriptionItem {
   route                   String?
   instructions            String? // per-medicine note distinct from dosage/frequency, e.g. "after food"
   qty                     Int
+  external_qty            Int       @default(0) // portion of qty sourced externally — 0 = fully clinic, qty = fully external, else split
   batch_id                Int?
   substituted_medicine_id Int?
   fefo_override_reason    String?

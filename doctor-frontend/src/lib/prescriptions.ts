@@ -9,6 +9,7 @@ export interface PrescriptionItemInput {
   route?: string;
   instructions?: string;
   qty: number;
+  external_qty?: number;
 }
 
 export interface CreatePrescriptionInput {
@@ -28,6 +29,7 @@ export interface PrescriptionItem {
   route: string | null;
   instructions: string | null;
   qty: number;
+  external_qty: number;
   medicine: { name: string; generic_name: string | null; strength: string | null; unit: string };
   stockStatus?: string;
 }
@@ -106,6 +108,7 @@ export interface PrescriptionDetailItem {
   route: string | null;
   instructions: string | null;
   qty: number;
+  external_qty: number;
   dispensed_at: string | null;
   medicine: { name: string; generic_name: string | null; strength: string | null; unit: string };
 }
@@ -172,4 +175,12 @@ export const downloadPrescriptionPdf = async (prescriptionId: number, code: stri
   a.download = `${code}.pdf`;
   a.click();
   URL.revokeObjectURL(url);
+};
+
+// Opens in a new tab (rather than forcing a download, like downloadPrescriptionPdf above) so the
+// browser's own PDF viewer serves as the "preview" step before the doctor prints the slip.
+export const downloadExternalPurchaseSlip = async (prescriptionId: number) => {
+  const res = await api.get(`/prescriptions/${prescriptionId}/external-slip`, { responseType: 'blob' });
+  const url = URL.createObjectURL(res.data as Blob);
+  window.open(url, '_blank');
 };

@@ -4,8 +4,8 @@ import { useApiData } from '../../hooks/useApiData';
 import { fileUrl } from '../../lib/api';
 import { searchMedicines } from '../../lib/medicines';
 import type { Medicine } from '../../lib/medicines';
-import { getPrescriptionContext, createPrescription, downloadPrescriptionPdf } from '../../lib/prescriptions';
-import type { PrescriptionItemInput } from '../../lib/prescriptions';
+import { getPrescriptionContext, createPrescription, downloadPrescriptionPdf, downloadExternalPurchaseSlip } from '../../lib/prescriptions';
+import type { PrescriptionItemInput, PrescriptionItem } from '../../lib/prescriptions';
 import { listConsultations } from '../../lib/consultations';
 import { calculateAge } from '../../lib/queue';
 import {
@@ -42,6 +42,41 @@ const rxCode = (id: number) => `RX${String(id).padStart(6, '0')}`;
 const FREQUENCY_OPTIONS = ['OD - Once Daily', 'BD - Twice Daily', 'TDS - Three times daily', 'QID - Four times daily', 'PRN - As needed', 'STAT', 'HS - At bedtime'];
 const DURATION_OPTIONS = ['3 Days', '5 Days', '7 Days', '10 Days', '14 Days', '1 Month', 'Ongoing'];
 const ROUTE_OPTIONS = ['Oral', 'Topical', 'IV', 'IM', 'SC', 'Sublingual', 'Rectal', 'Inhalation', 'Ophthalmic', 'Otic'];
+const PREDEFINED_INSTRUCTIONS = [
+  'Before food',
+  'After food',
+  'With food',
+  'Before breakfast',
+  'After breakfast',
+  'Before lunch',
+  'After lunch',
+  'Before dinner',
+  'After dinner',
+  'At bedtime',
+  'With plenty of water',
+  'As directed by doctor',
+];
+
+// Mirrored server-side in backend/src/modules/prescriptions/qtyCalc.ts — this copy drives instant
+// UI calculation, the backend copy is the authoritative check at submit time. Returns null when
+// the qty can't be mechanically derived (PRN, "Ongoing", or any non-matching free text), in which
+// case Qty stays a manually-entered field instead of an auto-calculated read-only one.
+const DAILY_FREQUENCY: Record<string, number | null> = { OD: 1, BD: 2, TDS: 3, QID: 4, STAT: 1, HS: 1, PRN: null };
+const computeExpectedQty = (frequency?: string, duration?: string): number | null => {
+  const code = frequency?.trim().toUpperCase().match(/^(OD|BD|TDS|QID|STAT|HS|PRN)\b/)?.[1];
+  if (!code) return null;
+  if (code === 'STAT') return 1;
+  const daily = DAILY_FREQUENCY[code];
+  if (daily === null || daily === undefined) return null;
+  const d = duration?.trim() ?? '';
+  const dayMatch = d.match(/^(\d+)\s*Days?$/i);
+  const monthMatch = d.match(/^(\d+)\s*Months?$/i);
+  const days = dayMatch ? Number(dayMatch[1]) : monthMatch ? Number(monthMatch[1]) * 30 : null;
+  if (days === null) return null;
+  return daily * days;
+};
+
+const clamp = (n: number, min: number, max: number) => Math.min(Math.max(n, min), max);
 
 interface DraftItem {
   key: string;
@@ -58,11 +93,130 @@ interface DraftItem {
   frequency: string;
   duration: string;
   route: string;
-  instructions: string;
+  instructionChips: string[];
   qty: string;
+  external_qty: number;
+  sourceManual: boolean;
 }
 
+// Fills in defaults for drafts saved before external purchase/instructions-chips support existed,
+// and reconstructs instruction chips from a legacy plain-text `instructions` string if present.
+const normalizeItem = (it: any): DraftItem => ({
+  ...it,
+  external_qty: it.external_qty ?? 0,
+  sourceManual: it.sourceManual ?? false,
+  instructionChips: it.instructionChips ?? (it.instructions ? String(it.instructions).split(';').map((s: string) => s.trim()).filter(Boolean) : []),
+});
+
+// Recomputes external_qty from the current qty/totalQty unless the doctor has manually set the
+// source for this row (sourceManual) — in which case we just clamp it back into [0, qty] so an
+// edit to Frequency/Duration that shrinks qty can't leave external_qty larger than qty.
+const recalcSource = (item: DraftItem): DraftItem => {
+  const qtyNum = Number(item.qty) || 0;
+  if (item.sourceManual) {
+    return { ...item, external_qty: clamp(item.external_qty, 0, qtyNum) };
+  }
+  let external_qty = 0;
+  if (item.totalQty === 0) external_qty = qtyNum;
+  else if (item.totalQty < qtyNum) external_qty = qtyNum - item.totalQty;
+  return { ...item, external_qty };
+};
+
+type StockBadge = { emoji: string; label: string; cls: string } | null;
+const stockBadge = (item: DraftItem): StockBadge => {
+  const qtyNum = Number(item.qty) || 0;
+  if (item.totalQty === 0) return { emoji: '🔴', label: 'Not Available in Clinic', cls: 'red' };
+  if (item.totalQty < qtyNum) return { emoji: '🟠', label: 'Insufficient Stock', cls: 'amber' };
+  return null;
+};
+const sourceBadge = (item: DraftItem): { emoji: string; label: string; cls: string } => {
+  const qtyNum = Number(item.qty) || 0;
+  if (qtyNum > 0 && item.external_qty >= qtyNum) return { emoji: '🔵', label: 'External Purchase', cls: 'blue' };
+  return { emoji: '🟢', label: 'Clinic Pharmacy', cls: 'green' };
+};
+const isSplit = (item: DraftItem) => item.totalQty > 0 && item.totalQty < (Number(item.qty) || 0);
+
 const draftKey = (consultationId: number) => `epoch_doctor_rx_draft_${consultationId}`;
+
+const InstructionsPicker = ({ chips, onChange }: { chips: string[]; onChange: (chips: string[]) => void }) => {
+  const [open, setOpen] = useState(false);
+  const [showCustom, setShowCustom] = useState(false);
+  const [customDraft, setCustomDraft] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setShowCustom(false);
+      }
+    };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, []);
+
+  const toggle = (opt: string) => onChange(chips.includes(opt) ? chips.filter((c) => c !== opt) : [...chips, opt]);
+  const remove = (opt: string) => onChange(chips.filter((c) => c !== opt));
+  const addCustom = () => {
+    const v = customDraft.trim();
+    if (v && !chips.includes(v)) onChange([...chips, v]);
+    setCustomDraft('');
+    setShowCustom(false);
+  };
+
+  return (
+    <div className="rxp-instr-picker" ref={ref}>
+      {chips.length > 0 && (
+        <div className="cons-chips" style={{ marginBottom: 6 }}>
+          {chips.map((c) => (
+            <span className="cons-chip" key={c}>
+              {c}
+              <button type="button" onClick={() => remove(c)} aria-label={`Remove ${c}`}>
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <button type="button" className="rxb-table-input rxp-instr-btn" onClick={() => setOpen((v) => !v)}>
+        {chips.length ? '+ Add Instruction' : 'Select instructions…'}
+      </button>
+      {open && (
+        <div className="rxb-search-dropdown rxp-instr-dropdown">
+          {PREDEFINED_INSTRUCTIONS.map((opt) => (
+            <div className="rxb-search-result" key={opt} onClick={() => toggle(opt)}>
+              <span className="rxb-search-result-name">
+                {chips.includes(opt) ? '✓ ' : ''}
+                {opt}
+              </span>
+            </div>
+          ))}
+          {!showCustom ? (
+            <div className="rxb-search-result" onClick={() => setShowCustom(true)}>
+              <span className="rxb-search-result-name" style={{ color: '#2563eb', fontWeight: 700 }}>
+                + Custom Instruction
+              </span>
+            </div>
+          ) : (
+            <div style={{ padding: 10, display: 'flex', gap: 6 }} onClick={(e) => e.stopPropagation()}>
+              <input
+                className="rxb-table-input"
+                autoFocus
+                value={customDraft}
+                onChange={(e) => setCustomDraft(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addCustom())}
+                placeholder="Custom instruction…"
+              />
+              <button type="button" className="pat-btn" style={{ fontSize: 11.5, padding: '4px 8px' }} onClick={addCustom}>
+                Add
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // Landing view when no consultation is specified — lets the doctor pick from their own
 // in-progress (Draft) consultations, since a prescription is normally written during one.
@@ -149,7 +303,7 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
   const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [allergyAck, setAllergyAck] = useState(false);
-  const [submitted, setSubmitted] = useState<{ id: number; code: string } | null>(null);
+  const [submitted, setSubmitted] = useState<{ id: number; code: string; items: PrescriptionItem[] } | null>(null);
 
   // There's no server-side Draft status for prescriptions — they're created atomically once
   // sent — so "Save as Draft" persists to localStorage instead, same convention as the admin app.
@@ -158,7 +312,7 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
     if (raw) {
       try {
         const saved = JSON.parse(raw);
-        setItems(saved.items ?? []);
+        setItems((saved.items ?? []).map(normalizeItem));
         setNotes(saved.notes ?? '');
       } catch {
         /* ignore corrupt draft */
@@ -196,7 +350,7 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
     }
     setItems((prev) => [
       ...prev,
-      {
+      recalcSource({
         key: `${m.medicine_id}-${Date.now()}`,
         medicine_id: m.medicine_id,
         name: m.name,
@@ -211,9 +365,11 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
         frequency: '',
         duration: '',
         route: '',
-        instructions: '',
+        instructionChips: [],
         qty: '1',
-      },
+        external_qty: 0,
+        sourceManual: false,
+      }),
     ]);
     setSearchTerm('');
     setSearchResults([]);
@@ -224,6 +380,53 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
     const value = e.target.value;
     setItems((prev) => prev.map((it) => (it.key === key ? { ...it, [field]: value } : it)));
   };
+
+  // Frequency/Duration changes ripple into Qty (when calculable) and then into external_qty
+  // (unless the doctor has manually set a source for this row) — both recomputed in one pass.
+  const updateFreqOrDuration = (key: string, field: 'frequency' | 'duration') => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.key !== key) return it;
+        const updated = { ...it, [field]: value };
+        const expected = computeExpectedQty(updated.frequency, updated.duration);
+        return recalcSource({ ...updated, qty: expected !== null ? String(expected) : updated.qty });
+      })
+    );
+  };
+
+  const updateQtyManual = (key: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setItems((prev) => prev.map((it) => (it.key === key ? recalcSource({ ...it, qty: value }) : it)));
+  };
+
+  const setSource = (key: string, source: 'Clinic' | 'External') =>
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.key !== key) return it;
+        const qtyNum = Number(it.qty) || 0;
+        return { ...it, sourceManual: true, external_qty: source === 'External' ? qtyNum : 0 };
+      })
+    );
+
+  const setClinicDispense = (key: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.key !== key) return it;
+        const qtyNum = Number(it.qty) || 0;
+        const clinicDispense = clamp(Number(e.target.value) || 0, 0, qtyNum);
+        return { ...it, sourceManual: true, external_qty: qtyNum - clinicDispense };
+      })
+    );
+
+  const setExternalPurchaseQty = (key: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.key !== key) return it;
+        const qtyNum = Number(it.qty) || 0;
+        return { ...it, sourceManual: true, external_qty: clamp(Number(e.target.value) || 0, 0, qtyNum) };
+      })
+    );
 
   const removeItem = (key: string) => setItems((prev) => prev.filter((it) => it.key !== key));
 
@@ -245,8 +448,9 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
       frequency: i.frequency || undefined,
       duration: i.duration || undefined,
       route: i.route || undefined,
-      instructions: i.instructions || undefined,
+      instructions: i.instructionChips.length ? i.instructionChips.join('; ') : undefined,
       qty: Number(i.qty) || 1,
+      external_qty: i.external_qty || 0,
     }));
 
   // Live allergy check — same substring match the backend runs authoritatively at submit time;
@@ -282,7 +486,7 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
         notes: notes || undefined,
       });
       localStorage.removeItem(draftKey(consultationId));
-      setSubmitted({ id: res.data.prescription_id, code: rxCode(res.data.prescription_id) });
+      setSubmitted({ id: res.data.prescription_id, code: rxCode(res.data.prescription_id), items: res.data.items });
     } catch (err: any) {
       if (err.response?.status === 409 && err.response.data?.conflicts) {
         setSubmitError(`Allergy conflict: ${err.response.data.conflicts.join(', ')} — tick "Acknowledge" below and submit again.`);
@@ -316,10 +520,15 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
           <p style={{ color: '#64748b', fontSize: 13.5, margin: '0 0 20px' }}>
             {submitted.code} has been sent to the pharmacy for {patient.full_name}.
           </p>
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
             <button className="cons-btn" onClick={() => downloadPrescriptionPdf(submitted.id, submitted.code)}>
               <DownloadIcon /> Download PDF
             </button>
+            {submitted.items.some((i) => i.external_qty > 0) && (
+              <button className="cons-btn" onClick={() => downloadExternalPurchaseSlip(submitted.id)}>
+                <PrintIcon /> Generate External Purchase Slip
+              </button>
+            )}
             <button className="cons-btn primary" onClick={() => navigate(`/consultations/workspace/${context.appointment.appointmentId}`)}>
               Back to Workspace
             </button>
@@ -454,38 +663,95 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
                     </td>
                   </tr>
                 )}
-                {items.map((it, i) => (
-                  <tr key={it.key}>
-                    <td>{i + 1}</td>
-                    <td>
-                      <div className="rxb-med-name">{it.name}</div>
-                      <div className="rxb-med-generic">{[it.form, it.category].filter(Boolean).join(' · ') || it.generic_name}</div>
-                    </td>
-                    <td>
-                      <input className="rxb-table-input" value={it.dosage} onChange={updateItem(it.key, 'dosage')} placeholder="500 mg" />
-                    </td>
-                    <td>
-                      <input className="rxb-table-input" list="rxp-frequency-options" value={it.frequency} onChange={updateItem(it.key, 'frequency')} placeholder="TDS" />
-                    </td>
-                    <td>
-                      <input className="rxb-table-input" list="rxp-duration-options" value={it.duration} onChange={updateItem(it.key, 'duration')} placeholder="5 Days" />
-                    </td>
-                    <td>
-                      <input className="rxb-table-input" list="rxp-route-options" value={it.route} onChange={updateItem(it.key, 'route')} placeholder="Oral" />
-                    </td>
-                    <td>
-                      <input className="rxb-table-input qty" type="number" min={1} value={it.qty} onChange={updateItem(it.key, 'qty')} />
-                    </td>
-                    <td>
-                      <input className="rxb-table-input" value={it.instructions} onChange={updateItem(it.key, 'instructions')} placeholder="After food" />
-                    </td>
-                    <td>
-                      <button className="pat-icon-btn" onClick={() => removeItem(it.key)} aria-label="Remove">
-                        <TrashIcon />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {items.map((it, i) => {
+                  const qtyNum = Number(it.qty) || 0;
+                  const expectedQty = computeExpectedQty(it.frequency, it.duration);
+                  const badge = stockBadge(it) ?? sourceBadge(it);
+                  const split = isSplit(it);
+                  return (
+                    <tr key={it.key} className={it.external_qty > 0 ? 'rxb-row-external' : undefined}>
+                      <td>{i + 1}</td>
+                      <td>
+                        <div className="rxb-med-name">{it.name}</div>
+                        <div className="rxb-med-generic">{[it.form, it.category].filter(Boolean).join(' · ') || it.generic_name}</div>
+                        <div className="rxp-source-block">
+                          <div className="rxp-source-meta">
+                            Clinic Stock: <strong>{it.totalQty}</strong> · Required Qty: <strong>{qtyNum}</strong>
+                          </div>
+                          <span className={`rxp-source-badge ${badge.cls}`}>
+                            {badge.emoji} {badge.label}
+                          </span>
+                          {split ? (
+                            <div className="rxp-split-row">
+                              <label>
+                                Clinic Dispense
+                                <input type="number" min={0} max={qtyNum} value={qtyNum - it.external_qty} onChange={setClinicDispense(it.key)} />
+                              </label>
+                              <label>
+                                External Purchase
+                                <input type="number" min={0} max={qtyNum} value={it.external_qty} onChange={setExternalPurchaseQty(it.key)} />
+                              </label>
+                            </div>
+                          ) : (
+                            <select
+                              className="rxp-source-select"
+                              value={qtyNum > 0 && it.external_qty >= qtyNum ? 'External' : 'Clinic'}
+                              onChange={(e) => setSource(it.key, e.target.value as 'Clinic' | 'External')}
+                            >
+                              <option value="Clinic">Clinic Pharmacy</option>
+                              <option value="External">External Purchase</option>
+                            </select>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <input className="rxb-table-input" value={it.dosage} onChange={updateItem(it.key, 'dosage')} placeholder="500 mg" />
+                      </td>
+                      <td>
+                        <input
+                          className="rxb-table-input"
+                          list="rxp-frequency-options"
+                          value={it.frequency}
+                          onChange={updateFreqOrDuration(it.key, 'frequency')}
+                          placeholder="TDS"
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className="rxb-table-input"
+                          list="rxp-duration-options"
+                          value={it.duration}
+                          onChange={updateFreqOrDuration(it.key, 'duration')}
+                          placeholder="5 Days"
+                        />
+                      </td>
+                      <td>
+                        <input className="rxb-table-input" list="rxp-route-options" value={it.route} onChange={updateItem(it.key, 'route')} placeholder="Oral" />
+                      </td>
+                      <td>
+                        {expectedQty !== null ? (
+                          <input className="rxb-table-input qty" type="number" value={it.qty} disabled title="Auto calculated from Frequency × Duration" />
+                        ) : (
+                          <>
+                            <input className="rxb-table-input qty" type="number" min={1} value={it.qty} onChange={updateQtyManual(it.key)} />
+                            <div className="rxp-manual-badge">Manual</div>
+                          </>
+                        )}
+                      </td>
+                      <td>
+                        <InstructionsPicker
+                          chips={it.instructionChips}
+                          onChange={(chips) => setItems((prev) => prev.map((x) => (x.key === it.key ? { ...x, instructionChips: chips } : x)))}
+                        />
+                      </td>
+                      <td>
+                        <button className="pat-icon-btn" onClick={() => removeItem(it.key)} aria-label="Remove">
+                          <TrashIcon />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
             <datalist id="rxp-frequency-options">
@@ -671,6 +937,28 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
               </div>
             ))}
           </div>
+
+          {items.some((i) => i.external_qty > 0) && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-header">
+                <h3 className="card-title">External Purchase Slip Preview</h3>
+              </div>
+              {items
+                .filter((i) => i.external_qty > 0)
+                .map((i) => (
+                  <div className="rxp-stock-row" key={i.key}>
+                    <span className="rxp-stock-name">{i.name}</span>
+                    <span className="rxp-stock-qty blue">
+                      Qty {i.external_qty}
+                      {i.external_qty < (Number(i.qty) || 0) ? ' (partial)' : ''}
+                    </span>
+                  </div>
+                ))}
+              <p className="pat-muted" style={{ fontSize: 11.5, marginTop: 8 }}>
+                Available to print as a separate slip once this prescription is submitted.
+              </p>
+            </div>
+          )}
 
           <div className="rxp-preview-box">
             <div className="rxp-preview-title">Prescription Preview</div>

@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import * as service from './service';
-import { streamPrescriptionPdf } from './pdf';
+import { streamPrescriptionPdf, streamExternalPurchaseSlipPdf } from './pdf';
 import { NotFoundError, ValidationError, ForbiddenError, AllergyConflictError } from './errors';
 
 const actor = (req: Request) => req.user as any as { user_id: number; role: string };
@@ -73,6 +73,25 @@ export const getPdf = async (req: Request, res: Response) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="RX${String(prescription.prescription_id).padStart(6, '0')}.pdf"`);
     streamPrescriptionPdf(prescription, res);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const getExternalSlip = async (req: Request, res: Response) => {
+  try {
+    const prescription = await service.getPrescriptionById(idParam(req));
+    if (!prescription) return res.status(404).json({ message: 'Prescription not found' });
+    assertDoctorOwnsIfDoctor(req, prescription);
+
+    const hasExternalItems = prescription.items.some((i: any) => i.external_qty > 0);
+    if (!hasExternalItems) {
+      return res.status(400).json({ message: 'This prescription has no medicines marked External Purchase' });
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="RX${String(prescription.prescription_id).padStart(6, '0')}-external-slip.pdf"`);
+    streamExternalPurchaseSlipPdf(prescription, res);
   } catch (error) {
     handleError(req, res, error);
   }
