@@ -52,7 +52,7 @@ export const navSections: NavSection[] = [
     items: [
       { label: 'Family Directory', path: '/families/directory', icon: FamiliesIcon, implemented: true },
       { label: 'Family Member Roster', path: '/families/roster', icon: UsersIcon, implemented: true },
-      { label: 'Head of Family', path: '/families/head-of-family', icon: StarIcon },
+      { label: 'Head of Family', path: '/families/head-of-family', icon: StarIcon, implemented: true },
       { label: 'Family Merge', path: '/families/merge', icon: MergeIcon },
     ],
   },

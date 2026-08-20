@@ -1,13 +1,14 @@
 import { useNavigate } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import { getFamilyMembers } from '../../lib/families';
+import type { FamilyDetail } from '../../lib/families';
 import { formatFamilyCode } from './familyUtils';
 import { FamiliesIcon } from '../../components/layout/Icons';
 
 interface ViewFamilyModalProps {
   familyId: number;
   onClose: () => void;
-  onEdit: () => void;
+  onEdit: (family: FamilyDetail) => void;
 }
 
 const initials = (name: string) =>
@@ -106,7 +107,7 @@ const ViewFamilyModal = ({ familyId, onClose, onEdit }: ViewFamilyModalProps) =>
               <button className="modal-btn secondary" onClick={() => navigate(`/families/roster/${familyId}`)}>
                 View Full Roster
               </button>
-              <button className="modal-btn primary" onClick={onEdit}>
+              <button className="modal-btn primary" onClick={() => onEdit(data.family)}>
                 Edit Family
               </button>
             </div>

@@ -1,11 +1,23 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { updateFamily } from '../../lib/families';
-import type { Family } from '../../lib/families';
 import { formatFamilyCode, FAMILY_TYPES } from './familyUtils';
 
+// Only the fields this modal actually reads/edits — satisfied by both the family-list `Family`
+// shape and the single-family `FamilyDetail` shape, so callers holding either one (e.g. a modal
+// that already fetched full detail) can pass it straight through instead of re-finding/rebuilding
+// a `Family` object elsewhere.
+export interface EditableFamily {
+  family_id: number;
+  family_name: string;
+  address: string | null;
+  city: string | null;
+  family_type: string | null;
+  contact_no: string | null;
+}
+
 interface EditFamilyModalProps {
-  family: Family;
+  family: EditableFamily;
   onClose: () => void;
   onSaved: () => void;
 }

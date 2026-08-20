@@ -577,12 +577,20 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
                   onFocus={() => searchResults.length > 0 && setSearchOpen(true)}
                 />
               </div>
-              <button type="button" className="cons-btn" onClick={() => searchInputRef.current?.focus()}>
+              <button
+                type="button"
+                className="cons-btn"
+                onClick={() => {
+                  searchInputRef.current?.focus();
+                  setSearchOpen(true);
+                }}
+              >
                 <PlusIcon /> Add Medicine
               </button>
               {searchOpen && (
                 <div className="rxb-search-dropdown">
-                  {searchResults.length === 0 && <div className="rxb-search-empty">No medicines found.</div>}
+                  {searchTerm.trim().length < 2 && <div className="rxb-search-empty">Type at least 2 characters to search…</div>}
+                  {searchTerm.trim().length >= 2 && searchResults.length === 0 && <div className="rxb-search-empty">No medicines found.</div>}
                   {searchResults.map((m) => (
                     <div className="rxb-search-result" key={m.medicine_id} onClick={() => addMedicine(m)}>
                       <div>
@@ -754,7 +762,15 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
             </datalist>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
-              <button type="button" className="pat-btn" style={{ fontSize: 12.5, padding: '7px 12px' }} onClick={() => searchInputRef.current?.focus()}>
+              <button
+                type="button"
+                className="pat-btn"
+                style={{ fontSize: 12.5, padding: '7px 12px' }}
+                onClick={() => {
+                  searchInputRef.current?.focus();
+                  setSearchOpen(true);
+                }}
+              >
                 <PlusIcon /> Add Medicine
               </button>
               <span className="pat-muted" style={{ fontSize: 12.5, fontWeight: 600 }}>

@@ -393,19 +393,7 @@ const FamilyMemberRoster = () => {
 
       {editFamily && data && (
         <EditFamilyModal
-          family={{
-            family_id: data.family.family_id,
-            family_name: data.family.family_name,
-            head_patient_id: data.family.head_patient?.patient_id ?? null,
-            address: data.family.address,
-            city: data.family.city,
-            family_type: data.family.family_type,
-            contact_no: data.family.contact_no,
-            is_active: data.family.is_active,
-            created_at: '',
-            head_patient: data.family.head_patient,
-            _count: { patients: data.members.length },
-          }}
+          family={data.family}
           onClose={() => setEditFamily(false)}
           onSaved={() => {
             setEditFamily(false);

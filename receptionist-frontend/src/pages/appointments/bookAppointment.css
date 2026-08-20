@@ -1,6 +1,11 @@
 .bk-layout {
   display: grid;
-  grid-template-columns: 1fr 320px;
+  /* minmax(0, 1fr), not a bare 1fr — a plain `1fr` track's automatic minimum is its content's
+     min-content width, so a wide child (e.g. Live Queue Board's 4-column kanban with long
+     unbroken patient-ID strings) forces this whole grid wider than the viewport instead of
+     shrinking, pushing the 320px sidebar off-screen. minmax(0, 1fr) lets it shrink and scroll
+     its own contents instead. */
+  grid-template-columns: minmax(0, 1fr) 320px;
   gap: 16px;
   align-items: start;
 }

@@ -21,6 +21,7 @@ import {
 import KpiCard from '../dashboard/KpiCard';
 import NewFamilyModal from './NewFamilyModal';
 import EditFamilyModal from './EditFamilyModal';
+import type { EditableFamily } from './EditFamilyModal';
 import ViewFamilyModal from './ViewFamilyModal';
 import MergeFamilyModal from './MergeFamilyModal';
 import { formatFamilyCode } from './familyUtils';
@@ -75,7 +76,7 @@ const FamilyDirectory = () => {
   const [filters, setFilters] = useState<ListFamiliesParams>({ status: 'all', page: 1, limit: 10 });
   const [showNewFamily, setShowNewFamily] = useState(false);
   const [viewFamilyId, setViewFamilyId] = useState<number | null>(null);
-  const [editFamily, setEditFamily] = useState<Family | null>(null);
+  const [editFamily, setEditFamily] = useState<EditableFamily | null>(null);
   const [mergeFamily, setMergeFamily] = useState<Family | null>(null);
 
   useEffect(() => {
@@ -363,10 +364,9 @@ const FamilyDirectory = () => {
         <ViewFamilyModal
           familyId={viewFamilyId}
           onClose={() => setViewFamilyId(null)}
-          onEdit={() => {
-            const f = families.find((x) => x.family_id === viewFamilyId);
+          onEdit={(family) => {
             setViewFamilyId(null);
-            if (f) setEditFamily(f);
+            setEditFamily(family);
           }}
         />
       )}

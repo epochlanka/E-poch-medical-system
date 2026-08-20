@@ -9,6 +9,7 @@ import RegisterPatient from './pages/patients/RegisterPatient';
 import DuplicateReview from './pages/patients/DuplicateReview';
 import FamilyDirectory from './pages/families/FamilyDirectory';
 import FamilyMemberRoster from './pages/families/FamilyMemberRoster';
+import HeadOfFamily from './pages/families/HeadOfFamily';
 import BookAppointment from './pages/appointments/BookAppointment';
 import WalkInQueue from './pages/appointments/WalkInQueue';
 import LiveQueueBoard from './pages/appointments/LiveQueueBoard';
@@ -50,6 +51,7 @@ function App() {
           <Route path="/families/directory" element={<FamilyDirectory />} />
           <Route path="/families/roster" element={<FamilyMemberRoster />} />
           <Route path="/families/roster/:familyId" element={<FamilyMemberRoster />} />
+          <Route path="/families/head-of-family" element={<HeadOfFamily />} />
           <Route path="/appointments/book" element={<BookAppointment />} />
           <Route path="/appointments/walk-in" element={<WalkInQueue />} />
           <Route path="/queue/live" element={<LiveQueueBoard />} />

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { setFamilyHead } from '../../lib/families';
+import { useApiData } from '../../hooks/useApiData';
+import { setFamilyHead, getFamilyMembers } from '../../lib/families';
 import FamilySearchSelect from './FamilySearchSelect';
 import { registerPatient, checkDuplicatePatient, uploadPatientPhoto } from '../../lib/patients';
 import type { DuplicateCheckResult } from '../../lib/patients';
@@ -31,6 +32,7 @@ import type { RegisterFormState } from './registerPatientUtils';
 import '../../styles/shared.css';
 import '../dashboard/dashboard.css';
 import './register.css';
+import '../appointments/bookAppointment.css';
 
 const STEPS = ['Patient Information', 'Contact & Address', 'Medical Information', 'Review & Save'];
 
@@ -55,6 +57,15 @@ const RegisterPatient = () => {
   const [error, setError] = useState<string | null>(null);
   const [createdId, setCreatedId] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
+
+  // Confirms which family was actually picked (existing dev data has many near-identically
+  // named test families, e.g. "Billing Test Family 1787...-<random>" — the search box alone
+  // isn't enough to tell them apart) and shows its real members, same "family preview card"
+  // pattern already established in Book Appointment (bk-family-card).
+  const { data: selectedFamilyInfo } = useApiData(
+    () => (form.familyMode === 'existing' && form.familyId ? getFamilyMembers(Number(form.familyId)) : Promise.resolve(null)),
+    [form.familyMode, form.familyId]
+  );
 
   // Persist a draft (excluding the photo, which isn't worth base64-encoding into localStorage)
   // on every change — same "no server-side draft, use localStorage" pattern used for
@@ -368,6 +379,23 @@ const RegisterPatient = () => {
                       <input type="checkbox" checked={form.isHeadOfFamily} onChange={set('isHeadOfFamily')} />
                       This patient is the Head of Family
                     </div>
+
+                    {form.familyId && selectedFamilyInfo && (
+                      <div className="bk-family-card" style={{ gridColumn: 'span 2' }}>
+                        <div className="bk-family-card-left">
+                          <div className="pat-avatar">
+                            <FamiliesIcon />
+                          </div>
+                          <div>
+                            <div className="pat-name">{selectedFamilyInfo.family.family_name}</div>
+                            <span className="pat-muted" style={{ fontSize: 11.5 }}>
+                              Head of Family: {selectedFamilyInfo.family.head_patient?.full_name || 'Not set'}
+                            </span>
+                          </div>
+                        </div>
+                        <span className="badge badge-gray">{selectedFamilyInfo.members.length} Members</span>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <>
