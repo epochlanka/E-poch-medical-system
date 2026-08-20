@@ -13,6 +13,7 @@ router.use(requireAuth);
 
 const READ_ROLES = ['Admin', 'Receptionist', 'Doctor', 'Pharmacist'];
 const WRITE_ROLES = ['Admin', 'Receptionist'];
+const ALLERGY_WRITE_ROLES = ['Admin', 'Receptionist', 'Doctor'];
 
 // ---- Photo upload (Multer) --------------------------------------------------
 
@@ -137,6 +138,11 @@ const updateSchema = z.object({
   }),
 });
 
+const allergiesSchema = z.object({
+  params: patientIdParams,
+  body: z.object({ allergies: z.string() }),
+});
+
 const statusSchema = z.object({
   params: patientIdParams,
   body: z.object({ is_active: z.boolean(), reason: z.string().optional() }),
@@ -195,6 +201,7 @@ router.post('/', requireRole(WRITE_ROLES), validate(registerSchema), controller.
 
 router.get('/:patientId', requireRole(READ_ROLES), validate(patientIdParamsSchema), controller.getById);
 router.put('/:patientId', requireRole(WRITE_ROLES), validate(updateSchema), controller.update);
+router.patch('/:patientId/allergies', requireRole(ALLERGY_WRITE_ROLES), validate(allergiesSchema), controller.updateAllergies);
 router.patch('/:patientId/status', requireRole(WRITE_ROLES), validate(statusSchema), controller.setStatus);
 router.post('/:patientId/photo', requireRole(WRITE_ROLES), validate(patientIdParamsSchema), uploadPhotoMiddleware, controller.uploadPhoto);
 router.get('/:patientId/history', requireRole(READ_ROLES), validate(historySchema), controller.history);

@@ -50,6 +50,9 @@ export interface PatientDetail extends Omit<PatientListRow, 'family'> {
 
 export const getPatientById = (patientId: string) => api.get<PatientDetail>(`/patients/${encodeURIComponent(patientId)}`).then((r) => r.data);
 
+export const updatePatientAllergies = (patientId: string, allergies: string) =>
+  api.patch(`/patients/${encodeURIComponent(patientId)}/allergies`, { allergies }).then((r) => r.data);
+
 export type TimelineEventType = 'appointment' | 'consultation' | 'prescription' | 'invoice' | 'document' | 'vitals';
 
 export interface AppointmentEvent {

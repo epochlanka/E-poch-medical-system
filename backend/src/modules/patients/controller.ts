@@ -108,6 +108,15 @@ export const update = async (req: Request, res: Response) => {
   }
 };
 
+export const updateAllergies = async (req: Request, res: Response) => {
+  try {
+    const patient = await service.updatePatient(patientIdParam(req), { allergies: req.body.allergies }, actorId(req));
+    res.status(200).json(patient);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
 export const setStatus = async (req: Request, res: Response) => {
   try {
     const { is_active, reason } = req.body;

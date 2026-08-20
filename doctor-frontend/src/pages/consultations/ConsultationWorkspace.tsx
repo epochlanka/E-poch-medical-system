@@ -14,6 +14,7 @@ import AddLabTestModal from '../labTestOrders/AddLabTestModal';
 import MarkReceivedModal from '../labTestOrders/MarkReceivedModal';
 import LabResultModal from '../labTestOrders/LabResultModal';
 import { getLiveQueue, calculateAge, tokenNumber } from '../../lib/queue';
+import { updatePatientAllergies } from '../../lib/patients';
 import {
   ChevronLeftIcon,
   RefreshIcon,
@@ -165,6 +166,9 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
   const [consultationId, setConsultationId] = useState<number | null>(null);
   const [conditionDraft, setConditionDraft] = useState('');
   const [editingVitals, setEditingVitals] = useState(false);
+  const [editingAllergies, setEditingAllergies] = useState(false);
+  const [allergiesDraft, setAllergiesDraft] = useState('');
+  const [savingAllergies, setSavingAllergies] = useState(false);
   const [saving, setSaving] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -382,6 +386,25 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
       setSaveError(err.response?.data?.message || 'Failed to complete consultation.');
     } finally {
       setFinalizing(false);
+    }
+  };
+
+  const startEditAllergies = () => {
+    setAllergiesDraft(context.patientSummary.allergies ?? '');
+    setEditingAllergies(true);
+  };
+
+  const handleSaveAllergies = async () => {
+    setSaveError(null);
+    setSavingAllergies(true);
+    try {
+      await updatePatientAllergies(patient.patient_id, allergiesDraft.trim());
+      setEditingAllergies(false);
+      reload();
+    } catch (err: any) {
+      setSaveError(err.response?.data?.message || 'Failed to update allergies.');
+    } finally {
+      setSavingAllergies(false);
     }
   };
 
@@ -805,6 +828,93 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
         </div>
 
         <div>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-header">
+              <h3 className="card-title">Patient Info</h3>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div>
+                <div className="cons-box-title" style={{ marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>Allergies</span>
+                  {canEdit && !editingAllergies && (
+                    <button type="button" className="card-link" style={{ fontSize: 11.5 }} onClick={startEditAllergies}>
+                      <EditIcon /> {context.patientSummary.allergies ? 'Edit' : 'Add'}
+                    </button>
+                  )}
+                </div>
+                {editingAllergies ? (
+                  <div>
+                    <textarea
+                      className="cons-textarea"
+                      rows={2}
+                      value={allergiesDraft}
+                      onChange={(e) => setAllergiesDraft(e.target.value)}
+                      placeholder="e.g. Penicillin, Sulfa drugs"
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
+                      <button type="button" className="pat-btn" style={{ fontSize: 11.5, padding: '5px 10px' }} disabled={savingAllergies} onClick={() => setEditingAllergies(false)}>
+                        Cancel
+                      </button>
+                      <button type="button" className="pat-btn primary" style={{ fontSize: 11.5, padding: '5px 10px' }} disabled={savingAllergies} onClick={handleSaveAllergies}>
+                        <SaveIcon /> {savingAllergies ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  </div>
+                ) : context.patientSummary.allergies ? (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, color: '#b45309' }}>
+                    <span style={{ marginTop: 1 }}>
+                      <AlertIcon />
+                    </span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#92400e' }}>{context.patientSummary.allergies}</span>
+                  </div>
+                ) : (
+                  <span className="pat-muted" style={{ fontSize: 12.5 }}>No known allergies recorded.</span>
+                )}
+              </div>
+
+              <div>
+                <div className="cons-box-title" style={{ marginBottom: 4 }}>
+                  Blood Group
+                </div>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{context.patientSummary.bloodGroup || '—'}</span>
+              </div>
+
+              <div>
+                <div className="cons-box-title" style={{ marginBottom: 4 }}>
+                  Chronic Conditions
+                </div>
+                {context.patientSummary.chronicConditions.length === 0 ? (
+                  <span className="pat-muted" style={{ fontSize: 12.5 }}>None recorded.</span>
+                ) : (
+                  <div className="cons-chips">
+                    {context.patientSummary.chronicConditions.map((c) => (
+                      <span className="cons-chip" key={c}>
+                        {c}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <div className="cons-box-title" style={{ marginBottom: 4 }}>
+                  Current Medications
+                </div>
+                {context.patientSummary.currentMedications.length === 0 ? (
+                  <span className="pat-muted" style={{ fontSize: 12.5 }}>None recorded.</span>
+                ) : (
+                  <div className="cons-chips">
+                    {context.patientSummary.currentMedications.map((m) => (
+                      <span className="cons-chip" key={m}>
+                        {m}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-header">
               <h3 className="card-title">Vital Signs</h3>
