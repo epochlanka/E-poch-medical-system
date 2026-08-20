@@ -65,10 +65,12 @@ export interface PrescriptionItemDetail {
   route: string | null;
   instructions: string | null;
   qty: number;
+  external_qty: number;
   batch_id: number | null;
   dispensed_at: string | null;
-  medicine: { name: string };
+  medicine: { name: string; unit: string };
   substituted_medicine: { name: string } | null;
+  batch: { batch_no: string; expiry_date: string } | null;
 }
 
 export interface PrescriptionDetail {

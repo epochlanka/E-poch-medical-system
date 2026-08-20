@@ -8,17 +8,30 @@ interface Actor {
   role: string;
 }
 
+// "Last activity" for a queue card: when any items have been dispensed, the most recent
+// dispense timestamp is more useful than the original issue time (matches how the Dispensed/
+// Collected columns should read "when this happened" rather than "when it was first submitted").
+const lastActivityAt = (rx: any) => {
+  const dispensedTimes = rx.items.map((i: any) => i.dispensed_at).filter(Boolean) as Date[];
+  if (dispensedTimes.length === 0) return rx.issued_at;
+  return dispensedTimes.reduce((latest: Date, t: Date) => (t > latest ? t : latest));
+};
+
 const serializeQueueItem = (rx: any) => ({
   prescriptionId: rx.prescription_id,
   code: `RX${String(rx.prescription_id).padStart(6, '0')}`,
   status: rx.status,
   isRefill: rx.is_refill,
   issuedAt: rx.issued_at,
+  lastActivityAt: lastActivityAt(rx),
   patientId: rx.consultation.appointment.patient.patient_id,
   patientName: rx.consultation.appointment.patient.full_name,
+  doctorId: rx.consultation.appointment.doctor.user_id,
+  doctorName: rx.consultation.appointment.doctor.username,
+  consultationType: rx.consultation.appointment.consultation_type,
   itemCount: rx.items.length,
-  pendingItemCount: rx.items.filter((i: any) => !i.batch_id).length,
-  items: rx.items.map((i: any) => ({ rxItemId: i.rx_item_id, medicine: i.medicine.name, qty: i.qty, dispensed: !!i.batch_id })),
+  pendingItemCount: rx.items.filter((i: any) => !i.dispensed_at).length,
+  items: rx.items.map((i: any) => ({ rxItemId: i.rx_item_id, medicine: i.medicine.name, qty: i.qty, dispensed: !!i.dispensed_at })),
 });
 
 // Incoming prescriptions, ordered by submission time — first in, first served (FR-047).
@@ -29,7 +42,13 @@ export const getQueue = async (status?: string) => {
     orderBy: { issued_at: 'asc' },
     include: {
       items: { include: { medicine: { select: { name: true } } } },
-      consultation: { include: { appointment: { include: { patient: { select: { patient_id: true, full_name: true } } } } } },
+      consultation: {
+        include: {
+          appointment: {
+            include: { patient: { select: { patient_id: true, full_name: true } }, doctor: { select: { user_id: true, username: true } } },
+          },
+        },
+      },
     },
   });
 
@@ -52,7 +71,10 @@ export const getBatchSuggestions = async (prescriptionId: number) => {
   const now = new Date();
   return Promise.all(
     prescription.items
-      .filter((i) => !i.batch_id)
+      // Already-handled lines are done either way (real batch or the external-purchase skip
+      // below); fully-external lines never need a batch at all, so they're excluded here too —
+      // the Dispensing UI shows them as "External Purchase" instead of a batch picker.
+      .filter((i) => !i.dispensed_at && i.external_qty < i.qty)
       .map(async (item) => {
         const batches = await prisma.batch.findMany({
           where: { medicine_id: item.medicine_id, qty_on_hand: { gt: 0 }, expiry_date: { gt: now } },
@@ -79,7 +101,7 @@ export const setPreparing = async (prescriptionId: number) => {
 
 interface DispenseItemInput {
   rx_item_id: number;
-  batch_id: number;
+  batch_id?: number;
   override_reason?: string;
   substitute_medicine_id?: number;
 }
@@ -103,7 +125,22 @@ export const dispense = async (prescriptionId: number, items: DispenseItemInput[
       if (!rxItem || rxItem.prescription_id !== prescriptionId) {
         throw new ValidationError(`rx_item_id ${dispenseItem.rx_item_id} does not belong to this prescription`);
       }
-      if (rxItem.batch_id) throw new ValidationError(`Item ${dispenseItem.rx_item_id} has already been dispensed`);
+      if (rxItem.dispensed_at) throw new ValidationError(`Item ${dispenseItem.rx_item_id} has already been dispensed`);
+
+      // Fully external-purchase lines (the patient sourced the whole qty outside the clinic,
+      // FR added alongside the New Prescription external-purchase flow) never draw real stock —
+      // no batch to pick, nothing to decrement, no ledger row. Just stamp it handled so the
+      // prescription can still reach Dispensed. batch_id stays null, which billing's `!item.batch_id`
+      // skip already relies on to correctly exclude externally-sourced lines from the clinic invoice.
+      if (rxItem.external_qty >= rxItem.qty) {
+        await tx.prescriptionItem.update({
+          where: { rx_item_id: rxItem.rx_item_id },
+          data: { dispensed_by: actor.user_id, dispensed_at: new Date() },
+        });
+        continue;
+      }
+
+      if (!dispenseItem.batch_id) throw new ValidationError(`A batch must be selected to dispense item ${dispenseItem.rx_item_id}`);
 
       const effectiveMedicineId = dispenseItem.substitute_medicine_id ?? rxItem.medicine_id;
 
@@ -168,7 +205,7 @@ export const dispense = async (prescriptionId: number, items: DispenseItemInput[
     }
 
     const allItems = await tx.prescriptionItem.findMany({ where: { prescription_id: prescriptionId } });
-    const newStatus = allItems.every((i) => i.batch_id) ? 'Dispensed' : 'Preparing';
+    const newStatus = allItems.every((i) => i.dispensed_at) ? 'Dispensed' : 'Preparing';
 
     return tx.prescription.update({
       where: { prescription_id: prescriptionId },

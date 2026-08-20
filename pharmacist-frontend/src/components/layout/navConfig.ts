@@ -45,8 +45,8 @@ export const navSections: NavSection[] = [
   {
     label: 'Pharmacy',
     items: [
-      { label: 'Pharmacy Queue', path: '/pharmacy/queue', icon: PharmacyIcon },
-      { label: 'Dispensing', path: '/pharmacy/dispensing', icon: PillIcon },
+      { label: 'Pharmacy Queue', path: '/pharmacy/queue', icon: PharmacyIcon, implemented: true },
+      { label: 'Dispensing', path: '/pharmacy/dispensing', icon: PillIcon, implemented: true },
       { label: 'Partial Dispense', path: '/pharmacy/partial-dispense', icon: SendIcon },
       { label: 'Substitution Rules', path: '/pharmacy/substitution-rules', icon: RefreshIcon },
     ],

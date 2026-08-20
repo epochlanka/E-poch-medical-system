@@ -25,7 +25,7 @@ const dispenseSchema = z.object({
       .array(
         z.object({
           rx_item_id: z.number().int().positive(),
-          batch_id: z.number().int().positive(),
+          batch_id: z.number().int().positive().optional(),
           override_reason: z.string().optional(),
           substitute_medicine_id: z.number().int().positive().optional(),
         })

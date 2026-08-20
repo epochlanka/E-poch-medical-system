@@ -19,3 +19,17 @@ export const formatDate = (iso: string) => new Date(iso).toLocaleDateString(unde
 
 export const formatDateTime = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+
+// "9:15 AM" for today, "Yesterday 5:15 PM" for yesterday, else a plain date+time — used by the
+// Pharmacy Queue board where cards need a compact, at-a-glance timestamp.
+export const formatSmartTime = (iso: string) => {
+  const d = new Date(iso);
+  const now = new Date();
+  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
+  const isSameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  if (isSameDay(d, now)) return time;
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (isSameDay(d, yesterday)) return `Yesterday ${time}`;
+  return `${formatDate(iso)} ${time}`;
+};

@@ -8,7 +8,7 @@ const runId = Date.now();
 const makePrescription = async (
   doctorToken: string,
   doctorId: number,
-  items: { medicine_id: number; dosage: string; qty: number }[]
+  items: { medicine_id: number; dosage: string; qty: number; external_qty?: number }[]
 ) => {
   const family = await prisma.family.create({ data: { family_name: `Pharmacy Test Family ${runId}-${Math.random()}` } });
   const patient = await prisma.patient.create({
@@ -224,7 +224,42 @@ describe('Pharmacy API', () => {
   it('returns the queue grouped by status', async () => {
     const res = await request(app).get('/api/v1/pharmacy/queue').set('Authorization', `Bearer ${pharmacistToken}`);
     expect(res.status).toBe(200);
-    expect(res.body.Collected.some((rx: any) => rx.prescriptionId === collectRxId)).toBe(true);
+    const collectedRx = res.body.Collected.find((rx: any) => rx.prescriptionId === collectRxId);
+    expect(collectedRx).toBeTruthy();
+    expect(collectedRx.doctorName).toBeTruthy();
+    expect(typeof collectedRx.lastActivityAt).toBe('string');
+  });
+
+  it('dispenses a fully external-purchase item without touching stock, and excludes it from batch suggestions', async () => {
+    const rx = await makePrescription(doctorToken, doctorId, [{ medicine_id: medicineId, dosage: '1 tab', qty: 3, external_qty: 3 }]);
+
+    const suggestions = await request(app)
+      .get(`/api/v1/pharmacy/prescriptions/${rx.prescription_id}/batch-suggestions`)
+      .set('Authorization', `Bearer ${pharmacistToken}`);
+    expect(suggestions.body).toEqual([]);
+
+    const before = await prisma.batch.findUnique({ where: { batch_id: earlyBatchId } });
+
+    const res = await request(app)
+      .post(`/api/v1/pharmacy/prescriptions/${rx.prescription_id}/dispense`)
+      .set('Authorization', `Bearer ${pharmacistToken}`)
+      .send({ items: [{ rx_item_id: rx.items[0].rx_item_id }] });
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('Dispensed');
+    expect(res.body.items[0].batch_id).toBeNull();
+    expect(res.body.items[0].dispensed_at).toBeTruthy();
+
+    const after = await prisma.batch.findUnique({ where: { batch_id: earlyBatchId } });
+    expect(after!.qty_on_hand).toBe(before!.qty_on_hand);
+  });
+
+  it('rejects a partially/non-external item dispensed without a batch_id', async () => {
+    const rx = await makePrescription(doctorToken, doctorId, [{ medicine_id: medicineId, dosage: '1 tab', qty: 3, external_qty: 1 }]);
+    const res = await request(app)
+      .post(`/api/v1/pharmacy/prescriptions/${rx.prescription_id}/dispense`)
+      .set('Authorization', `Bearer ${pharmacistToken}`)
+      .send({ items: [{ rx_item_id: rx.items[0].rx_item_id }] });
+    expect(res.status).toBe(400);
   });
 
   it('prints a dispensing label as a PDF', async () => {

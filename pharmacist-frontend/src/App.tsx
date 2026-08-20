@@ -5,6 +5,8 @@ import AppLayout from './components/layout/AppLayout';
 import Login from './pages/Login';
 import Dashboard from './pages/dashboard/Dashboard';
 import Prescriptions from './pages/prescriptions/Prescriptions';
+import PharmacyQueue from './pages/pharmacy/PharmacyQueue';
+import Dispensing from './pages/pharmacy/Dispensing';
 import ComingSoon from './pages/ComingSoon';
 import { navSections } from './components/layout/navConfig';
 
@@ -34,6 +36,9 @@ function App() {
         >
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/prescriptions" element={<Prescriptions />} />
+          <Route path="/pharmacy/queue" element={<PharmacyQueue />} />
+          <Route path="/pharmacy/dispensing" element={<Dispensing />} />
+          <Route path="/pharmacy/dispensing/:prescriptionId" element={<Dispensing />} />
           {unimplementedPaths.map((path) => (
             <Route key={path} path={path} element={<ComingSoon />} />
           ))}
