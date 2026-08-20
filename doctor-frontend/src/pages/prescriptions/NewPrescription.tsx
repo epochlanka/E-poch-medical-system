@@ -6,8 +6,12 @@ import { searchMedicines } from '../../lib/medicines';
 import type { Medicine } from '../../lib/medicines';
 import { getPrescriptionContext, createPrescription, downloadPrescriptionPdf, downloadExternalPurchaseSlip } from '../../lib/prescriptions';
 import type { PrescriptionItemInput, PrescriptionItem } from '../../lib/prescriptions';
+import { bulkCreateExternalMedicines, previewExternalMedicineSlip } from '../../lib/externalMedicines';
 import { listConsultations } from '../../lib/consultations';
 import { calculateAge } from '../../lib/queue';
+import InstructionsPicker from '../../components/InstructionsPicker';
+import ExternalMedicineSection, { draftToInput } from './ExternalMedicineSection';
+import type { ExternalMedicineDraft, ShortfallPrefill } from './ExternalMedicineSection';
 import {
   PrintIcon,
   SaveIcon,
@@ -42,20 +46,6 @@ const rxCode = (id: number) => `RX${String(id).padStart(6, '0')}`;
 const FREQUENCY_OPTIONS = ['OD - Once Daily', 'BD - Twice Daily', 'TDS - Three times daily', 'QID - Four times daily', 'PRN - As needed', 'STAT', 'HS - At bedtime'];
 const DURATION_OPTIONS = ['3 Days', '5 Days', '7 Days', '10 Days', '14 Days', '1 Month', 'Ongoing'];
 const ROUTE_OPTIONS = ['Oral', 'Topical', 'IV', 'IM', 'SC', 'Sublingual', 'Rectal', 'Inhalation', 'Ophthalmic', 'Otic'];
-const PREDEFINED_INSTRUCTIONS = [
-  'Before food',
-  'After food',
-  'With food',
-  'Before breakfast',
-  'After breakfast',
-  'Before lunch',
-  'After lunch',
-  'Before dinner',
-  'After dinner',
-  'At bedtime',
-  'With plenty of water',
-  'As directed by doctor',
-];
 
 // Mirrored server-side in backend/src/modules/prescriptions/qtyCalc.ts — this copy drives instant
 // UI calculation, the backend copy is the authoritative check at submit time. Returns null when
@@ -138,86 +128,6 @@ const isSplit = (item: DraftItem) => item.totalQty > 0 && item.totalQty < (Numbe
 
 const draftKey = (consultationId: number) => `epoch_doctor_rx_draft_${consultationId}`;
 
-const InstructionsPicker = ({ chips, onChange }: { chips: string[]; onChange: (chips: string[]) => void }) => {
-  const [open, setOpen] = useState(false);
-  const [showCustom, setShowCustom] = useState(false);
-  const [customDraft, setCustomDraft] = useState('');
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-        setShowCustom(false);
-      }
-    };
-    document.addEventListener('click', handler);
-    return () => document.removeEventListener('click', handler);
-  }, []);
-
-  const toggle = (opt: string) => onChange(chips.includes(opt) ? chips.filter((c) => c !== opt) : [...chips, opt]);
-  const remove = (opt: string) => onChange(chips.filter((c) => c !== opt));
-  const addCustom = () => {
-    const v = customDraft.trim();
-    if (v && !chips.includes(v)) onChange([...chips, v]);
-    setCustomDraft('');
-    setShowCustom(false);
-  };
-
-  return (
-    <div className="rxp-instr-picker" ref={ref}>
-      {chips.length > 0 && (
-        <div className="cons-chips" style={{ marginBottom: 6 }}>
-          {chips.map((c) => (
-            <span className="cons-chip" key={c}>
-              {c}
-              <button type="button" onClick={() => remove(c)} aria-label={`Remove ${c}`}>
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-      <button type="button" className="rxb-table-input rxp-instr-btn" onClick={() => setOpen((v) => !v)}>
-        {chips.length ? '+ Add Instruction' : 'Select instructions…'}
-      </button>
-      {open && (
-        <div className="rxb-search-dropdown rxp-instr-dropdown">
-          {PREDEFINED_INSTRUCTIONS.map((opt) => (
-            <div className="rxb-search-result" key={opt} onClick={() => toggle(opt)}>
-              <span className="rxb-search-result-name">
-                {chips.includes(opt) ? '✓ ' : ''}
-                {opt}
-              </span>
-            </div>
-          ))}
-          {!showCustom ? (
-            <div className="rxb-search-result" onClick={() => setShowCustom(true)}>
-              <span className="rxb-search-result-name" style={{ color: '#2563eb', fontWeight: 700 }}>
-                + Custom Instruction
-              </span>
-            </div>
-          ) : (
-            <div style={{ padding: 10, display: 'flex', gap: 6 }} onClick={(e) => e.stopPropagation()}>
-              <input
-                className="rxb-table-input"
-                autoFocus
-                value={customDraft}
-                onChange={(e) => setCustomDraft(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addCustom())}
-                placeholder="Custom instruction…"
-              />
-              <button type="button" className="pat-btn" style={{ fontSize: 11.5, padding: '4px 8px' }} onClick={addCustom}>
-                Add
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
-
 // Landing view when no consultation is specified — lets the doctor pick from their own
 // in-progress (Draft) consultations, since a prescription is normally written during one.
 const PrescriptionPicker = () => {
@@ -292,6 +202,8 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
 
   const [items, setItems] = useState<DraftItem[]>([]);
   const [notes, setNotes] = useState('');
+  const [externalItems, setExternalItems] = useState<ExternalMedicineDraft[]>([]);
+  const [shortfallPrefill, setShortfallPrefill] = useState<ShortfallPrefill | null>(null);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState<Medicine[]>([]);
@@ -303,7 +215,11 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
   const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [allergyAck, setAllergyAck] = useState(false);
-  const [submitted, setSubmitted] = useState<{ id: number; code: string; items: PrescriptionItem[] } | null>(null);
+  const [submitted, setSubmitted] = useState<{ id: number; code: string; items: PrescriptionItem[]; hadExternalItems: boolean; externalSaved: boolean } | null>(
+    null
+  );
+  const [externalSaveError, setExternalSaveError] = useState<string | null>(null);
+  const [savingExternal, setSavingExternal] = useState(false);
 
   // There's no server-side Draft status for prescriptions — they're created atomically once
   // sent — so "Save as Draft" persists to localStorage instead, same convention as the admin app.
@@ -314,6 +230,7 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
         const saved = JSON.parse(raw);
         setItems((saved.items ?? []).map(normalizeItem));
         setNotes(saved.notes ?? '');
+        setExternalItems(saved.externalItems ?? []);
       } catch {
         /* ignore corrupt draft */
       }
@@ -431,12 +348,13 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
   const removeItem = (key: string) => setItems((prev) => prev.filter((it) => it.key !== key));
 
   const handleSaveDraft = () => {
-    localStorage.setItem(draftKey(consultationId), JSON.stringify({ items, notes }));
+    localStorage.setItem(draftKey(consultationId), JSON.stringify({ items, notes, externalItems }));
     setDraftSavedAt(new Date());
   };
 
   const handleClearAll = () => {
     setItems([]);
+    setExternalItems([]);
     setNotes('');
     localStorage.removeItem(draftKey(consultationId));
   };
@@ -486,7 +404,21 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
         notes: notes || undefined,
       });
       localStorage.removeItem(draftKey(consultationId));
-      setSubmitted({ id: res.data.prescription_id, code: rxCode(res.data.prescription_id), items: res.data.items });
+
+      const hadExternalItems = externalItems.length > 0;
+      let externalSaved = true;
+      if (hadExternalItems) {
+        try {
+          await bulkCreateExternalMedicines(res.data.prescription_id, externalItems.map(draftToInput));
+        } catch (extErr: any) {
+          // The clinic prescription is already saved — never lose that. Keep the drafted external
+          // items on screen with a retry option rather than silently dropping the doctor's work.
+          externalSaved = false;
+          setExternalSaveError(extErr.response?.data?.message || 'Failed to save the external medicines — use Retry below.');
+        }
+      }
+      setSubmitted({ id: res.data.prescription_id, code: rxCode(res.data.prescription_id), items: res.data.items, hadExternalItems, externalSaved });
+      if (externalSaved) setExternalItems([]);
     } catch (err: any) {
       if (err.response?.status === 409 && err.response.data?.conflicts) {
         setSubmitError(`Allergy conflict: ${err.response.data.conflicts.join(', ')} — tick "Acknowledge" below and submit again.`);
@@ -499,11 +431,25 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
     }
   };
 
+  const retrySaveExternal = async () => {
+    if (!submitted) return;
+    setSavingExternal(true);
+    setExternalSaveError(null);
+    try {
+      await bulkCreateExternalMedicines(submitted.id, externalItems.map(draftToInput));
+      setSubmitted({ ...submitted, externalSaved: true });
+      setExternalItems([]);
+    } catch (err: any) {
+      setExternalSaveError(err.response?.data?.message || 'Still failed to save the external medicines.');
+    } finally {
+      setSavingExternal(false);
+    }
+  };
+
   if (loading) return <p style={{ padding: 24, color: '#64748b' }}>Loading…</p>;
   if (error || !context) return <div className="dash-error-banner">Couldn't load this consultation: {error}</div>;
 
   const { patient } = context.appointment;
-  const totalQuantity = items.reduce((sum, i) => sum + (Number(i.qty) || 0), 0);
   const visitType = context.patientSummary.priorVisitCount > 0 ? 'Return Visit' : 'New Visit';
 
   const stockIssues = items.filter((i) => i.totalQty > 0 && i.totalQty < Number(i.qty));
@@ -520,6 +466,16 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
           <p style={{ color: '#64748b', fontSize: 13.5, margin: '0 0 20px' }}>
             {submitted.code} has been sent to the pharmacy for {patient.full_name}.
           </p>
+
+          {!submitted.externalSaved && (
+            <div className="dash-error-banner" style={{ textAlign: 'left', marginBottom: 16 }}>
+              {externalSaveError}
+              <button className="pat-btn" style={{ marginLeft: 10 }} onClick={retrySaveExternal} disabled={savingExternal}>
+                {savingExternal ? 'Retrying…' : 'Retry'}
+              </button>
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
             <button className="cons-btn" onClick={() => downloadPrescriptionPdf(submitted.id, submitted.code)}>
               <DownloadIcon /> Download PDF
@@ -527,6 +483,11 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
             {submitted.items.some((i) => i.external_qty > 0) && (
               <button className="cons-btn" onClick={() => downloadExternalPurchaseSlip(submitted.id)}>
                 <PrintIcon /> Generate External Purchase Slip
+              </button>
+            )}
+            {submitted.hadExternalItems && submitted.externalSaved && (
+              <button className="cons-btn" onClick={() => previewExternalMedicineSlip(submitted.id)}>
+                <PrintIcon /> Print External Medicine Slip
               </button>
             )}
             <button className="cons-btn primary" onClick={() => navigate(`/consultations/workspace/${context.appointment.appointmentId}`)}>
@@ -702,6 +663,28 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
                               <option value="External">External Purchase</option>
                             </select>
                           )}
+                          {stockBadge(it) && (
+                            <button
+                              type="button"
+                              className="rxp-add-external-btn"
+                              onClick={() =>
+                                setShortfallPrefill({
+                                  medicine_id: it.medicine_id,
+                                  medicine_name: it.name,
+                                  generic_name: it.generic_name,
+                                  dosage_form: it.form,
+                                  strength: it.strength,
+                                  dosage: it.dosage,
+                                  frequency: it.frequency,
+                                  duration: it.duration,
+                                  quantity: Math.max(qtyNum - it.totalQty, 1),
+                                  quantity_unit: it.unit,
+                                })
+                              }
+                            >
+                              <PlusIcon /> Add to External Medicines
+                            </button>
+                          )}
                         </div>
                       </td>
                       <td>
@@ -860,6 +843,13 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
               </div>
             </div>
           </div>
+
+          <ExternalMedicineSection
+            items={externalItems}
+            onChange={setExternalItems}
+            prefillRequest={shortfallPrefill}
+            onPrefillConsumed={() => setShortfallPrefill(null)}
+          />
 
           <div className="rxp-footer">
             <div className="rxp-footer-meta">

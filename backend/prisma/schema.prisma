@@ -59,6 +59,7 @@ model Patient {
   duplicate_flags_as_new     PatientDuplicateFlag[] @relation("NewPatientFlags")
   duplicate_flags_as_matched PatientDuplicateFlag[] @relation("MatchedPatientFlags")
   lab_test_orders LabTestOrder[]
+  external_medicines ExternalPrescriptionMedicine[]
 
   @@index([full_name])
   @@index([phone])
@@ -211,6 +212,7 @@ model Prescription {
   items           PrescriptionItem[]
   refill_of       Prescription?  @relation("PrescriptionRefill", fields: [refill_of_id], references: [prescription_id])
   refills         Prescription[] @relation("PrescriptionRefill")
+  external_medicines ExternalPrescriptionMedicine[]
 }
 
 model PrescriptionItem {
@@ -242,6 +244,7 @@ model Medicine {
   medicine_id     Int       @id @default(autoincrement())
   name            String
   generic_name    String?
+  brand_name      String? // e.g. "Panadol" for generic "Paracetamol" — searchable, distinct from name
   category        String?
   form            String?
   strength        String? // e.g. "500mg", "10mg/5ml"
@@ -250,7 +253,7 @@ model Medicine {
   max_stock_level Int       @default(0) // "Max Stock" — target ceiling for reorder-quantity suggestions
   unit_price      Float     @default(0) // sell price charged to the patient
   buy_price       Float     @default(0) // supplier cost price, for margin/PO reference
-  barcode         String?   @unique
+  barcode         String?   @unique // doubles as "Medicine Code" wherever that's shown
   is_active       Boolean   @default(true)
 
   batches           Batch[]
@@ -259,10 +262,80 @@ model Medicine {
   substitutedInItems PrescriptionItem[] @relation("SubstitutedInItem")
   substitutionsAsOriginal    MedicineSubstitution[] @relation("SubstitutionOriginal")
   substitutionsAsAlternative MedicineSubstitution[] @relation("SubstitutionAlternative")
+  externalPrescriptionRefs   ExternalPrescriptionMedicine[]
 
   @@index([name])
   @@index([generic_name])
   @@index([category])
+}
+
+// A doctor-entered "buy this outside the clinic" line — deliberately decoupled from
+// PrescriptionItem/Medicine: medicine_id is optional because the item may not exist in the
+// clinic's Medicine Master at all (e.g. a specific cream/brand/supplement). This is additive to,
+// not a replacement for, PrescriptionItem.external_qty (which splits a real clinic-stocked
+// medicine between clinic dispensing and external purchase due to a stock shortfall — a
+// different concept from "the doctor wants this specific external item regardless of stock").
+model ExternalPrescriptionMedicine {
+  ext_item_id     Int      @id @default(autoincrement())
+  prescription_id Int
+  patient_id      String // denormalized for fast patient-history queries without a join chain
+  doctor_id       Int
+  medicine_id     Int? // set when sourced from the Medicine Master; null for a manually-typed item
+  medicine_name   String
+  generic_name    String?
+  brand_name      String?
+  dosage_form     String
+  strength        String?
+  dosage          String
+  frequency       String?
+  duration        String?
+  quantity        Int
+  quantity_unit   String
+  instructions    String? // ';'-joined chips, same encoding as PrescriptionItem.instructions
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  prescription Prescription @relation(fields: [prescription_id], references: [prescription_id])
+  patient      Patient      @relation(fields: [patient_id], references: [patient_id])
+  doctor       User         @relation(fields: [doctor_id], references: [user_id])
+  medicine     Medicine?    @relation(fields: [medicine_id], references: [medicine_id])
+
+  @@index([patient_id])
+  @@index([prescription_id])
+}
+
+// A doctor-facing catalog of orderable investigations — powers the Add Lab Test search/suggested-
+// tests list, and each entry's LabTestParameter children drive the dynamic manual-result-entry
+// table (a test's expected parameters, e.g. FBC -> Haemoglobin/WBC/Platelets/...).
+model LabTestCatalog {
+  test_id      Int      @id @default(autoincrement())
+  test_name    String
+  test_code    String?  @unique
+  category     String?
+  abbreviation String?
+  is_active    Boolean  @default(true)
+
+  parameters LabTestParameter[]
+  orders     LabTestOrder[]
+
+  @@index([test_name])
+  @@index([category])
+}
+
+model LabTestParameter {
+  parameter_id    Int     @id @default(autoincrement())
+  test_id         Int
+  parameter_name  String
+  unit            String?
+  reference_range String? // e.g. "13-17" — parsed for the Normal/Low/High decision-support flag
+  display_order   Int     @default(0)
+  data_type       String  @default("Numeric") // Numeric, Text
+  is_active       Boolean @default(true)
+
+  test    LabTestCatalog @relation(fields: [test_id], references: [test_id])
+  results LabResult[]
+
+  @@index([test_id])
 }
 
 model LabTestOrder {
@@ -270,14 +343,29 @@ model LabTestOrder {
   patient_id        String
   doctor_id         Int
   consultation_id   Int
+  catalog_test_id   Int? // set when ordered from the catalog; null for a free-typed test not in it
   test_name         String
   test_category     String?
   instructions      String?
   priority          String    @default("Routine") // Routine, Urgent, STAT
   additional_notes  String?
-  status            String    @default("Pending") // Pending, Result Received, Reviewed, Cancelled
+  request_number    String?   @unique
+  status            String    @default("Pending") // Pending, Report Received, Completed, Cancelled
   order_date        DateTime  @default(now())
 
+  printed_at         DateTime? // audit only — printing never changes status (FR-request-11)
+  printed_by         Int?
+  report_received_at DateTime? // "the physical report is back", no clinical values yet
+  report_received_by Int?
+  received_note       String?
+
+  interpretation String? // doctor's clinical interpretation, entered together with completion
+  completed_at   DateTime?
+  completed_by   Int?
+
+  // Legacy single-field result columns from the original result-entry flow — kept for any
+  // pre-existing rows, superseded by the per-parameter LabResult table for every order going
+  // forward through markReportReceived/completeLabResult.
   result_value      String?
   unit              String?
   reference_range   String?
@@ -285,9 +373,8 @@ model LabTestOrder {
   result_date       DateTime?
   laboratory_name   String?
   report_file_path  String?
-  entered_by        Int? // audit: who entered/last updated the result
+  entered_by        Int?
   entered_at        DateTime?
-
   reviewed_by       Int?
   review_notes      String?
   reviewed_date     DateTime?
@@ -295,15 +382,41 @@ model LabTestOrder {
   created_at        DateTime  @default(now())
   updated_at        DateTime  @updatedAt
 
-  patient          Patient      @relation(fields: [patient_id], references: [patient_id])
-  doctor           User         @relation("LabTestOrderDoctor", fields: [doctor_id], references: [user_id])
-  consultation     Consultation @relation(fields: [consultation_id], references: [consultation_id])
+  patient               Patient         @relation(fields: [patient_id], references: [patient_id])
+  doctor                User            @relation("LabTestOrderDoctor", fields: [doctor_id], references: [user_id])
+  consultation          Consultation    @relation(fields: [consultation_id], references: [consultation_id])
+  catalog_test          LabTestCatalog? @relation(fields: [catalog_test_id], references: [test_id])
+  printed_by_user       User?           @relation("LabTestOrderPrintedBy", fields: [printed_by], references: [user_id])
+  report_received_by_user User?         @relation("LabTestOrderReceivedBy", fields: [report_received_by], references: [user_id])
+  completed_by_user     User?           @relation("LabTestOrderCompletedBy", fields: [completed_by], references: [user_id])
   entered_by_user  User?        @relation("LabTestOrderEnteredBy", fields: [entered_by], references: [user_id])
   reviewed_by_user User?        @relation("LabTestOrderReviewedBy", fields: [reviewed_by], references: [user_id])
+  results          LabResult[]
 
   @@index([patient_id])
   @@index([consultation_id])
   @@index([status])
+}
+
+// One row per reported parameter for an order (Haemoglobin, WBC, ...) — replaces the single
+// flat result_value field so each test can have its own configurable set of results.
+model LabResult {
+  result_id         Int      @id @default(autoincrement())
+  lab_test_order_id Int
+  parameter_id      Int?
+  parameter_name    String // denormalized snapshot — stays correct even if the catalog changes later
+  unit              String?
+  reference_range   String?
+  result_value      String
+  result_flag       String? // Normal, Low, High — decision-support only, never a diagnosis
+  entered_by        Int
+  entered_at        DateTime @default(now())
+
+  order           LabTestOrder      @relation(fields: [lab_test_order_id], references: [lab_test_order_id])
+  parameter       LabTestParameter? @relation(fields: [parameter_id], references: [parameter_id])
+  entered_by_user User              @relation("LabResultEnteredBy", fields: [entered_by], references: [user_id])
+
+  @@index([lab_test_order_id])
 }
 
 model MedicineSubstitution {
@@ -554,6 +667,11 @@ model User {
   lab_test_orders_ordered   LabTestOrder[] @relation("LabTestOrderDoctor")
   lab_test_orders_entered   LabTestOrder[] @relation("LabTestOrderEnteredBy")
   lab_test_orders_reviewed  LabTestOrder[] @relation("LabTestOrderReviewedBy")
+  lab_test_orders_printed   LabTestOrder[] @relation("LabTestOrderPrintedBy")
+  lab_test_orders_received  LabTestOrder[] @relation("LabTestOrderReceivedBy")
+  lab_test_orders_completed LabTestOrder[] @relation("LabTestOrderCompletedBy")
+  lab_results_entered       LabResult[]    @relation("LabResultEnteredBy")
+  external_medicines_prescribed ExternalPrescriptionMedicine[]
 }
 
 model UserSession {

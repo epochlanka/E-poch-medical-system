@@ -6,9 +6,10 @@ import { listPatients, getPatientById, getPatientHistory, downloadPatientHistory
 import type { TimelineEvent } from '../../lib/patients';
 import { listConsultations } from '../../lib/consultations';
 import { listPrescriptions, downloadPrescriptionPdf } from '../../lib/prescriptions';
-import { listLabTestOrders, reviewLabTestOrder, printLabTestOrder } from '../../lib/labTestOrders';
-import type { LabTestOrder } from '../../lib/labTestOrders';
-import EnterLabResultModal from './EnterLabResultModal';
+import { listLabTestOrders, printLabTestOrder, printLabResultReport } from '../../lib/labTestOrders';
+import type { LabTestOrder, LabTestOrderStatus } from '../../lib/labTestOrders';
+import MarkReceivedModal from '../labTestOrders/MarkReceivedModal';
+import LabResultModal from '../labTestOrders/LabResultModal';
 import { calculateAge } from '../../lib/queue';
 import {
   SearchIcon,
@@ -33,6 +34,7 @@ import '../dashboard/dashboard.css';
 import '../../styles/shared.css';
 import '../queue/queue.css';
 import '../consultations/consultation.css';
+import '../labTestOrders/labTestOrders.css';
 import './patients.css';
 
 const initials = (name: string) =>
@@ -345,22 +347,8 @@ const PatientHistoryPanel = ({ patientId, onBack }: { patientId: string; onBack:
   const { data: rxResult } = useApiData(() => listPrescriptions({ patientId, limit: 50 }), [patientId]);
   const { data: labResult, reload: reloadLabTestOrders } = useApiData(() => listLabTestOrders({ patientId, limit: 100 }), [patientId]);
 
-  const [resultModalOrder, setResultModalOrder] = useState<LabTestOrder | null>(null);
-  const [reviewingOrderId, setReviewingOrderId] = useState<number | null>(null);
-  const [reviewNote, setReviewNote] = useState('');
-  const [reviewSubmitting, setReviewSubmitting] = useState(false);
-
-  const submitReview = async (orderId: number) => {
-    setReviewSubmitting(true);
-    try {
-      await reviewLabTestOrder(orderId, reviewNote.trim() || undefined);
-      setReviewingOrderId(null);
-      setReviewNote('');
-      reloadLabTestOrders();
-    } finally {
-      setReviewSubmitting(false);
-    }
-  };
+  const [receiveOrder, setReceiveOrder] = useState<LabTestOrder | null>(null);
+  const [resultOrderId, setResultOrderId] = useState<number | null>(null);
 
   if (patientLoading || !patient) {
     return (
@@ -377,12 +365,13 @@ const PatientHistoryPanel = ({ patientId, onBack }: { patientId: string; onBack:
   const notesEntries = consultations.filter((c) => c.notes);
   const labTestOrders = labResult?.data ?? [];
   const pendingLabTests = labTestOrders.filter((o) => o.status === 'Pending');
-  const completedLabTests = labTestOrders.filter((o) => o.status === 'Result Received' || o.status === 'Reviewed');
-  const LAB_STATUS_BADGE: Record<LabTestOrder['status'], string> = {
-    Pending: 'badge-amber',
-    'Result Received': 'badge-blue',
-    Reviewed: 'badge-green',
-    Cancelled: 'badge-gray',
+  const awaitingReviewLabTests = labTestOrders.filter((o) => o.status === 'Report Received');
+  const completedLabTests = labTestOrders.filter((o) => o.status === 'Completed');
+  const LAB_STATUS_BADGE: Record<LabTestOrderStatus, string> = {
+    Pending: 'badge-blue',
+    'Report Received': 'badge-amber',
+    Completed: 'badge-green',
+    Cancelled: 'badge-red',
   };
 
   return (
@@ -656,17 +645,53 @@ const PatientHistoryPanel = ({ patientId, onBack }: { patientId: string; onBack:
                 <div>
                   <div style={{ fontWeight: 600, color: '#0f172a' }}>
                     {o.test_name} {o.priority !== 'Routine' && <span className="badge badge-red">{o.priority}</span>}
+                    <span className={`badge ${LAB_STATUS_BADGE[o.status]}`} style={{ marginLeft: 8 }}>
+                      {o.status}
+                    </span>
                   </div>
                   <span className="pat-muted" style={{ fontSize: 11.5 }}>
-                    LAB{String(o.lab_test_order_id).padStart(6, '0')} · Ordered {formatDateTime(o.order_date)} by Dr. {o.doctor?.username}
+                    {o.request_number} · Ordered {formatDateTime(o.order_date)} by Dr. {o.doctor?.username}
                   </span>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button className="pat-btn" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={() => printLabTestOrder(o.lab_test_order_id)}>
                     <PrintIcon /> Print Request
                   </button>
-                  <button className="pat-btn primary" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={() => setResultModalOrder(o)}>
-                    Enter Result
+                  <button className="pat-btn primary" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={() => setReceiveOrder(o)}>
+                    Report Received
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="card">
+            <div className="pth-side-card-title">
+              <ClipboardIcon /> Awaiting Doctor Review
+            </div>
+            {awaitingReviewLabTests.length === 0 && <div className="card-empty">No reports waiting to be reviewed.</div>}
+            {awaitingReviewLabTests.map((o) => (
+              <div className="pth-list-row" key={o.lab_test_order_id}>
+                <div>
+                  <div style={{ fontWeight: 600, color: '#0f172a' }}>
+                    {o.test_name}
+                    <span className={`badge ${LAB_STATUS_BADGE[o.status]}`} style={{ marginLeft: 8 }}>
+                      {o.status}
+                    </span>
+                  </div>
+                  <span className="pat-muted" style={{ fontSize: 11.5 }}>
+                    {o.request_number} · Report received {o.report_received_at ? formatDateTime(o.report_received_at) : '—'}
+                    {o.report_received_by_user ? ` by ${o.report_received_by_user.username}` : ''}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {o.report_file_path && (
+                    <button className="pat-btn" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={() => window.open(fileUrl(o.report_file_path!), '_blank')}>
+                      View Scan
+                    </button>
+                  )}
+                  <button className="pat-btn primary" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={() => setResultOrderId(o.lab_test_order_id)}>
+                    Open / Enter Results
                   </button>
                 </div>
               </div>
@@ -684,54 +709,62 @@ const PatientHistoryPanel = ({ patientId, onBack }: { patientId: string; onBack:
                   <div>
                     <div style={{ fontWeight: 600, color: '#0f172a' }}>{o.test_name}</div>
                     <span className="pat-muted" style={{ fontSize: 11.5 }}>
-                      LAB{String(o.lab_test_order_id).padStart(6, '0')} · Result {o.result_date ? formatDateTime(o.result_date) : '—'}
-                      {o.entered_by_user ? ` by ${o.entered_by_user.username}` : ''}
+                      {o.request_number} · Reviewed {o.completed_at ? formatDateTime(o.completed_at) : '—'}
+                      {o.completed_by_user ? ` by Dr. ${o.completed_by_user.username}` : ''}
                     </span>
                   </div>
                   <span className={`badge ${LAB_STATUS_BADGE[o.status]}`}>{o.status}</span>
                 </div>
-                <div style={{ fontSize: 13, color: '#334155', marginTop: 6 }}>
-                  <strong>Result:</strong> {o.result_value} {o.unit}
-                  {o.reference_range && <span className="pat-muted"> (Ref: {o.reference_range})</span>}
-                </div>
-                {o.laboratory_name && <div className="pat-muted" style={{ fontSize: 12 }}>Laboratory: {o.laboratory_name}</div>}
-                {o.result_notes && <div className="pat-muted" style={{ fontSize: 12 }}>Notes: {o.result_notes}</div>}
-                {o.status === 'Reviewed' && o.review_notes && (
+
+                {o.results && o.results.length > 0 && (
+                  <table className="lab-results-view-table">
+                    <thead>
+                      <tr>
+                        <th>Parameter</th>
+                        <th>Result</th>
+                        <th>Unit</th>
+                        <th>Reference Range</th>
+                        <th>Flag</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {o.results.map((r) => (
+                        <tr key={r.result_id}>
+                          <td>{r.parameter_name}</td>
+                          <td>{r.result_value}</td>
+                          <td>{r.unit || '—'}</td>
+                          <td>{r.reference_range || '—'}</td>
+                          <td>{r.result_flag ? <span className={`lab-flag ${r.result_flag.toLowerCase()}`}>{r.result_flag}</span> : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+
+                {o.review_notes && (
+                  <div className="pat-muted" style={{ fontSize: 12, marginTop: 8 }}>
+                    <strong>Doctor Notes:</strong> {o.review_notes}
+                  </div>
+                )}
+                {o.interpretation && (
                   <div className="pat-muted" style={{ fontSize: 12, marginTop: 4 }}>
-                    Doctor review ({o.reviewed_by_user?.username}, {o.reviewed_date ? formatDateTime(o.reviewed_date) : ''}): {o.review_notes}
+                    <strong>Interpretation:</strong> {o.interpretation}
                   </div>
                 )}
 
                 <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                   {o.report_file_path && (
                     <button className="pat-btn" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={() => window.open(fileUrl(o.report_file_path!), '_blank')}>
-                      View / Print Report
+                      View Scan
                     </button>
                   )}
-                  {o.status === 'Result Received' && reviewingOrderId !== o.lab_test_order_id && (
-                    <button className="pat-btn primary" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={() => setReviewingOrderId(o.lab_test_order_id)}>
-                      Doctor Review
-                    </button>
-                  )}
+                  <button className="pat-btn" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={() => setResultOrderId(o.lab_test_order_id)}>
+                    View Results
+                  </button>
+                  <button className="pat-btn" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={() => printLabResultReport(o.lab_test_order_id)}>
+                    <PrintIcon /> Print Lab Result
+                  </button>
                 </div>
-
-                {reviewingOrderId === o.lab_test_order_id && (
-                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                    <input
-                      className="cons-input"
-                      style={{ flex: 1 }}
-                      placeholder="Review note (optional)"
-                      value={reviewNote}
-                      onChange={(e) => setReviewNote(e.target.value)}
-                    />
-                    <button className="pat-btn primary" style={{ fontSize: 11.5, padding: '5px 10px' }} disabled={reviewSubmitting} onClick={() => submitReview(o.lab_test_order_id)}>
-                      {reviewSubmitting ? 'Saving…' : 'Mark Reviewed'}
-                    </button>
-                    <button className="pat-btn" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={() => setReviewingOrderId(null)}>
-                      Cancel
-                    </button>
-                  </div>
-                )}
               </div>
             ))}
           </div>
@@ -746,7 +779,7 @@ const PatientHistoryPanel = ({ patientId, onBack }: { patientId: string; onBack:
                 <table className="pat-table">
                   <thead>
                     <tr>
-                      <th>Order</th>
+                      <th>Request</th>
                       <th>Test</th>
                       <th>Doctor</th>
                       <th>Ordered</th>
@@ -757,7 +790,7 @@ const PatientHistoryPanel = ({ patientId, onBack }: { patientId: string; onBack:
                   <tbody>
                     {labTestOrders.map((o) => (
                       <tr key={o.lab_test_order_id}>
-                        <td>LAB{String(o.lab_test_order_id).padStart(6, '0')}</td>
+                        <td>{o.request_number}</td>
                         <td>{o.test_name}</td>
                         <td>Dr. {o.doctor?.username}</td>
                         <td>{formatDateTime(o.order_date)}</td>
@@ -775,12 +808,22 @@ const PatientHistoryPanel = ({ patientId, onBack }: { patientId: string; onBack:
         </div>
       )}
 
-      {resultModalOrder && (
-        <EnterLabResultModal
-          order={resultModalOrder}
-          onClose={() => setResultModalOrder(null)}
+      {receiveOrder && (
+        <MarkReceivedModal
+          order={receiveOrder}
+          onClose={() => setReceiveOrder(null)}
           onSaved={() => {
-            setResultModalOrder(null);
+            setReceiveOrder(null);
+            reloadLabTestOrders();
+          }}
+        />
+      )}
+      {resultOrderId && (
+        <LabResultModal
+          orderId={resultOrderId}
+          onClose={() => setResultOrderId(null)}
+          onSaved={() => {
+            setResultOrderId(null);
             reloadLabTestOrders();
           }}
         />

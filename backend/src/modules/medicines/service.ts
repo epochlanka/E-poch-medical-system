@@ -55,7 +55,15 @@ export const searchMedicines = async (params: SearchMedicinesParams) => {
 
   if (params.search) {
     const term = params.search.trim();
-    where.OR = [{ name: { contains: term } }, { generic_name: { contains: term } }, { category: { contains: term } }];
+    where.OR = [
+      { name: { contains: term } },
+      { generic_name: { contains: term } },
+      { brand_name: { contains: term } },
+      { category: { contains: term } },
+      { form: { contains: term } },
+      { strength: { contains: term } },
+      { barcode: { contains: term } },
+    ];
   }
 
   const medicines = await prisma.medicine.findMany({
@@ -73,11 +81,13 @@ export const searchMedicines = async (params: SearchMedicinesParams) => {
       medicine_id: m.medicine_id,
       name: m.name,
       generic_name: m.generic_name,
+      brand_name: m.brand_name,
       category: m.category,
       form: m.form,
       strength: m.strength,
       unit: m.unit,
       unit_price: m.unit_price,
+      barcode: m.barcode,
       is_active: m.is_active,
       stockStatus,
       totalQty,
@@ -217,6 +227,7 @@ export const getMedicineById = (medicineId: number) => prisma.medicine.findUniqu
 interface CreateMedicineInput {
   name: string;
   generic_name?: string;
+  brand_name?: string;
   category?: string;
   form?: string;
   strength?: string;
@@ -240,6 +251,7 @@ export const createMedicine = async (input: CreateMedicineInput) => {
 interface UpdateMedicineInput {
   name?: string;
   generic_name?: string;
+  brand_name?: string;
   category?: string;
   form?: string;
   strength?: string;

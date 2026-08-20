@@ -660,6 +660,21 @@ async function main() {
     { type: 'MedicalCondition', value: 'Allergic Rhinitis', sort_order: 4 },
     { type: 'MedicalCondition', value: 'Ischemic Heart Disease', sort_order: 5 },
     { type: 'MedicalCondition', value: 'Hyperlipidemia', sort_order: 6 },
+    { type: 'DosageForm', value: 'Tablet', sort_order: 1 },
+    { type: 'DosageForm', value: 'Capsule', sort_order: 2 },
+    { type: 'DosageForm', value: 'Syrup', sort_order: 3 },
+    { type: 'DosageForm', value: 'Suspension', sort_order: 4 },
+    { type: 'DosageForm', value: 'Cream', sort_order: 5 },
+    { type: 'DosageForm', value: 'Ointment', sort_order: 6 },
+    { type: 'DosageForm', value: 'Gel', sort_order: 7 },
+    { type: 'DosageForm', value: 'Drops', sort_order: 8 },
+    { type: 'DosageForm', value: 'Eye Drops', sort_order: 9 },
+    { type: 'DosageForm', value: 'Ear Drops', sort_order: 10 },
+    { type: 'DosageForm', value: 'Injection', sort_order: 11 },
+    { type: 'DosageForm', value: 'Inhaler', sort_order: 12 },
+    { type: 'DosageForm', value: 'Sachet', sort_order: 13 },
+    { type: 'DosageForm', value: 'Powder', sort_order: 14 },
+    { type: 'DosageForm', value: 'Other', sort_order: 15 },
   ];
   for (const item of masterData) {
     await prisma.masterDataItem.upsert({

@@ -410,6 +410,7 @@ export const getDoctorDashboard = async (doctorId: number) => {
     todaysAppointments,
     weekConsultations,
     recentPrescriptions,
+    pendingLabReports,
   ] = await Promise.all([
     prisma.appointment.count({ where: { doctor_id: doctorId, scheduled_at: { gte: todayStart, lte: todayEnd } } }),
     prisma.appointment.count({ where: { doctor_id: doctorId, scheduled_at: { gte: yesterdayStart, lte: yesterdayEnd } } }),
@@ -438,6 +439,9 @@ export const getDoctorDashboard = async (doctorId: number) => {
       take: 5,
       include: { consultation: { include: { appointment: { include: { patient: { select: { patient_id: true, full_name: true } } } } } } },
     }),
+    // "Report Received" specifically — a report the doctor actually needs to open and enter
+    // values for, not just any test still awaiting the lab/patient (that's plain Pending).
+    prisma.labTestOrder.count({ where: { doctor_id: doctorId, status: 'Report Received' } }),
   ]);
 
   const byDay = new Map<string, number>();
@@ -461,6 +465,7 @@ export const getDoctorDashboard = async (doctorId: number) => {
       followUpsDueThisWeek: followUpsDueCount,
       prescriptionsIssuedToday: prescriptionsToday,
       prescriptionsIssuedTodayChangePct: changePct(prescriptionsToday, prescriptionsYesterday),
+      pendingLabReports,
     },
     todaysSchedule: todaysAppointments.map((a) => ({
       appointmentId: a.appointment_id,

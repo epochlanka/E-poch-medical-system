@@ -10,6 +10,7 @@ import {
   PrescriptionIcon,
   SearchIcon,
   ReportsIcon,
+  HeartPulseIcon,
 } from './Icons';
 
 export interface NavItem {
@@ -53,6 +54,10 @@ export const navSections: NavSection[] = [
       { label: 'My Prescriptions', path: '/prescriptions/my', icon: PrescriptionIcon, implemented: true },
       { label: 'Repeat Prescriptions', path: '/prescriptions/repeat', icon: RefreshIcon, implemented: true },
     ],
+  },
+  {
+    label: 'Lab Tests',
+    items: [{ label: 'My Lab Reports', path: '/lab-reports/my', icon: HeartPulseIcon, implemented: true }],
   },
   {
     label: 'Patients (Read Only)',

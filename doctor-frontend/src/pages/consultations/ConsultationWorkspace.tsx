@@ -7,9 +7,12 @@ import { getConsultationContext, createConsultation, updateConsultation, finaliz
 import type { ConsultationInput, AmendmentEntry, AmendableField } from '../../lib/consultations';
 import { searchIcd11 } from '../../lib/icd11';
 import type { Icd11Match } from '../../lib/icd11';
-import { listLabTestOrders } from '../../lib/labTestOrders';
+import { listLabTestOrders, printLabTestOrder, printLabResultReport } from '../../lib/labTestOrders';
 import type { LabTestOrder } from '../../lib/labTestOrders';
 import AmendModal from './AmendModal';
+import AddLabTestModal from '../labTestOrders/AddLabTestModal';
+import MarkReceivedModal from '../labTestOrders/MarkReceivedModal';
+import LabResultModal from '../labTestOrders/LabResultModal';
 import { getLiveQueue, calculateAge, tokenNumber } from '../../lib/queue';
 import {
   ChevronLeftIcon,
@@ -27,6 +30,7 @@ import '../dashboard/dashboard.css';
 import '../../styles/shared.css';
 import '../queue/queue.css';
 import './consultation.css';
+import '../labTestOrders/labTestOrders.css';
 
 const initials = (name: string) =>
   name
@@ -229,6 +233,10 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
     listLabTestOrders({ consultationId }).then((result) => setLabTestOrders(result.data));
   };
   useEffect(reloadLabTestOrders, [consultationId]);
+
+  const [addLabTestOpen, setAddLabTestOpen] = useState(false);
+  const [receiveOrder, setReceiveOrder] = useState<LabTestOrder | null>(null);
+  const [resultOrder, setResultOrder] = useState<LabTestOrder | null>(null);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -671,23 +679,44 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
               <div className="cons-box-title">Lab Tests for this Visit</div>
               {labTestOrders.length === 0 && <div className="pat-empty">No lab tests ordered for this consultation yet.</div>}
               {labTestOrders.map((o) => (
-                <div key={o.lab_test_order_id} className="cons-rx-row">
+                <div key={o.lab_test_order_id} className="cons-rx-row" style={{ flexWrap: 'wrap', gap: 8 }}>
                   <span>
-                    LAB{String(o.lab_test_order_id).padStart(6, '0')} — {o.test_name}
+                    {o.request_number || `LAB${String(o.lab_test_order_id).padStart(6, '0')}`} — {o.test_name}
                     {o.priority !== 'Routine' && <span className="badge badge-red" style={{ marginLeft: 6 }}>{o.priority}</span>}
-                    {o.status === 'Result Received' && o.result_value && (
-                      <span className="pat-muted" style={{ marginLeft: 8, fontSize: 12 }}>
-                        Result: {o.result_value}
-                      </span>
+                    <span
+                      className={`badge ${
+                        o.status === 'Completed' ? 'badge-green' : o.status === 'Report Received' ? 'badge-amber' : o.status === 'Cancelled' ? 'badge-red' : 'badge-blue'
+                      }`}
+                      style={{ marginLeft: 8 }}
+                    >
+                      {o.status}
+                    </span>
+                  </span>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button className="pat-btn" style={{ fontSize: 11.5, padding: '5px 9px' }} onClick={() => printLabTestOrder(o.lab_test_order_id)}>
+                      <PrintIcon /> Print Request
+                    </button>
+                    {o.status === 'Pending' && (
+                      <button className="pat-btn" style={{ fontSize: 11.5, padding: '5px 9px' }} onClick={() => setReceiveOrder(o)}>
+                        Report Received
+                      </button>
                     )}
-                  </span>
-                  <span
-                    className={`badge ${
-                      o.status === 'Reviewed' ? 'badge-green' : o.status === 'Result Received' ? 'badge-blue' : o.status === 'Cancelled' ? 'badge-gray' : 'badge-amber'
-                    }`}
-                  >
-                    {o.status}
-                  </span>
+                    {o.status === 'Report Received' && (
+                      <button className="pat-btn primary" style={{ fontSize: 11.5, padding: '5px 9px' }} onClick={() => setResultOrder(o)}>
+                        Open / Enter Results
+                      </button>
+                    )}
+                    {o.status === 'Completed' && (
+                      <>
+                        <button className="pat-btn" style={{ fontSize: 11.5, padding: '5px 9px' }} onClick={() => setResultOrder(o)}>
+                          View Results
+                        </button>
+                        <button className="pat-btn" style={{ fontSize: 11.5, padding: '5px 9px' }} onClick={() => printLabResultReport(o.lab_test_order_id)}>
+                          <PrintIcon /> Print Result
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
               ))}
               <div style={{ marginTop: 14 }}>
@@ -695,7 +724,7 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
                   className="cons-btn primary"
                   disabled={!consultationId}
                   title={consultationId ? undefined : 'Save this consultation as a draft first'}
-                  onClick={() => consultationId && navigate(`/lab-orders/new/${consultationId}`)}
+                  onClick={() => setAddLabTestOpen(true)}
                 >
                   <ClipboardIcon /> Add Lab Test
                 </button>
@@ -891,7 +920,10 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
                 className="qa-btn"
                 disabled={!consultationId}
                 title={consultationId ? undefined : 'Save this consultation as a draft first'}
-                onClick={() => consultationId && navigate(`/lab-orders/new/${consultationId}`)}
+                onClick={() => {
+                  setTab('laborders');
+                  setAddLabTestOpen(true);
+                }}
               >
                 <span className="qa-icon" style={{ background: '#fdf2e9', color: '#c2410c' }}>
                   <ClipboardIcon />
@@ -955,6 +987,37 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
 
       {showAmendModal && consultationId && (
         <AmendModal consultationId={consultationId} currentValues={amendCurrentValues} onClose={() => setShowAmendModal(false)} onAmended={handleAmended} />
+      )}
+
+      {addLabTestOpen && consultationId && (
+        <AddLabTestModal
+          consultationId={consultationId}
+          onClose={() => setAddLabTestOpen(false)}
+          onAdded={() => {
+            setAddLabTestOpen(false);
+            reloadLabTestOrders();
+          }}
+        />
+      )}
+      {receiveOrder && (
+        <MarkReceivedModal
+          order={receiveOrder}
+          onClose={() => setReceiveOrder(null)}
+          onSaved={() => {
+            setReceiveOrder(null);
+            reloadLabTestOrders();
+          }}
+        />
+      )}
+      {resultOrder && (
+        <LabResultModal
+          orderId={resultOrder.lab_test_order_id}
+          onClose={() => setResultOrder(null)}
+          onSaved={() => {
+            setResultOrder(null);
+            reloadLabTestOrders();
+          }}
+        />
       )}
     </div>
   );

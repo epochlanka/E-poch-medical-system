@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import * as service from './service';
-import { streamLabTestRequestPdf } from './pdf';
+import { streamLabTestRequestPdf, streamLabResultReportPdf } from './pdf';
 import { NotFoundError, ValidationError, ForbiddenError } from './errors';
 
 const actor = (req: Request) => req.user as any as { user_id: number; role: string };
@@ -43,13 +43,17 @@ export const context = async (req: Request, res: Response) => {
 
 export const list = async (req: Request, res: Response) => {
   try {
-    const { patientId, doctorId, consultationId, status, priority, page, limit } = req.query as any;
+    const { patientId, doctorId, consultationId, status, priority, testId, from, to, search, page, limit } = req.query as any;
     const result = await service.listLabTestOrders({
       patientId,
       doctorId: doctorId ? Number(doctorId) : undefined,
       consultationId: consultationId ? Number(consultationId) : undefined,
       status,
       priority,
+      testId: testId ? Number(testId) : undefined,
+      from: from ? new Date(from) : undefined,
+      to: to ? new Date(to) : undefined,
+      search,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });
@@ -59,24 +63,30 @@ export const list = async (req: Request, res: Response) => {
   }
 };
 
-export const enterResult = async (req: Request, res: Response) => {
+export const searchCatalog = async (req: Request, res: Response) => {
   try {
-    const body = req.body;
-    if (!body.result_value || !String(body.result_value).trim()) {
-      return res.status(400).json({ message: 'Result value is required' });
-    }
+    const results = await service.searchLabTestCatalog((req.query.search as string) || undefined);
+    res.status(200).json(results);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const catalogParameters = async (req: Request, res: Response) => {
+  try {
+    const params = await service.getLabTestCatalogParameters(Number(req.params.testId));
+    res.status(200).json(params);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const markReceived = async (req: Request, res: Response) => {
+  try {
     const file = (req as any).file as { filename: string } | undefined;
-    const order = await service.enterLabTestResult(
+    const order = await service.markReportReceived(
       Number(req.params.labTestOrderId),
-      {
-        result_value: body.result_value,
-        unit: body.unit || undefined,
-        reference_range: body.reference_range || undefined,
-        result_date: body.result_date ? new Date(body.result_date) : undefined,
-        result_notes: body.result_notes || undefined,
-        laboratory_name: body.laboratory_name || undefined,
-        report_file: file ?? null,
-      },
+      { note: req.body.note || undefined, report_file: file ?? null },
       actor(req)
     );
     res.status(200).json(order);
@@ -85,9 +95,26 @@ export const enterResult = async (req: Request, res: Response) => {
   }
 };
 
-export const review = async (req: Request, res: Response) => {
+export const complete = async (req: Request, res: Response) => {
   try {
-    const order = await service.reviewLabTestOrder(Number(req.params.labTestOrderId), req.body.review_notes, actor(req));
+    const order = await service.completeLabResult(
+      Number(req.params.labTestOrderId),
+      { results: req.body.results, doctor_notes: req.body.doctor_notes, interpretation: req.body.interpretation },
+      actor(req)
+    );
+    res.status(200).json(order);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const amendCompleted = async (req: Request, res: Response) => {
+  try {
+    const order = await service.updateCompletedResult(
+      Number(req.params.labTestOrderId),
+      { results: req.body.results, doctor_notes: req.body.doctor_notes, interpretation: req.body.interpretation },
+      actor(req)
+    );
     res.status(200).json(order);
   } catch (error) {
     handleError(req, res, error);
@@ -107,9 +134,23 @@ export const printRequest = async (req: Request, res: Response) => {
   try {
     const order = await service.getLabTestOrderById(Number(req.params.labTestOrderId));
     if (!order) return res.status(404).json({ message: 'Lab test order not found' });
+    await service.stampPrinted(order.lab_test_order_id, actor(req));
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="LabTestRequest-${order.lab_test_order_id}.pdf"`);
     streamLabTestRequestPdf(order, res);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const printResult = async (req: Request, res: Response) => {
+  try {
+    const order = await service.getLabTestOrderById(Number(req.params.labTestOrderId));
+    if (!order) return res.status(404).json({ message: 'Lab test order not found' });
+    if (order.status !== 'Completed') return res.status(400).json({ message: 'This order has no completed result to print yet' });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="LabResult-${order.lab_test_order_id}.pdf"`);
+    streamLabResultReportPdf(order, res);
   } catch (error) {
     handleError(req, res, error);
   }

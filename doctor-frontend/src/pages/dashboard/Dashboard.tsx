@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useApiData } from '../../hooks/useApiData';
 import { getDoctorDashboard, getAlerts, getFollowUps } from '../../lib/dashboard';
@@ -13,6 +14,7 @@ import {
   ExpiryIcon,
   PhoneIcon,
   ChevronRightIcon,
+  HeartPulseIcon,
 } from '../../components/layout/Icons';
 import KpiCard from './KpiCard';
 import './dashboard.css';
@@ -85,6 +87,7 @@ const ConsultationsChart = ({ series }: { series: { date: string; count: number 
 };
 
 const Dashboard = () => {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { data: dash, loading, error, reload } = useApiData(getDoctorDashboard);
   const { data: followUps } = useApiData(getFollowUps);
@@ -176,6 +179,23 @@ const Dashboard = () => {
           compareLabel="yesterday"
           loading={loading}
           footer={<span className="kpi-view-all" style={{ color: '#94a3b8', fontWeight: 500 }}>Today</span>}
+        />
+        <KpiCard
+          icon={<HeartPulseIcon />}
+          iconBg="#dbeafe"
+          iconColor="#2563eb"
+          label="Pending Lab Reports"
+          value={String(dash?.kpis.pendingLabReports ?? 0)}
+          loading={loading}
+          footer={
+            <button
+              className="kpi-view-all"
+              style={{ color: '#2563eb', fontWeight: 600, background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit' }}
+              onClick={() => navigate('/lab-reports/my')}
+            >
+              Awaiting your review →
+            </button>
+          }
         />
       </div>
 

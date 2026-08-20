@@ -32,6 +32,7 @@ export interface DoctorDashboardKpis {
   followUpsDueThisWeek: number;
   prescriptionsIssuedToday: number;
   prescriptionsIssuedTodayChangePct: number | null;
+  pendingLabReports: number;
 }
 
 export interface ScheduleEntry {

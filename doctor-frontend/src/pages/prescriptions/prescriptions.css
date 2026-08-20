@@ -441,6 +441,28 @@
   color: #1e293b;
   width: fit-content;
 }
+.rxp-add-external-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px dashed #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-radius: 8px;
+  padding: 5px 9px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  margin-top: 6px;
+}
+.rxp-add-external-btn:hover {
+  background: #dbeafe;
+}
+.rxp-add-external-btn svg {
+  width: 12px;
+  height: 12px;
+}
 .rxp-split-row {
   display: flex;
   gap: 10px;

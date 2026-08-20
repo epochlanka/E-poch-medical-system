@@ -25,6 +25,7 @@ const createSchema = z.object({
   body: z.object({
     name: z.string().min(1, 'Name is required'),
     generic_name: z.string().optional(),
+    brand_name: z.string().optional(),
     category: z.string().optional(),
     form: z.string().optional(),
     strength: z.string().optional(),
@@ -42,6 +43,7 @@ const updateSchema = z.object({
   body: z.object({
     name: z.string().min(1).optional(),
     generic_name: z.string().optional(),
+    brand_name: z.string().optional(),
     category: z.string().optional(),
     form: z.string().optional(),
     strength: z.string().optional(),

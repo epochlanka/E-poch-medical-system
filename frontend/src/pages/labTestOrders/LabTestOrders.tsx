@@ -1,53 +1,62 @@
 import { useMemo, useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
 import { useApiData } from '../../hooks/useApiData';
-import { listLabTestOrders } from '../../lib/labTestOrders';
+import { listLabTestOrders, printLabTestOrder, printLabResultReport } from '../../lib/labTestOrders';
 import type { LabTestOrder } from '../../lib/labTestOrders';
-import { ClipboardIcon, CheckCircleIcon, ClockIcon, XCircleIcon, ChevronLeftIcon, ChevronRightIcon, RefreshIcon, EyeIcon } from '../../components/layout/Icons';
+import { ClipboardIcon, CheckCircleIcon, ClockIcon, XCircleIcon, ChevronLeftIcon, ChevronRightIcon, RefreshIcon, PrintIcon } from '../../components/layout/Icons';
 import KpiCard from '../dashboard/KpiCard';
-import EnterResultModal from './EnterResultModal';
+import ReportReceivedModal from './ReportReceivedModal';
+import AdminResultModal from './AdminResultModal';
 import '../dashboard/dashboard.css';
 import '../patients/patients.css';
 import '../pharmacy/pharmacy.css';
+import './labTestOrders.css';
 
 const PER_PAGE_OPTIONS = [8, 20, 50, 100];
 
 const STATUS_BADGE: Record<LabTestOrder['status'], string> = {
-  Pending: 'badge-amber',
-  'Result Received': 'badge-blue',
-  Reviewed: 'badge-green',
-  Cancelled: 'badge-gray',
+  Pending: 'badge-blue',
+  'Report Received': 'badge-amber',
+  Completed: 'badge-green',
+  Cancelled: 'badge-red',
 };
 
 const formatDateTime = (iso: string) => new Date(iso).toLocaleString(undefined, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
+// Clinical result entry/finalization is restricted to Admin here — Reception (the other role
+// that reaches this shared page) may only mark a report received, never enter or edit values.
 const LabTestOrders = () => {
+  const { user } = useAuth();
+  const canEnterResults = user?.role === 'Admin';
+
   const [status, setStatus] = useState<LabTestOrder['status'] | 'all'>('all');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(8);
-  const [activeOrder, setActiveOrder] = useState<LabTestOrder | null>(null);
+  const [receiveOrder, setReceiveOrder] = useState<LabTestOrder | null>(null);
+  const [resultOrderId, setResultOrderId] = useState<number | null>(null);
 
   const { data: result, loading, error, reload } = useApiData(
     () => listLabTestOrders({ status: status === 'all' ? undefined : status, page, limit }),
     [status, page, limit]
   );
   const { data: pendingCount, reload: reloadPendingCount } = useApiData(() => listLabTestOrders({ status: 'Pending', page: 1, limit: 1 }).then((r) => r.pagination.total));
-  const { data: resultReceivedCount, reload: reloadResultReceivedCount } = useApiData(() =>
-    listLabTestOrders({ status: 'Result Received', page: 1, limit: 1 }).then((r) => r.pagination.total)
+  const { data: receivedCount, reload: reloadReceivedCount } = useApiData(() =>
+    listLabTestOrders({ status: 'Report Received', page: 1, limit: 1 }).then((r) => r.pagination.total)
   );
-  const { data: reviewedCount, reload: reloadReviewedCount } = useApiData(() => listLabTestOrders({ status: 'Reviewed', page: 1, limit: 1 }).then((r) => r.pagination.total));
+  const { data: completedCount, reload: reloadCompletedCount } = useApiData(() => listLabTestOrders({ status: 'Completed', page: 1, limit: 1 }).then((r) => r.pagination.total));
   const { data: cancelledCount, reload: reloadCancelledCount } = useApiData(() => listLabTestOrders({ status: 'Cancelled', page: 1, limit: 1 }).then((r) => r.pagination.total));
 
   const refreshAll = () => {
     reload();
     reloadPendingCount();
-    reloadResultReceivedCount();
-    reloadReviewedCount();
+    reloadReceivedCount();
+    reloadCompletedCount();
     reloadCancelledCount();
   };
 
   const orders = result?.data ?? [];
   const pagination = result?.pagination;
-  const totalOrders = (pendingCount ?? 0) + (resultReceivedCount ?? 0) + (reviewedCount ?? 0) + (cancelledCount ?? 0);
+  const totalOrders = (pendingCount ?? 0) + (receivedCount ?? 0) + (completedCount ?? 0) + (cancelledCount ?? 0);
 
   const setStatusFilter = (value: LabTestOrder['status'] | 'all') => {
     setStatus(value);
@@ -95,8 +104,8 @@ const LabTestOrders = () => {
         />
         <KpiCard
           icon={<ClockIcon />}
-          iconBg="#fef3c7"
-          iconColor="#b45309"
+          iconBg="#dbeafe"
+          iconColor="#2563eb"
           label="Pending"
           value={String(pendingCount ?? 0)}
           footer={
@@ -107,12 +116,12 @@ const LabTestOrders = () => {
         />
         <KpiCard
           icon={<CheckCircleIcon />}
-          iconBg="#dbeafe"
-          iconColor="#2563eb"
-          label="Result Received"
-          value={String(resultReceivedCount ?? 0)}
+          iconBg="#fef3c7"
+          iconColor="#b45309"
+          label="Report Received"
+          value={String(receivedCount ?? 0)}
           footer={
-            <span className="kpi-view-all" style={{ cursor: 'pointer' }} onClick={() => setStatusFilter('Result Received')}>
+            <span className="kpi-view-all" style={{ cursor: 'pointer' }} onClick={() => setStatusFilter('Report Received')}>
               View awaiting review
             </span>
           }
@@ -121,11 +130,11 @@ const LabTestOrders = () => {
           icon={<CheckCircleIcon />}
           iconBg="#dcfce7"
           iconColor="#16a34a"
-          label="Reviewed"
-          value={String(reviewedCount ?? 0)}
+          label="Completed"
+          value={String(completedCount ?? 0)}
           footer={
-            <span className="kpi-view-all" style={{ cursor: 'pointer' }} onClick={() => setStatusFilter('Reviewed')}>
-              View reviewed
+            <span className="kpi-view-all" style={{ cursor: 'pointer' }} onClick={() => setStatusFilter('Completed')}>
+              View completed
             </span>
           }
         />
@@ -147,8 +156,8 @@ const LabTestOrders = () => {
         <select className="pat-select" value={status} onChange={(e) => setStatusFilter(e.target.value as LabTestOrder['status'] | 'all')}>
           <option value="all">All Status</option>
           <option value="Pending">Pending</option>
-          <option value="Result Received">Result Received</option>
-          <option value="Reviewed">Reviewed</option>
+          <option value="Report Received">Report Received</option>
+          <option value="Completed">Completed</option>
           <option value="Cancelled">Cancelled</option>
         </select>
       </div>
@@ -158,7 +167,7 @@ const LabTestOrders = () => {
           <table className="pat-table">
             <thead>
               <tr>
-                <th>Order</th>
+                <th>Request</th>
                 <th>Patient</th>
                 <th>Doctor</th>
                 <th>Test</th>
@@ -190,7 +199,7 @@ const LabTestOrders = () => {
               {!loading &&
                 orders.map((o) => (
                   <tr key={o.lab_test_order_id}>
-                    <td>LAB{String(o.lab_test_order_id).padStart(6, '0')}</td>
+                    <td>{o.request_number}</td>
                     <td>
                       <div className="pat-name">{o.patient?.full_name}</div>
                       <div className="pat-muted" style={{ fontSize: 11.5 }}>
@@ -206,9 +215,33 @@ const LabTestOrders = () => {
                       <span className={`badge ${STATUS_BADGE[o.status]}`}>{o.status}</span>
                     </td>
                     <td>
-                      <button className="pat-icon-btn" onClick={() => setActiveOrder(o)} aria-label="Enter result">
-                        <EyeIcon />
-                      </button>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button className="pat-icon-btn" onClick={() => printLabTestOrder(o.lab_test_order_id)} aria-label="Print request">
+                          <PrintIcon />
+                        </button>
+                        {o.status === 'Pending' && (
+                          <button className="pat-btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => setReceiveOrder(o)}>
+                            Report Received
+                          </button>
+                        )}
+                        {canEnterResults && o.status === 'Report Received' && (
+                          <button className="pat-btn primary" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => setResultOrderId(o.lab_test_order_id)}>
+                            Enter Results
+                          </button>
+                        )}
+                        {o.status === 'Completed' && (
+                          <>
+                            {canEnterResults && (
+                              <button className="pat-btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => setResultOrderId(o.lab_test_order_id)}>
+                                View
+                              </button>
+                            )}
+                            <button className="pat-btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => printLabResultReport(o.lab_test_order_id)}>
+                              <PrintIcon /> Result
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -261,12 +294,22 @@ const LabTestOrders = () => {
         )}
       </div>
 
-      {activeOrder && (
-        <EnterResultModal
-          order={activeOrder}
-          onClose={() => setActiveOrder(null)}
+      {receiveOrder && (
+        <ReportReceivedModal
+          order={receiveOrder}
+          onClose={() => setReceiveOrder(null)}
           onSaved={() => {
-            setActiveOrder(null);
+            setReceiveOrder(null);
+            refreshAll();
+          }}
+        />
+      )}
+      {resultOrderId && canEnterResults && (
+        <AdminResultModal
+          orderId={resultOrderId}
+          onClose={() => setResultOrderId(null)}
+          onSaved={() => {
+            setResultOrderId(null);
             refreshAll();
           }}
         />

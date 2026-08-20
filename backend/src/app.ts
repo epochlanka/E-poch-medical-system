@@ -24,6 +24,7 @@ import securityRouter from './modules/security/router';
 import { appointmentsRouter } from './modules/appointments/router';
 import icd11Router from './modules/icd11/router';
 import labTestOrdersRouter from './modules/labTestOrders/router';
+import externalMedicinesRouter from './modules/external-medicines/router';
 
 // Load environment variables
 dotenv.config();
@@ -83,6 +84,7 @@ app.use('/api/v1/security', securityRouter);
 app.use('/api/v1/appointments', appointmentsRouter);
 app.use('/api/v1/icd11', icd11Router);
 app.use('/api/v1/lab-test-orders', labTestOrdersRouter);
+app.use('/api/v1/external-medicines', externalMedicinesRouter);
 
 app.get('/api/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', message: 'E-Poch Medical System API is running' });

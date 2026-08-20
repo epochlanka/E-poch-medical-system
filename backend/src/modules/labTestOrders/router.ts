@@ -14,14 +14,25 @@ router.use(requireAuth);
 
 const READ_ROLES = ['Admin', 'Doctor', 'Receptionist'];
 const WRITE_ROLES = ['Doctor']; // only a doctor may create a lab test order (business rule #1)
-const RESULT_ROLES = ['Admin', 'Receptionist', 'Doctor'];
-const REVIEW_ROLES = ['Doctor'];
+// Reception may record that the physical report is back, but must never see/enter clinical
+// values — that split is exactly why "mark received" and "complete" are two separate role sets.
+const RECEIVE_ROLES = ['Admin', 'Doctor', 'Receptionist'];
+const RESULT_ROLES = ['Admin', 'Doctor']; // entering/finalizing clinical values — Reception excluded
 const CANCEL_ROLES = ['Doctor', 'Admin'];
+
+const resultParameterSchema = z.object({
+  parameter_id: z.number().int().positive().optional(),
+  parameter_name: z.string().min(1),
+  unit: z.string().optional(),
+  reference_range: z.string().optional(),
+  result_value: z.string().min(1),
+});
 
 const createSchema = z.object({
   body: z.object({
     consultation_id: z.number().int().positive(),
-    test_name: z.string().min(1, 'Test name is required'),
+    catalog_test_id: z.number().int().positive().optional(),
+    test_name: z.string().optional(),
     test_category: z.string().optional(),
     instructions: z.string().optional(),
     priority: z.enum(['Routine', 'Urgent', 'STAT']).optional(),
@@ -37,16 +48,27 @@ const listSchema = z.object({
     patientId: z.string().optional(),
     doctorId: z.coerce.number().int().positive().optional(),
     consultationId: z.coerce.number().int().positive().optional(),
-    status: z.enum(['Pending', 'Result Received', 'Reviewed', 'Cancelled']).optional(),
+    status: z.enum(['Pending', 'Report Received', 'Completed', 'Cancelled']).optional(),
     priority: z.enum(['Routine', 'Urgent', 'STAT']).optional(),
+    testId: z.coerce.number().int().positive().optional(),
+    from: z.string().optional(),
+    to: z.string().optional(),
+    search: z.string().optional(),
     page: z.coerce.number().int().positive().optional(),
     limit: z.coerce.number().int().positive().optional(),
   }),
 });
 
-const reviewSchema = z.object({
+const catalogSearchSchema = z.object({ query: z.object({ search: z.string().optional() }) });
+const catalogParamsSchema = z.object({ params: z.object({ testId: z.coerce.number().int().positive() }) });
+
+const completeSchema = z.object({
   params: idParams,
-  body: z.object({ review_notes: z.string().optional() }),
+  body: z.object({
+    results: z.array(resultParameterSchema).min(1),
+    doctor_notes: z.string().optional(),
+    interpretation: z.string().optional(),
+  }),
 });
 
 const contextParamsSchema = z.object({ params: z.object({ consultationId: z.coerce.number().int().positive() }) });
@@ -80,17 +102,21 @@ const uploadReportMiddleware = (req: Request, res: Response, next: NextFunction)
 };
 
 // ---- Routes -------------------------------------------------------------------
-// Static-segment routes (/context/:x) before the generic '/:labTestOrderId' catch-all, per this
-// codebase's route-ordering convention.
+// Static-segment routes (/context/:x, /catalog...) before the generic '/:labTestOrderId'
+// catch-all, per this codebase's route-ordering convention.
 
 router.get('/context/:consultationId', requireRole(READ_ROLES), validate(contextParamsSchema), controller.context);
+router.get('/catalog', requireRole(READ_ROLES), validate(catalogSearchSchema), controller.searchCatalog);
+router.get('/catalog/:testId/parameters', requireRole(READ_ROLES), validate(catalogParamsSchema), controller.catalogParameters);
 
 router.get('/', requireRole(READ_ROLES), validate(listSchema), controller.list);
 router.post('/', requireRole(WRITE_ROLES), validate(createSchema), controller.create);
 router.get('/:labTestOrderId', requireRole(READ_ROLES), validate(idParamsSchema), controller.getById);
 router.get('/:labTestOrderId/print', requireRole(READ_ROLES), validate(idParamsSchema), controller.printRequest);
-router.post('/:labTestOrderId/result', requireRole(RESULT_ROLES), validate(idParamsSchema), uploadReportMiddleware, controller.enterResult);
-router.post('/:labTestOrderId/review', requireRole(REVIEW_ROLES), validate(reviewSchema), controller.review);
+router.get('/:labTestOrderId/result-print', requireRole(RESULT_ROLES), validate(idParamsSchema), controller.printResult);
+router.post('/:labTestOrderId/received', requireRole(RECEIVE_ROLES), validate(idParamsSchema), uploadReportMiddleware, controller.markReceived);
+router.post('/:labTestOrderId/complete', requireRole(RESULT_ROLES), validate(completeSchema), controller.complete);
+router.put('/:labTestOrderId/complete', requireRole(RESULT_ROLES), validate(completeSchema), controller.amendCompleted);
 router.post('/:labTestOrderId/cancel', requireRole(CANCEL_ROLES), validate(idParamsSchema), controller.cancel);
 
 export default router;
