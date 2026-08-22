@@ -47,14 +47,14 @@ export const navSections: NavSection[] = [
     items: [
       { label: 'Pharmacy Queue', path: '/pharmacy/queue', icon: PharmacyIcon, implemented: true },
       { label: 'Dispensing', path: '/pharmacy/dispensing', icon: PillIcon, implemented: true },
-      { label: 'Partial Dispense', path: '/pharmacy/partial-dispense', icon: SendIcon },
-      { label: 'Substitution Rules', path: '/pharmacy/substitution-rules', icon: RefreshIcon },
+      { label: 'Partial Dispense', path: '/pharmacy/partial-dispense', icon: SendIcon, implemented: true },
+      { label: 'Substitution Rules', path: '/pharmacy/substitution-rules', icon: RefreshIcon, implemented: true },
     ],
   },
   {
     label: 'Inventory',
     items: [
-      { label: 'Medicine Catalog', path: '/inventory/medicines', icon: MedicineIcon },
+      { label: 'Medicine Catalog', path: '/inventory/medicines', icon: MedicineIcon, implemented: true },
       { label: 'Batch & Expiry', path: '/inventory/batches', icon: ClipboardIcon },
       { label: 'Stock Ledger', path: '/inventory/stock-ledger', icon: StockIcon },
       { label: 'Low Stock Alerts', path: '/inventory/low-stock', icon: AlertIcon },

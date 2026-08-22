@@ -306,4 +306,55 @@ describe('Pharmacy API', () => {
     expect(dispenseRes.status).toBe(200);
     expect(dispenseRes.body.items[0].substituted_medicine_id).toBe(altMedicine.medicine_id);
   });
+
+  it('rejects creating a duplicate substitution pair, supports priority/type, and can update/deactivate a rule', async () => {
+    const altMedicine = await prisma.medicine.create({ data: { name: `Rule Test Alt ${runId}`, unit: 'tablet', is_active: true } });
+
+    const createRes = await request(app)
+      .post('/api/v1/pharmacy/substitutions')
+      .set('Authorization', `Bearer ${pharmacistToken}`)
+      .send({ medicine_id: medicineId, substitute_medicine_id: altMedicine.medicine_id, priority: 2, type: 'Auto' });
+    expect(createRes.status).toBe(201);
+    expect(createRes.body.priority).toBe(2);
+    expect(createRes.body.type).toBe('Auto');
+
+    const dupRes = await request(app)
+      .post('/api/v1/pharmacy/substitutions')
+      .set('Authorization', `Bearer ${pharmacistToken}`)
+      .send({ medicine_id: medicineId, substitute_medicine_id: altMedicine.medicine_id });
+    expect(dupRes.status).toBe(400);
+
+    const substitutionId = createRes.body.substitution_id;
+
+    const updateRes = await request(app)
+      .patch(`/api/v1/pharmacy/substitutions/${substitutionId}`)
+      .set('Authorization', `Bearer ${pharmacistToken}`)
+      .send({ is_active: false, priority: 3 });
+    expect(updateRes.status).toBe(200);
+    expect(updateRes.body.is_active).toBe(false);
+    expect(updateRes.body.priority).toBe(3);
+
+    const activeListRes = await request(app)
+      .get('/api/v1/pharmacy/substitutions')
+      .query({ medicineId })
+      .set('Authorization', `Bearer ${pharmacistToken}`);
+    expect(activeListRes.body.some((r: any) => r.substitutionId === substitutionId)).toBe(false);
+
+    const inactiveListRes = await request(app)
+      .get('/api/v1/pharmacy/substitutions')
+      .query({ medicineId, status: 'inactive' })
+      .set('Authorization', `Bearer ${pharmacistToken}`);
+    const found = inactiveListRes.body.find((r: any) => r.substitutionId === substitutionId);
+    expect(found).toBeTruthy();
+    expect(found.priority).toBe(3);
+    expect(found.type).toBe('Auto');
+  });
+
+  it('returns substitution rule stats', async () => {
+    const res = await request(app).get('/api/v1/pharmacy/substitutions/stats').set('Authorization', `Bearer ${pharmacistToken}`);
+    expect(res.status).toBe(200);
+    expect(typeof res.body.total).toBe('number');
+    expect(res.body.total).toBe(res.body.active + res.body.inactive);
+    expect(res.body.total).toBe(res.body.autoCount + res.body.manualCount);
+  });
 });

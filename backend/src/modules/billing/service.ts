@@ -45,8 +45,9 @@ interface CreateInvoiceInput {
   discounts?: DiscountInput[];
 }
 
-// One invoice per visit — closes the "two separate bills" gap. Only actually-dispensed lines
-// (batch_id set) are billed; a still-Pending item hasn't left the shelf yet.
+// One invoice per visit — closes the "two separate bills" gap. Only fully-dispensed lines
+// (dispensed_at set) are billed — batch_id alone is no longer a safe "done" signal now that
+// partial dispensing can set it mid-way through a still-incomplete line (see pharmacy/service.ts).
 export const createInvoice = async (input: CreateInvoiceInput, actor: Actor) => {
   const consultation = await prisma.consultation.findUnique({
     where: { consultation_id: input.consultation_id },
@@ -76,7 +77,7 @@ export const createInvoice = async (input: CreateInvoiceInput, actor: Actor) => 
 
   for (const rx of consultation.prescriptions) {
     for (const item of rx.items) {
-      if (!item.batch_id) continue;
+      if (!item.dispensed_at) continue;
       lineItems.push({
         item_type: 'Medicine',
         description: item.medicine.name,

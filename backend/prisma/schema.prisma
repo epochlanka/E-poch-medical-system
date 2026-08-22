@@ -8,26 +8,26 @@ datasource db {
 }
 
 model Family {
-  family_id       Int       @id @default(autoincrement())
+  family_id       Int      @id @default(autoincrement())
   family_name     String
   head_patient_id String?
   address         String?
   city            String?
   family_type     String? // e.g. Nuclear Family, Extended Family, Single Parent, Joint Family, Other — free-text, not enforced against a fixed list
   contact_no      String?
-  is_active       Boolean   @default(true)
-  created_at      DateTime  @default(now())
+  is_active       Boolean  @default(true)
+  created_at      DateTime @default(now())
 
-  patients        Patient[] @relation("FamilyPatients")
-  head_patient    Patient?  @relation("FamilyHead", fields: [head_patient_id], references: [patient_id])
+  patients     Patient[] @relation("FamilyPatients")
+  head_patient Patient?  @relation("FamilyHead", fields: [head_patient_id], references: [patient_id])
 
   @@index([family_name])
 }
 
 model Patient {
-  patient_id   String    @id
+  patient_id   String   @id
   family_id    Int
-  nic          String?   @unique
+  nic          String?  @unique
   guardian_nic String?
   full_name    String
   dob          DateTime
@@ -36,30 +36,30 @@ model Patient {
   blood_group  String?
   allergies    String?
   photo_url    String?
-  is_active    Boolean   @default(true)
-  created_at   DateTime  @default(now())
+  is_active    Boolean  @default(true)
+  created_at   DateTime @default(now())
 
   // Additional intake fields captured by the Register New Patient wizard (receptionist-frontend).
-  nationality           String?
-  marital_status        String?
-  occupation             String?
-  employer_school        String?
-  relationship_to_head   String? // e.g. Spouse/Child/Parent/Other — free-text, not enforced against a fixed list
-  chronic_conditions     String? // free-text, captured at registration per FR-013
-  current_medications    String? // free-text, captured at registration alongside allergies/chronic conditions
+  nationality             String?
+  marital_status          String?
+  occupation              String?
+  employer_school         String?
+  relationship_to_head    String? // e.g. Spouse/Child/Parent/Other — free-text, not enforced against a fixed list
+  chronic_conditions      String? // free-text, captured at registration per FR-013
+  current_medications     String? // free-text, captured at registration alongside allergies/chronic conditions
   emergency_contact_name  String?
   emergency_contact_phone String?
 
-  family       Family    @relation("FamilyPatients", fields: [family_id], references: [family_id])
-  family_head  Family[]  @relation("FamilyHead")
+  family      Family   @relation("FamilyPatients", fields: [family_id], references: [family_id])
+  family_head Family[] @relation("FamilyHead")
 
-  appointments Appointment[]
-  invoices     Invoice[]
-  change_logs  PatientChangeLog[]
-  duplicate_flags_as_new     PatientDuplicateFlag[] @relation("NewPatientFlags")
-  duplicate_flags_as_matched PatientDuplicateFlag[] @relation("MatchedPatientFlags")
-  lab_test_orders LabTestOrder[]
-  external_medicines ExternalPrescriptionMedicine[]
+  appointments               Appointment[]
+  invoices                   Invoice[]
+  change_logs                PatientChangeLog[]
+  duplicate_flags_as_new     PatientDuplicateFlag[]         @relation("NewPatientFlags")
+  duplicate_flags_as_matched PatientDuplicateFlag[]         @relation("MatchedPatientFlags")
+  lab_test_orders            LabTestOrder[]
+  external_medicines         ExternalPrescriptionMedicine[]
 
   @@index([full_name])
   @@index([phone])
@@ -67,60 +67,60 @@ model Patient {
 }
 
 model PatientChangeLog {
-  id          Int      @id @default(autoincrement())
-  patient_id  String
-  field       String
-  old_value   String?
-  new_value   String?
-  reason      String?
-  changed_by  Int
-  changed_at  DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  patient_id String
+  field      String
+  old_value  String?
+  new_value  String?
+  reason     String?
+  changed_by Int
+  changed_at DateTime @default(now())
 
-  patient     Patient  @relation(fields: [patient_id], references: [patient_id])
-  changed_by_user User @relation(fields: [changed_by], references: [user_id])
+  patient         Patient @relation(fields: [patient_id], references: [patient_id])
+  changed_by_user User    @relation(fields: [changed_by], references: [user_id])
 
   @@index([patient_id, changed_at])
 }
 
 model PatientDuplicateFlag {
-  flag_id             Int       @id @default(autoincrement())
-  patient_id          String    // newly registered patient
-  matched_patient_id  String    // existing patient it fuzzy-matches
-  match_reason        String
-  status              String    @default("Pending") // Pending, Dismissed, Merged
-  reviewed_by         Int?
-  reviewed_at         DateTime?
-  created_at          DateTime  @default(now())
+  flag_id            Int       @id @default(autoincrement())
+  patient_id         String // newly registered patient
+  matched_patient_id String // existing patient it fuzzy-matches
+  match_reason       String
+  status             String    @default("Pending") // Pending, Dismissed, Merged
+  reviewed_by        Int?
+  reviewed_at        DateTime?
+  created_at         DateTime  @default(now())
 
-  patient             Patient   @relation("NewPatientFlags", fields: [patient_id], references: [patient_id])
-  matched_patient     Patient   @relation("MatchedPatientFlags", fields: [matched_patient_id], references: [patient_id])
-  reviewer            User?     @relation(fields: [reviewed_by], references: [user_id])
+  patient         Patient @relation("NewPatientFlags", fields: [patient_id], references: [patient_id])
+  matched_patient Patient @relation("MatchedPatientFlags", fields: [matched_patient_id], references: [patient_id])
+  reviewer        User?   @relation(fields: [reviewed_by], references: [user_id])
 
   @@index([status])
 }
 
 model Appointment {
-  appointment_id Int      @id @default(autoincrement())
-  patient_id     String
-  doctor_id      Int
-  scheduled_at   DateTime
-  reason         String?  // reason for visit, captured at booking time
-  status         String   @default("Waiting") // Waiting, Called, Consulting, Completed, Skipped, Cancelled, No Show
-  skip_reason    String?  // captured when a doctor skips a called-but-unresponsive patient (FR-029); cleared on recall
-  skipped_at     DateTime? // when the skip happened; cleared alongside skip_reason on recall
-  is_walk_in     Boolean   @default(false) // true if added directly to today's queue without a pre-booked slot (FR-026)
+  appointment_id    Int       @id @default(autoincrement())
+  patient_id        String
+  doctor_id         Int
+  scheduled_at      DateTime
+  reason            String? // reason for visit, captured at booking time
+  status            String    @default("Waiting") // Waiting, Called, Consulting, Completed, Skipped, Cancelled, No Show
+  skip_reason       String? // captured when a doctor skips a called-but-unresponsive patient (FR-029); cleared on recall
+  skipped_at        DateTime? // when the skip happened; cleared alongside skip_reason on recall
+  is_walk_in        Boolean   @default(false) // true if added directly to today's queue without a pre-booked slot (FR-026)
   consultation_type String? // e.g. General Consultation, Specialist Consultation, Emergency — free-text, not enforced against a fixed list
-  visit_type     String    @default("Appointment") // Appointment | Follow-up — booking-time categorization, independent of is_walk_in
-  priority       String    @default("Normal") // Normal, Urgent, Emergency — triage priority captured at booking/walk-in time
-  notes          String?   // internal receptionist notes, distinct from `reason` (the patient-facing reason for visit)
-  created_by     Int
+  visit_type        String    @default("Appointment") // Appointment | Follow-up — booking-time categorization, independent of is_walk_in
+  priority          String    @default("Normal") // Normal, Urgent, Emergency — triage priority captured at booking/walk-in time
+  notes             String? // internal receptionist notes, distinct from `reason` (the patient-facing reason for visit)
+  created_by        Int
 
-  patient        Patient  @relation(fields: [patient_id], references: [patient_id])
-  doctor         User     @relation("DoctorAppointments", fields: [doctor_id], references: [user_id])
-  receptionist   User     @relation("ReceptionistAppointments", fields: [created_by], references: [user_id])
+  patient      Patient @relation(fields: [patient_id], references: [patient_id])
+  doctor       User    @relation("DoctorAppointments", fields: [doctor_id], references: [user_id])
+  receptionist User    @relation("ReceptionistAppointments", fields: [created_by], references: [user_id])
 
-  consultation   Consultation?
-  queue_logs     AppointmentQueueLog[]
+  consultation Consultation?
+  queue_logs   AppointmentQueueLog[]
 }
 
 // Append-only audit trail of Skip/Recall events (Skip / Recall Log page) — separate from the
@@ -131,35 +131,35 @@ model Appointment {
 model AppointmentQueueLog {
   log_id         Int      @id @default(autoincrement())
   appointment_id Int
-  action         String   // Skipped | Recalled
-  reason         String?  // required for Skipped at the API layer; optional for Recalled
+  action         String // Skipped | Recalled
+  reason         String? // required for Skipped at the API layer; optional for Recalled
   actor_id       Int
   created_at     DateTime @default(now())
 
-  appointment    Appointment @relation(fields: [appointment_id], references: [appointment_id])
-  actor          User        @relation(fields: [actor_id], references: [user_id])
+  appointment Appointment @relation(fields: [appointment_id], references: [appointment_id])
+  actor       User        @relation(fields: [actor_id], references: [user_id])
 
   @@index([appointment_id, created_at])
 }
 
 model Consultation {
-  consultation_id Int       @id @default(autoincrement())
-  appointment_id  Int       @unique
-  vitals_json     String?
-  allergies_ack   Boolean   @default(false)
-  complaint       String?
+  consultation_id            Int       @id @default(autoincrement())
+  appointment_id             Int       @unique
+  vitals_json                String?
+  allergies_ack              Boolean   @default(false)
+  complaint                  String?
   history_of_present_illness String?
   examination_findings       String?
-  medical_history_json String?
-  diagnosis       String?
-  icd10_code      String?
-  notes           String?
-  follow_up_date  DateTime?
-  status          String    @default("Draft") // Draft, Finalized
-  created_at      DateTime  @default(now())
-  finalized_at    DateTime?
+  medical_history_json       String?
+  diagnosis                  String?
+  icd10_code                 String?
+  notes                      String?
+  follow_up_date             DateTime?
+  status                     String    @default("Draft") // Draft, Finalized
+  created_at                 DateTime  @default(now())
+  finalized_at               DateTime?
 
-  appointment     Appointment @relation(fields: [appointment_id], references: [appointment_id])
+  appointment     Appointment                @relation(fields: [appointment_id], references: [appointment_id])
   prescriptions   Prescription[]
   amendments      ConsultationAmendmentLog[]
   invoices        Invoice[]
@@ -200,18 +200,18 @@ model ConsultationAmendmentLog {
 }
 
 model Prescription {
-  prescription_id Int       @id @default(autoincrement())
+  prescription_id Int      @id @default(autoincrement())
   consultation_id Int
-  status          String    @default("Pending") // Pending, Preparing, Dispensed, Collected
-  is_refill       Boolean   @default(false)
+  status          String   @default("Pending") // Pending, Preparing, Dispensed, Collected
+  is_refill       Boolean  @default(false)
   refill_of_id    Int?
-  notes           String?   // free-text instructions for the pharmacist, e.g. counseling points
-  issued_at       DateTime  @default(now())
+  notes           String? // free-text instructions for the pharmacist, e.g. counseling points
+  issued_at       DateTime @default(now())
 
-  consultation    Consultation @relation(fields: [consultation_id], references: [consultation_id])
-  items           PrescriptionItem[]
-  refill_of       Prescription?  @relation("PrescriptionRefill", fields: [refill_of_id], references: [prescription_id])
-  refills         Prescription[] @relation("PrescriptionRefill")
+  consultation       Consultation                   @relation(fields: [consultation_id], references: [consultation_id])
+  items              PrescriptionItem[]
+  refill_of          Prescription?                  @relation("PrescriptionRefill", fields: [refill_of_id], references: [prescription_id])
+  refills            Prescription[]                 @relation("PrescriptionRefill")
   external_medicines ExternalPrescriptionMedicine[]
 }
 
@@ -226,42 +226,67 @@ model PrescriptionItem {
   instructions            String? // per-medicine note distinct from dosage/frequency, e.g. "after food"
   qty                     Int
   external_qty            Int       @default(0) // portion of qty sourced externally — 0 = fully clinic, qty = fully external, else split
-  batch_id                Int?
+  dispensed_qty           Int       @default(0) // cumulative qty drawn from clinic stock across partial dispenses; item is complete once dispensed_qty + external_qty >= qty
+  batch_id                Int? // last batch that completed this item (kept for label/legacy display) — full per-batch trail lives in `dispenses`
   substituted_medicine_id Int?
   fefo_override_reason    String?
   dispensed_by            Int?
-  dispensed_at            DateTime?
+  dispensed_at            DateTime? // set only once the item is FULLY handled (dispensed_qty + external_qty >= qty) — every other module treats this as the binary "done" signal
 
-  prescription         Prescription @relation(fields: [prescription_id], references: [prescription_id])
-  medicine             Medicine     @relation(fields: [medicine_id], references: [medicine_id])
-  batch                Batch?       @relation(fields: [batch_id], references: [batch_id])
-  substituted_medicine Medicine?    @relation("SubstitutedInItem", fields: [substituted_medicine_id], references: [medicine_id])
-  dispensed_by_user    User?        @relation(fields: [dispensed_by], references: [user_id])
+  prescription         Prescription               @relation(fields: [prescription_id], references: [prescription_id])
+  medicine             Medicine                   @relation(fields: [medicine_id], references: [medicine_id])
+  batch                Batch?                     @relation(fields: [batch_id], references: [batch_id])
+  substituted_medicine Medicine?                  @relation("SubstitutedInItem", fields: [substituted_medicine_id], references: [medicine_id])
+  dispensed_by_user    User?                      @relation(fields: [dispensed_by], references: [user_id])
   invoice_items        InvoiceItem[]
+  dispenses            PrescriptionItemDispense[]
+}
+
+// One row per partial-dispense event for a single prescription line — a line can be topped up
+// from a different batch each visit (e.g. the first batch runs out mid-way), so this is the only
+// place that records exactly which batch supplied which quantity and when. PrescriptionItem's own
+// batch_id/dispensed_by/dispensed_at stay as the "last completing draw" for places that only care
+// whether the line is done (billing, queue, reports) — never as the full audit trail.
+model PrescriptionItemDispense {
+  dispense_id          Int      @id @default(autoincrement())
+  rx_item_id           Int
+  batch_id             Int
+  qty                  Int
+  fefo_override_reason String?
+  notes                String?
+  dispensed_by         Int
+  dispensed_at         DateTime @default(now())
+
+  item              PrescriptionItem @relation(fields: [rx_item_id], references: [rx_item_id])
+  batch             Batch            @relation(fields: [batch_id], references: [batch_id])
+  dispensed_by_user User             @relation(fields: [dispensed_by], references: [user_id])
+
+  @@index([rx_item_id])
 }
 
 model Medicine {
-  medicine_id     Int       @id @default(autoincrement())
+  medicine_id     Int     @id @default(autoincrement())
   name            String
   generic_name    String?
   brand_name      String? // e.g. "Panadol" for generic "Paracetamol" — searchable, distinct from name
-  category        String?
-  form            String?
+  category        String? // doubles as "Therapeutic Class" wherever that's shown
+  form            String? // doubles as "Dosage Form" wherever that's shown
   strength        String? // e.g. "500mg", "10mg/5ml"
+  manufacturer    String?
   unit            String
-  reorder_level   Int       @default(0) // "Min Stock" — reorder trigger threshold
-  max_stock_level Int       @default(0) // "Max Stock" — target ceiling for reorder-quantity suggestions
-  unit_price      Float     @default(0) // sell price charged to the patient
-  buy_price       Float     @default(0) // supplier cost price, for margin/PO reference
-  barcode         String?   @unique // doubles as "Medicine Code" wherever that's shown
-  is_active       Boolean   @default(true)
+  reorder_level   Int     @default(0) // "Min Stock" — reorder trigger threshold
+  max_stock_level Int     @default(0) // "Max Stock" — target ceiling for reorder-quantity suggestions
+  unit_price      Float   @default(0) // sell price charged to the patient
+  buy_price       Float   @default(0) // supplier cost price, for margin/PO reference
+  barcode         String? @unique // doubles as "Medicine Code" wherever that's shown
+  is_active       Boolean @default(true)
 
-  batches           Batch[]
-  purchaseOrderItems PurchaseOrderItem[]
-  prescriptionItems PrescriptionItem[]
-  substitutedInItems PrescriptionItem[] @relation("SubstitutedInItem")
-  substitutionsAsOriginal    MedicineSubstitution[] @relation("SubstitutionOriginal")
-  substitutionsAsAlternative MedicineSubstitution[] @relation("SubstitutionAlternative")
+  batches                    Batch[]
+  purchaseOrderItems         PurchaseOrderItem[]
+  prescriptionItems          PrescriptionItem[]
+  substitutedInItems         PrescriptionItem[]             @relation("SubstitutedInItem")
+  substitutionsAsOriginal    MedicineSubstitution[]         @relation("SubstitutionOriginal")
+  substitutionsAsAlternative MedicineSubstitution[]         @relation("SubstitutionAlternative")
   externalPrescriptionRefs   ExternalPrescriptionMedicine[]
 
   @@index([name])
@@ -308,12 +333,12 @@ model ExternalPrescriptionMedicine {
 // tests list, and each entry's LabTestParameter children drive the dynamic manual-result-entry
 // table (a test's expected parameters, e.g. FBC -> Haemoglobin/WBC/Platelets/...).
 model LabTestCatalog {
-  test_id      Int      @id @default(autoincrement())
+  test_id      Int     @id @default(autoincrement())
   test_name    String
-  test_code    String?  @unique
+  test_code    String? @unique
   category     String?
   abbreviation String?
-  is_active    Boolean  @default(true)
+  is_active    Boolean @default(true)
 
   parameters LabTestParameter[]
   orders     LabTestOrder[]
@@ -339,7 +364,7 @@ model LabTestParameter {
 }
 
 model LabTestOrder {
-  lab_test_order_id Int       @id @default(autoincrement())
+  lab_test_order_id Int      @id @default(autoincrement())
   patient_id        String
   doctor_id         Int
   consultation_id   Int
@@ -347,17 +372,17 @@ model LabTestOrder {
   test_name         String
   test_category     String?
   instructions      String?
-  priority          String    @default("Routine") // Routine, Urgent, STAT
+  priority          String   @default("Routine") // Routine, Urgent, STAT
   additional_notes  String?
-  request_number    String?   @unique
-  status            String    @default("Pending") // Pending, Report Received, Completed, Cancelled
-  order_date        DateTime  @default(now())
+  request_number    String?  @unique
+  status            String   @default("Pending") // Pending, Report Received, Completed, Cancelled
+  order_date        DateTime @default(now())
 
   printed_at         DateTime? // audit only — printing never changes status (FR-request-11)
   printed_by         Int?
   report_received_at DateTime? // "the physical report is back", no clinical values yet
   report_received_by Int?
-  received_note       String?
+  received_note      String?
 
   interpretation String? // doctor's clinical interpretation, entered together with completion
   completed_at   DateTime?
@@ -366,32 +391,32 @@ model LabTestOrder {
   // Legacy single-field result columns from the original result-entry flow — kept for any
   // pre-existing rows, superseded by the per-parameter LabResult table for every order going
   // forward through markReportReceived/completeLabResult.
-  result_value      String?
-  unit              String?
-  reference_range   String?
-  result_notes      String?
-  result_date       DateTime?
-  laboratory_name   String?
-  report_file_path  String?
-  entered_by        Int?
-  entered_at        DateTime?
-  reviewed_by       Int?
-  review_notes      String?
-  reviewed_date     DateTime?
+  result_value     String?
+  unit             String?
+  reference_range  String?
+  result_notes     String?
+  result_date      DateTime?
+  laboratory_name  String?
+  report_file_path String?
+  entered_by       Int?
+  entered_at       DateTime?
+  reviewed_by      Int?
+  review_notes     String?
+  reviewed_date    DateTime?
 
-  created_at        DateTime  @default(now())
-  updated_at        DateTime  @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
-  patient               Patient         @relation(fields: [patient_id], references: [patient_id])
-  doctor                User            @relation("LabTestOrderDoctor", fields: [doctor_id], references: [user_id])
-  consultation          Consultation    @relation(fields: [consultation_id], references: [consultation_id])
-  catalog_test          LabTestCatalog? @relation(fields: [catalog_test_id], references: [test_id])
-  printed_by_user       User?           @relation("LabTestOrderPrintedBy", fields: [printed_by], references: [user_id])
-  report_received_by_user User?         @relation("LabTestOrderReceivedBy", fields: [report_received_by], references: [user_id])
-  completed_by_user     User?           @relation("LabTestOrderCompletedBy", fields: [completed_by], references: [user_id])
-  entered_by_user  User?        @relation("LabTestOrderEnteredBy", fields: [entered_by], references: [user_id])
-  reviewed_by_user User?        @relation("LabTestOrderReviewedBy", fields: [reviewed_by], references: [user_id])
-  results          LabResult[]
+  patient                 Patient         @relation(fields: [patient_id], references: [patient_id])
+  doctor                  User            @relation("LabTestOrderDoctor", fields: [doctor_id], references: [user_id])
+  consultation            Consultation    @relation(fields: [consultation_id], references: [consultation_id])
+  catalog_test            LabTestCatalog? @relation(fields: [catalog_test_id], references: [test_id])
+  printed_by_user         User?           @relation("LabTestOrderPrintedBy", fields: [printed_by], references: [user_id])
+  report_received_by_user User?           @relation("LabTestOrderReceivedBy", fields: [report_received_by], references: [user_id])
+  completed_by_user       User?           @relation("LabTestOrderCompletedBy", fields: [completed_by], references: [user_id])
+  entered_by_user         User?           @relation("LabTestOrderEnteredBy", fields: [entered_by], references: [user_id])
+  reviewed_by_user        User?           @relation("LabTestOrderReviewedBy", fields: [reviewed_by], references: [user_id])
+  results                 LabResult[]
 
   @@index([patient_id])
   @@index([consultation_id])
@@ -423,13 +448,15 @@ model MedicineSubstitution {
   substitution_id        Int      @id @default(autoincrement())
   medicine_id            Int
   substitute_medicine_id Int
+  priority               Int      @default(1) // 1 = first preference; informational ranking only, dispense() does not auto-pick by this
+  type                   String   @default("Manual") // Auto | Manual — informational only; dispense() still requires the pharmacist to pick the batch/substitute explicitly either way
   is_active              Boolean  @default(true)
   created_by             Int
   created_at             DateTime @default(now())
 
-  medicine             Medicine @relation("SubstitutionOriginal", fields: [medicine_id], references: [medicine_id])
-  substitute_medicine  Medicine @relation("SubstitutionAlternative", fields: [substitute_medicine_id], references: [medicine_id])
-  creator              User     @relation(fields: [created_by], references: [user_id])
+  medicine            Medicine @relation("SubstitutionOriginal", fields: [medicine_id], references: [medicine_id])
+  substitute_medicine Medicine @relation("SubstitutionAlternative", fields: [substitute_medicine_id], references: [medicine_id])
+  creator             User     @relation(fields: [created_by], references: [user_id])
 
   @@unique([medicine_id, substitute_medicine_id])
 }
@@ -444,9 +471,10 @@ model Batch {
   location         String? // physical storage location, e.g. "Main Store / Shelf A-01"
   supplier_id      Int?
 
-  medicine          Medicine  @relation(fields: [medicine_id], references: [medicine_id])
-  supplier          Supplier? @relation(fields: [supplier_id], references: [supplier_id])
+  medicine          Medicine                   @relation(fields: [medicine_id], references: [medicine_id])
+  supplier          Supplier?                  @relation(fields: [supplier_id], references: [supplier_id])
   prescriptionItems PrescriptionItem[]
+  item_dispenses    PrescriptionItemDispense[]
   ledger_entries    StockLedger[]
   stock_count_items StockCountItem[]
   grn_item          GRNItem?
@@ -455,16 +483,16 @@ model Batch {
 }
 
 model StockLedger {
-  ledger_id       Int      @id @default(autoincrement())
-  batch_id        Int
-  change_qty      Int // positive = stock in, negative = stock out
-  balance_after   Int
-  event_type      String // Dispense, Adjustment, GRN, StockTakeCorrection
-  reference_type  String?
-  reference_id    String?
-  reason          String?
-  created_by      Int
-  created_at      DateTime @default(now())
+  ledger_id      Int      @id @default(autoincrement())
+  batch_id       Int
+  change_qty     Int // positive = stock in, negative = stock out
+  balance_after  Int
+  event_type     String // Dispense, Adjustment, GRN, StockTakeCorrection
+  reference_type String?
+  reference_id   String?
+  reason         String?
+  created_by     Int
+  created_at     DateTime @default(now())
 
   batch           Batch @relation(fields: [batch_id], references: [batch_id])
   created_by_user User  @relation(fields: [created_by], references: [user_id])
@@ -501,36 +529,36 @@ model StockCountItem {
 }
 
 model Supplier {
-  supplier_id         Int       @id @default(autoincrement())
-  name                String
-  contact             String? // legacy free-text contact field, superseded by the structured fields below
-  contact_person      String?
-  phone               String?
-  email               String?
-  city                String?
-  payment_terms_days  Int       @default(30) // used to flag received-but-unpaid orders as overdue
-  address             String?
-  is_active           Boolean   @default(true)
+  supplier_id        Int     @id @default(autoincrement())
+  name               String
+  contact            String? // legacy free-text contact field, superseded by the structured fields below
+  contact_person     String?
+  phone              String?
+  email              String?
+  city               String?
+  payment_terms_days Int     @default(30) // used to flag received-but-unpaid orders as overdue
+  address            String?
+  is_active          Boolean @default(true)
 
-  batches         Batch[]
-  purchaseOrders  PurchaseOrder[]
+  batches        Batch[]
+  purchaseOrders PurchaseOrder[]
 
   @@index([name])
 }
 
 model PurchaseOrder {
-  po_id           Int       @id @default(autoincrement())
-  supplier_id     Int
-  order_date      DateTime
-  expected_date   DateTime? // expected delivery date, set at booking time
-  status          String    @default("Draft") // Draft, Submitted, PartiallyReceived, Received, Closed, Cancelled
-  created_by      Int
-  created_at      DateTime  @default(now())
+  po_id         Int       @id @default(autoincrement())
+  supplier_id   Int
+  order_date    DateTime
+  expected_date DateTime? // expected delivery date, set at booking time
+  status        String    @default("Draft") // Draft, Submitted, PartiallyReceived, Received, Closed, Cancelled
+  created_by    Int
+  created_at    DateTime  @default(now())
 
-  supplier        Supplier  @relation(fields: [supplier_id], references: [supplier_id])
-  creator         User      @relation(fields: [created_by], references: [user_id])
-  items           PurchaseOrderItem[]
-  grns            GoodsReceivedNote[]
+  supplier Supplier            @relation(fields: [supplier_id], references: [supplier_id])
+  creator  User                @relation(fields: [created_by], references: [user_id])
+  items    PurchaseOrderItem[]
+  grns     GoodsReceivedNote[]
 }
 
 model PurchaseOrderItem {
@@ -562,10 +590,10 @@ model GoodsReceivedNote {
 }
 
 model GRNItem {
-  grn_item_id  Int    @id @default(autoincrement())
+  grn_item_id  Int  @id @default(autoincrement())
   grn_id       Int
   po_item_id   Int
-  batch_id     Int?   @unique
+  batch_id     Int? @unique
   qty_received Int
 
   grn     GoodsReceivedNote @relation(fields: [grn_id], references: [grn_id])
@@ -588,12 +616,12 @@ model Invoice {
   created_by      Int
   created_at      DateTime  @default(now())
 
-  patient         Patient       @relation(fields: [patient_id], references: [patient_id])
-  consultation    Consultation? @relation(fields: [consultation_id], references: [consultation_id])
-  creator         User          @relation("InvoiceCreator", fields: [created_by], references: [user_id])
-  voided_by_user  User?         @relation("InvoiceVoider", fields: [voided_by], references: [user_id])
-  items           InvoiceItem[]
-  payments        Payment[]
+  patient        Patient       @relation(fields: [patient_id], references: [patient_id])
+  consultation   Consultation? @relation(fields: [consultation_id], references: [consultation_id])
+  creator        User          @relation("InvoiceCreator", fields: [created_by], references: [user_id])
+  voided_by_user User?         @relation("InvoiceVoider", fields: [voided_by], references: [user_id])
+  items          InvoiceItem[]
+  payments       Payment[]
 
   @@index([created_at])
 }
@@ -628,7 +656,7 @@ model Payment {
 
 model User {
   user_id             Int     @id @default(autoincrement())
-  role                String  // Admin, Receptionist, Doctor, Pharmacist
+  role                String // Admin, Receptionist, Doctor, Pharmacist
   username            String  @unique
   password_hash       String
   registration_number String?
@@ -642,35 +670,36 @@ model User {
 
   last_login_at DateTime?
 
-  doctor_appointments       Appointment[] @relation("DoctorAppointments")
-  receptionist_appointments Appointment[] @relation("ReceptionistAppointments")
-  purchase_orders           PurchaseOrder[]
-  audit_logs                AuditLog[]
-  patient_change_logs       PatientChangeLog[]
-  reviewed_duplicate_flags  PatientDuplicateFlag[]
-  consultation_amendments   ConsultationAmendmentLog[]
-  medicine_substitutions    MedicineSubstitution[]
-  dispensed_items           PrescriptionItem[]
-  stock_ledger_entries      StockLedger[]
-  stock_counts_performed    StockCount[] @relation("StockCountPerformer")
-  stock_counts_reviewed     StockCount[] @relation("StockCountReviewer")
-  grns_received             GoodsReceivedNote[] @relation("GRNReceiver")
-  grns_reviewed             GoodsReceivedNote[] @relation("GRNReviewer")
-  invoices_created          Invoice[] @relation("InvoiceCreator")
-  invoices_voided           Invoice[] @relation("InvoiceVoider")
-  payments_received         Payment[]
-  settings_updates          ClinicSettings[]
-  backups_created           DbBackup[]
-  sessions                  UserSession[]
-  consultation_documents    ConsultationDocument[]
-  queue_log_actions         AppointmentQueueLog[]
-  lab_test_orders_ordered   LabTestOrder[] @relation("LabTestOrderDoctor")
-  lab_test_orders_entered   LabTestOrder[] @relation("LabTestOrderEnteredBy")
-  lab_test_orders_reviewed  LabTestOrder[] @relation("LabTestOrderReviewedBy")
-  lab_test_orders_printed   LabTestOrder[] @relation("LabTestOrderPrintedBy")
-  lab_test_orders_received  LabTestOrder[] @relation("LabTestOrderReceivedBy")
-  lab_test_orders_completed LabTestOrder[] @relation("LabTestOrderCompletedBy")
-  lab_results_entered       LabResult[]    @relation("LabResultEnteredBy")
+  doctor_appointments           Appointment[]                  @relation("DoctorAppointments")
+  receptionist_appointments     Appointment[]                  @relation("ReceptionistAppointments")
+  purchase_orders               PurchaseOrder[]
+  audit_logs                    AuditLog[]
+  patient_change_logs           PatientChangeLog[]
+  reviewed_duplicate_flags      PatientDuplicateFlag[]
+  consultation_amendments       ConsultationAmendmentLog[]
+  medicine_substitutions        MedicineSubstitution[]
+  dispensed_items               PrescriptionItem[]
+  prescription_item_dispenses   PrescriptionItemDispense[]
+  stock_ledger_entries          StockLedger[]
+  stock_counts_performed        StockCount[]                   @relation("StockCountPerformer")
+  stock_counts_reviewed         StockCount[]                   @relation("StockCountReviewer")
+  grns_received                 GoodsReceivedNote[]            @relation("GRNReceiver")
+  grns_reviewed                 GoodsReceivedNote[]            @relation("GRNReviewer")
+  invoices_created              Invoice[]                      @relation("InvoiceCreator")
+  invoices_voided               Invoice[]                      @relation("InvoiceVoider")
+  payments_received             Payment[]
+  settings_updates              ClinicSettings[]
+  backups_created               DbBackup[]
+  sessions                      UserSession[]
+  consultation_documents        ConsultationDocument[]
+  queue_log_actions             AppointmentQueueLog[]
+  lab_test_orders_ordered       LabTestOrder[]                 @relation("LabTestOrderDoctor")
+  lab_test_orders_entered       LabTestOrder[]                 @relation("LabTestOrderEnteredBy")
+  lab_test_orders_reviewed      LabTestOrder[]                 @relation("LabTestOrderReviewedBy")
+  lab_test_orders_printed       LabTestOrder[]                 @relation("LabTestOrderPrintedBy")
+  lab_test_orders_received      LabTestOrder[]                 @relation("LabTestOrderReceivedBy")
+  lab_test_orders_completed     LabTestOrder[]                 @relation("LabTestOrderCompletedBy")
+  lab_results_entered           LabResult[]                    @relation("LabResultEnteredBy")
   external_medicines_prescribed ExternalPrescriptionMedicine[]
 }
 
@@ -717,7 +746,7 @@ model ClinicSettings {
 
 model MasterDataItem {
   item_id    Int     @id @default(autoincrement())
-  type       String  // MedicineCategory, PaymentMethod, DiscountType
+  type       String // MedicineCategory, PaymentMethod, DiscountType
   value      String
   sort_order Int     @default(0)
   is_active  Boolean @default(true)

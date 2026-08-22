@@ -224,6 +224,199 @@ export const getMedicineStats = async () => {
 
 export const getMedicineById = (medicineId: number) => prisma.medicine.findUnique({ where: { medicine_id: medicineId } });
 
+// ---- Medicine Catalog (composition of the master list itself — active/inactive/classes/
+// manufacturers — distinct from getMedicineStats above, which is stock-health-derived) ---------
+
+const displayCode = (m: { medicine_id: number; barcode: string | null }) => m.barcode || `MED-${String(m.medicine_id).padStart(6, '0')}`;
+
+// One bundled call for the Medicine Catalog page's KPI row + its three filter dropdowns —
+// same "one call per page" pattern as the dashboard overview endpoints.
+export const getCatalogMeta = async () => {
+  const [total, active, inactive, categories, forms, manufacturers] = await Promise.all([
+    prisma.medicine.count(),
+    prisma.medicine.count({ where: { is_active: true } }),
+    prisma.medicine.count({ where: { is_active: false } }),
+    prisma.medicine.findMany({ where: { category: { not: null } }, select: { category: true }, distinct: ['category'] }),
+    prisma.medicine.findMany({ where: { form: { not: null } }, select: { form: true }, distinct: ['form'] }),
+    prisma.medicine.findMany({ where: { manufacturer: { not: null } }, select: { manufacturer: true }, distinct: ['manufacturer'] }),
+  ]);
+
+  return {
+    stats: { total, active, inactive, therapeuticClassCount: categories.length, manufacturerCount: manufacturers.length },
+    therapeuticClasses: categories.map((c) => c.category as string).sort(),
+    dosageForms: forms.map((f) => f.form as string).sort(),
+    manufacturers: manufacturers.map((m) => m.manufacturer as string).sort(),
+  };
+};
+
+interface ListCatalogParams {
+  search?: string;
+  category?: string;
+  form?: string;
+  manufacturer?: string;
+  status?: 'active' | 'inactive' | 'all';
+  page?: number;
+  limit?: number;
+}
+
+// The full paginated/filterable catalog (search/therapeutic-class/dosage-form/manufacturer/
+// status) — distinct from searchMedicines (unpaginated take-50 autocomplete for pickers
+// elsewhere) and listMedicineStock (stock/batch/expiry-oriented, always active-only).
+export const listMedicineCatalog = async (params: ListCatalogParams) => {
+  const where: Prisma.MedicineWhereInput = {};
+  if (params.status === 'active') where.is_active = true;
+  else if (params.status === 'inactive') where.is_active = false;
+  if (params.category) where.category = params.category;
+  if (params.form) where.form = params.form;
+  if (params.manufacturer) where.manufacturer = params.manufacturer;
+  if (params.search) {
+    const term = params.search.trim();
+    where.OR = [
+      { name: { contains: term } },
+      { generic_name: { contains: term } },
+      { brand_name: { contains: term } },
+      { barcode: { contains: term } },
+    ];
+  }
+
+  const page = params.page && params.page > 0 ? params.page : 1;
+  const limit = params.limit && params.limit > 0 && params.limit <= 200 ? params.limit : 10;
+
+  const [total, medicines] = await Promise.all([
+    prisma.medicine.count({ where }),
+    prisma.medicine.findMany({ where, orderBy: { name: 'asc' }, skip: (page - 1) * limit, take: limit }),
+  ]);
+
+  return {
+    data: medicines.map((m) => ({
+      medicine_id: m.medicine_id,
+      code: displayCode(m),
+      name: m.name,
+      generic_name: m.generic_name,
+      brand_name: m.brand_name,
+      category: m.category,
+      form: m.form,
+      strength: m.strength,
+      manufacturer: m.manufacturer,
+      unit: m.unit,
+      unit_price: m.unit_price,
+      buy_price: m.buy_price,
+      reorder_level: m.reorder_level,
+      max_stock_level: m.max_stock_level,
+      barcode: m.barcode,
+      is_active: m.is_active,
+    })),
+    pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
+  };
+};
+
+// ---- CSV Import ("Import Medicines") -------------------------------------------------------
+// Minimal hand-rolled parser (no CSV dependency exists in this project) — handles quoted fields
+// containing commas, which is the only RFC4180 case a hand-roll needs to bother with here.
+const parseCsvLine = (line: string): string[] => {
+  const result: string[] = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        cur += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      result.push(cur);
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  result.push(cur);
+  return result;
+};
+
+interface ImportRowResult {
+  row: number;
+  status: 'created' | 'updated' | 'error';
+  message?: string;
+}
+
+// Matches an existing medicine by barcode first (if the row has one), else by an exact
+// name+strength+form combination — good enough to avoid duplicate rows on a re-import of the
+// same file without requiring every medicine to have a barcode assigned.
+export const importMedicinesFromCsv = async (csvText: string) => {
+  const lines = csvText.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (lines.length < 2) throw new ValidationError('CSV must include a header row and at least one data row');
+
+  const headers = parseCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
+  for (const required of ['name', 'unit']) {
+    if (!headers.includes(required)) throw new ValidationError(`CSV is missing required column "${required}"`);
+  }
+
+  const results: ImportRowResult[] = [];
+  let created = 0;
+  let updated = 0;
+  let errored = 0;
+
+  for (let i = 1; i < lines.length; i++) {
+    const rowNum = i + 1;
+    const values = parseCsvLine(lines[i]);
+    const rec: Record<string, string | undefined> = {};
+    headers.forEach((h, idx) => (rec[h] = values[idx]?.trim() || undefined));
+
+    try {
+      if (!rec.name) throw new Error('Missing "name"');
+      if (!rec.unit) throw new Error('Missing "unit"');
+
+      const data = {
+        name: rec.name,
+        generic_name: rec.generic_name,
+        brand_name: rec.brand_name,
+        category: rec.category,
+        form: rec.form,
+        strength: rec.strength,
+        manufacturer: rec.manufacturer,
+        unit: rec.unit,
+        unit_price: rec.unit_price ? Number(rec.unit_price) : undefined,
+        buy_price: rec.buy_price ? Number(rec.buy_price) : undefined,
+        reorder_level: rec.reorder_level ? Number(rec.reorder_level) : undefined,
+        max_stock_level: rec.max_stock_level ? Number(rec.max_stock_level) : undefined,
+        barcode: rec.barcode,
+      };
+
+      let existing = data.barcode ? await prisma.medicine.findUnique({ where: { barcode: data.barcode } }) : null;
+      if (!existing) {
+        existing = await prisma.medicine.findFirst({
+          where: { name: data.name, strength: data.strength ?? null, form: data.form ?? null },
+        });
+      }
+
+      if (existing) {
+        await prisma.medicine.update({ where: { medicine_id: existing.medicine_id }, data });
+        updated++;
+        results.push({ row: rowNum, status: 'updated' });
+      } else {
+        await prisma.medicine.create({ data });
+        created++;
+        results.push({ row: rowNum, status: 'created' });
+      }
+    } catch (err: any) {
+      errored++;
+      results.push({ row: rowNum, status: 'error', message: err.message });
+    }
+  }
+
+  return { created, updated, errored, results };
+};
+
 interface CreateMedicineInput {
   name: string;
   generic_name?: string;
@@ -231,6 +424,7 @@ interface CreateMedicineInput {
   category?: string;
   form?: string;
   strength?: string;
+  manufacturer?: string;
   unit: string;
   reorder_level?: number;
   max_stock_level?: number;
@@ -255,6 +449,7 @@ interface UpdateMedicineInput {
   category?: string;
   form?: string;
   strength?: string;
+  manufacturer?: string;
   unit?: string;
   reorder_level?: number;
   max_stock_level?: number;

@@ -74,9 +74,18 @@ export const label = async (req: Request, res: Response) => {
 
 export const createSubstitution = async (req: Request, res: Response) => {
   try {
-    const { medicine_id, substitute_medicine_id } = req.body;
-    const rule = await service.createSubstitution(medicine_id, substitute_medicine_id, actor(req).user_id);
+    const { medicine_id, substitute_medicine_id, priority, type } = req.body;
+    const rule = await service.createSubstitution(medicine_id, substitute_medicine_id, actor(req).user_id, { priority, type });
     res.status(201).json(rule);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const updateSubstitution = async (req: Request, res: Response) => {
+  try {
+    const rule = await service.updateSubstitution(Number(req.params.substitutionId), req.body);
+    res.status(200).json(rule);
   } catch (error) {
     handleError(req, res, error);
   }
@@ -84,9 +93,18 @@ export const createSubstitution = async (req: Request, res: Response) => {
 
 export const listSubstitutions = async (req: Request, res: Response) => {
   try {
-    const { medicineId } = req.query as any;
-    const rules = await service.listSubstitutions(medicineId ? Number(medicineId) : undefined);
+    const { medicineId, status } = req.query as any;
+    const rules = await service.listSubstitutions({ medicineId: medicineId ? Number(medicineId) : undefined, status });
     res.status(200).json(rules);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const substitutionStats = async (req: Request, res: Response) => {
+  try {
+    const data = await service.getSubstitutionStats();
+    res.status(200).json(data);
   } catch (error) {
     handleError(req, res, error);
   }

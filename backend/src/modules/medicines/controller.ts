@@ -45,6 +45,43 @@ export const listStock = async (req: Request, res: Response) => {
   }
 };
 
+export const catalogMeta = async (req: Request, res: Response) => {
+  try {
+    const data = await service.getCatalogMeta();
+    res.status(200).json(data);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const listCatalog = async (req: Request, res: Response) => {
+  try {
+    const { search, category, form, manufacturer, status, page, limit } = req.query as any;
+    const data = await service.listMedicineCatalog({
+      search,
+      category,
+      form,
+      manufacturer,
+      status,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+    res.status(200).json(data);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const importMedicines = async (req: Request, res: Response) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No CSV file provided' });
+    const result = await service.importMedicinesFromCsv(req.file.buffer.toString('utf-8'));
+    res.status(200).json(result);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
 export const getById = async (req: Request, res: Response) => {
   try {
     const medicine = await service.getMedicineById(Number(req.params.medicineId));

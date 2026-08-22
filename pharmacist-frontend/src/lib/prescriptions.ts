@@ -66,6 +66,7 @@ export interface PrescriptionItemDetail {
   instructions: string | null;
   qty: number;
   external_qty: number;
+  dispensed_qty: number; // cumulative qty drawn from clinic stock across partial dispenses (excludes external_qty)
   batch_id: number | null;
   dispensed_at: string | null;
   medicine: { name: string; unit: string };

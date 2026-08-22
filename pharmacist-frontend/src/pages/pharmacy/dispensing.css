@@ -200,6 +200,21 @@
   font-weight: 700;
 }
 
+.disp-qty-input {
+  width: 64px;
+  padding: 4px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: inherit;
+  color: #0f172a;
+  text-align: center;
+}
+.disp-qty-input:disabled {
+  background: #f8fafc;
+  color: #94a3b8;
+}
+
 .disp-total-line {
   display: flex;
   align-items: center;

@@ -57,7 +57,9 @@ export const getBatchSuggestions = (prescriptionId: number) =>
 export interface DispenseItemInput {
   rx_item_id: number;
   batch_id?: number;
+  qty?: number; // omit to dispense the item's full remaining balance; set for a genuine partial draw
   override_reason?: string;
+  notes?: string;
   substitute_medicine_id?: number;
 }
 
@@ -66,6 +68,54 @@ export interface DispenseItemInput {
 // this payload advance, the rest stay Pending/Preparing for a later pass.
 export const dispensePrescription = (prescriptionId: number, items: DispenseItemInput[]) =>
   api.post(`/pharmacy/prescriptions/${prescriptionId}/dispense`, { items }).then((r) => r.data);
+
+export type SubstitutionType = 'Auto' | 'Manual';
+export type SubstitutionStatusFilter = 'all' | 'active' | 'inactive';
+
+export interface SubstitutionRule {
+  substitutionId: number;
+  medicineId: number;
+  medicineName: string;
+  substituteMedicineId: number;
+  substituteMedicineName: string;
+  therapeuticClass: string | null;
+  priority: number;
+  type: SubstitutionType;
+  isActive: boolean;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface SubstitutionStats {
+  total: number;
+  active: number;
+  inactive: number;
+  autoCount: number;
+  manualCount: number;
+}
+
+export const getSubstitutionStats = () => api.get<SubstitutionStats>('/pharmacy/substitutions/stats').then((r) => r.data);
+
+export const listSubstitutions = (params?: { medicineId?: number; status?: SubstitutionStatusFilter }) =>
+  api.get<SubstitutionRule[]>('/pharmacy/substitutions', { params }).then((r) => r.data);
+
+export interface CreateSubstitutionInput {
+  medicine_id: number;
+  substitute_medicine_id: number;
+  priority?: number;
+  type?: SubstitutionType;
+}
+
+export const createSubstitution = (input: CreateSubstitutionInput) => api.post('/pharmacy/substitutions', input).then((r) => r.data);
+
+export interface UpdateSubstitutionInput {
+  priority?: number;
+  type?: SubstitutionType;
+  is_active?: boolean;
+}
+
+export const updateSubstitution = (substitutionId: number, input: UpdateSubstitutionInput) =>
+  api.patch(`/pharmacy/substitutions/${substitutionId}`, input).then((r) => r.data);
 
 // Same "PDF route only accepts a Bearer header" gotcha as the prescription PDF — blob-fetch
 // through the authenticated axios instance rather than a bare link.

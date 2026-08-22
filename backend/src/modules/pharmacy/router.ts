@@ -26,7 +26,9 @@ const dispenseSchema = z.object({
         z.object({
           rx_item_id: z.number().int().positive(),
           batch_id: z.number().int().positive().optional(),
+          qty: z.number().int().positive().optional(),
           override_reason: z.string().optional(),
+          notes: z.string().optional(),
           substitute_medicine_id: z.number().int().positive().optional(),
         })
       )
@@ -38,17 +40,33 @@ const substitutionCreateSchema = z.object({
   body: z.object({
     medicine_id: z.number().int().positive(),
     substitute_medicine_id: z.number().int().positive(),
+    priority: z.number().int().positive().optional(),
+    type: z.enum(['Auto', 'Manual']).optional(),
+  }),
+});
+
+const substitutionUpdateSchema = z.object({
+  params: z.object({ substitutionId: z.coerce.number().int().positive() }),
+  body: z.object({
+    priority: z.number().int().positive().optional(),
+    type: z.enum(['Auto', 'Manual']).optional(),
+    is_active: z.boolean().optional(),
   }),
 });
 
 const substitutionListSchema = z.object({
-  query: z.object({ medicineId: z.coerce.number().int().positive().optional() }),
+  query: z.object({
+    medicineId: z.coerce.number().int().positive().optional(),
+    status: z.enum(['all', 'active', 'inactive']).optional(),
+  }),
 });
 
 router.get('/queue', requireRole(READ_ROLES), validate(queueSchema), controller.queue);
 
+router.get('/substitutions/stats', requireRole(READ_ROLES), controller.substitutionStats);
 router.get('/substitutions', requireRole(READ_ROLES), validate(substitutionListSchema), controller.listSubstitutions);
 router.post('/substitutions', requireRole(WRITE_ROLES), validate(substitutionCreateSchema), controller.createSubstitution);
+router.patch('/substitutions/:substitutionId', requireRole(WRITE_ROLES), validate(substitutionUpdateSchema), controller.updateSubstitution);
 
 router.get(
   '/prescriptions/:prescriptionId/batch-suggestions',
