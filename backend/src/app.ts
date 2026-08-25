@@ -45,9 +45,12 @@ app.use(express.urlencoded({ extended: true }));
 app.use(pinoHttp());
 
 // Rate limiting
+// All portals (admin, doctor, receptionist, pharmacist) share one backend, so on a single
+// dev machine they all count against the same IP's budget — keep this generous enough for
+// several portals polling simultaneously while still guarding against abuse.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per `window` (here, per 15 minutes)
+  max: 2000, // Limit each IP to 2000 requests per `window` (here, per 15 minutes)
   message: 'Too many requests from this IP, please try again after 15 minutes',
 });
 app.use('/api', limiter);
