@@ -79,6 +79,31 @@ describe('Billing API', () => {
     expect(res.status).toBe(403);
   });
 
+  it('rejects invoice creation for a temporary/unregistered walk-in until they are registered', async () => {
+    const receptionist = await prisma.user.findUniqueOrThrow({ where: { username: 'reception' } });
+    const appointment = await prisma.appointment.create({
+      data: {
+        doctor_id: doctorId,
+        scheduled_at: new Date(),
+        status: 'Consulting',
+        created_by: receptionist.user_id,
+        is_walk_in: true,
+        is_temporary: true,
+        temp_patient_name: `Temp Billing Test ${runId}`,
+      },
+    });
+    const consultRes = await request(app)
+      .post('/api/v1/consultations')
+      .set('Authorization', `Bearer ${doctorToken}`)
+      .send({ appointment_id: appointment.appointment_id });
+
+    const res = await request(app)
+      .post('/api/v1/invoices')
+      .set('Authorization', `Bearer ${receptionToken}`)
+      .send({ consultation_id: consultRes.body.consultation_id });
+    expect(res.status).toBe(400);
+  });
+
   let invoiceId: number;
 
   it('creates a consolidated invoice combining the consultation fee and dispensed items', async () => {

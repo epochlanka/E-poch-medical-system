@@ -409,6 +409,46 @@
   color: #94a3b8;
 }
 
+/* ---- Full visit history (History tab, registered patients only) ---- */
+.cons-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cons-history-entry {
+  border: 1px solid #eef1f7;
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: #fbfcfe;
+}
+.cons-history-entry-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.cons-history-entry-date {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.cons-history-entry-row {
+  font-size: 12.5px;
+  color: #475569;
+  padding: 3px 0;
+}
+.cons-history-entry-label {
+  display: inline-block;
+  min-width: 78px;
+  font-weight: 600;
+  color: #94a3b8;
+}
+.cons-history-detail {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #eef1f7;
+}
+
 /* ---- Coming soon ---- */
 .cons-coming-soon {
   text-align: center;

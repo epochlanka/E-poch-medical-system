@@ -52,6 +52,29 @@
   color: #dc2626;
 }
 
+/* Current Queue table (Live Queue page): fits entirely within its card, no horizontal scroll —
+   fixed column proportions so the Action button is always visible without sliding. Scoped to
+   this table only so the shared .pat-table styling elsewhere in the app is untouched. */
+.q-live-queue-table {
+  table-layout: fixed;
+  width: 100%;
+}
+.q-live-queue-table th,
+.q-live-queue-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.q-live-queue-table td:nth-child(3) {
+  white-space: normal;
+  word-break: break-word;
+}
+/* Action column (8th): never clip the button — let width alone (28% via colgroup) keep it visible. */
+.q-live-queue-table th:nth-child(8),
+.q-live-queue-table td:nth-child(8) {
+  overflow: visible;
+  text-overflow: clip;
+}
+
 .q-now-card {
   background: #ecfdf5;
   border: 1px solid #bbf7d0;
@@ -85,6 +108,47 @@
 .q-now-value {
   font-weight: 700;
   color: #0f172a;
+}
+
+/* Compact horizontal Queue Controls bar, above the KPI cards on the Live Queue page. */
+.q-controls-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: white;
+  border: 1px solid #e7ebf3;
+  border-radius: 14px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+.q-top-control-btn {
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid #e2e8f0;
+  background: white;
+  color: #334155;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: inherit;
+}
+.q-top-control-btn:hover:not(:disabled) {
+  background: #f8fafc;
+}
+.q-top-control-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.q-top-control-btn.primary {
+  background: #2563eb;
+  color: white;
+  border-color: #2563eb;
+}
+.q-top-control-btn.primary:hover:not(:disabled) {
+  background: #1d4ed8;
 }
 
 .q-controls {

@@ -7,8 +7,11 @@ import {
   listAppointments,
   updateAppointmentStatus,
   tokenNumber,
-  calculateAge,
   waitingMinutes,
+  displayPatientName,
+  displayPatientId,
+  displayPatientGender,
+  displayAgeLabel,
 } from '../../lib/queue';
 import type { QueueAppointment } from '../../lib/queue';
 import {
@@ -190,14 +193,16 @@ const CallNext = () => {
                           <span className={`q-token${isNext ? ' next' : ''}`}>{tokenNumber(a.appointment_id)}</span>
                         </td>
                         <td>
-                          <div style={{ fontWeight: 600, color: '#0f172a' }}>{a.patient.full_name}</div>
+                          <div style={{ fontWeight: 600, color: '#0f172a' }}>
+                            {displayPatientName(a)} {a.is_temporary && <span className="badge badge-amber">Temporary</span>}
+                          </div>
                           <span className="pat-muted" style={{ fontSize: 11.5 }}>
-                            {a.patient.patient_id}
+                            {displayPatientId(a)}
                           </span>
                         </td>
                         <td>
-                          <span className={`q-gender-dot ${a.patient.gender === 'Female' ? 'female' : 'male'}`} />
-                          {calculateAge(a.patient.dob)} Y / {a.patient.gender}
+                          <span className={`q-gender-dot ${displayPatientGender(a) === 'Female' ? 'female' : 'male'}`} />
+                          {displayAgeLabel(a) ?? '—'} {displayPatientGender(a) ? `/ ${displayPatientGender(a)}` : ''}
                         </td>
                         <td>{formatTime(a.scheduled_at)}</td>
                         <td className={`q-wait-time ${waitClass(mins)}`}>{mins} min</td>
@@ -263,15 +268,17 @@ const CallNext = () => {
                   <div className="q-now-label">Token No.</div>
                   <div className="q-now-token-big">{tokenNumber(nowCalling.appointment_id)}</div>
                 </div>
-                <div className="q-now-avatar">{initials(nowCalling.patient.full_name)}</div>
+                <div className="q-now-avatar">{initials(displayPatientName(nowCalling))}</div>
               </div>
               <div className="q-now-row">
                 <span className="q-now-label">Patient</span>
-                <span className="q-now-value">{nowCalling.patient.full_name}</span>
+                <span className="q-now-value">
+                  {displayPatientName(nowCalling)} {nowCalling.is_temporary && <span className="badge badge-amber">Temporary</span>}
+                </span>
               </div>
               <div className="q-now-row">
                 <span className="q-now-label">MRN</span>
-                <span className="q-now-value">{nowCalling.patient.patient_id}</span>
+                <span className="q-now-value">{displayPatientId(nowCalling)}</span>
               </div>
               <div className="q-now-stats">
                 <div className="q-now-stat-box">

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { skipAppointment } from '../../lib/queue';
+import { skipAppointment, displayPatientName } from '../../lib/queue';
 import type { QueueAppointment } from '../../lib/queue';
 import { XIcon } from '../../components/layout/Icons';
 
@@ -40,7 +40,7 @@ const SkipModal = ({ appointment, onClose, onSkipped }: SkipModalProps) => {
           <div>
             <h2 className="modal-title">Skip Patient</h2>
             <p className="modal-subtitle">
-              {appointment.patient.full_name} will re-enter the queue later — this doesn't cancel their visit.
+              {displayPatientName(appointment)} will re-enter the queue later — this doesn't cancel their visit.
             </p>
           </div>
           <button className="pat-icon-btn" onClick={onClose} aria-label="Close">

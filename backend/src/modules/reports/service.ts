@@ -86,12 +86,16 @@ export const getPatientVolumeReport = async (input: DateRangeInput): Promise<Rep
     prisma.appointment.findMany({ where: { scheduled_at: { gte: priorStart, lte: priorEnd } }, select: { patient_id: true } }),
   ]);
 
+  // Temporary walk-ins have no patient_id — fall back to a per-appointment key so each still
+  // counts toward volume (it was a real visit), just not deduped against a permanent identity.
+  const dedupeKey = (a: { patient_id: string | null; scheduled_at?: Date }, i: number) => a.patient_id ?? `temp-${i}`;
+
   const byDay = new Map<string, Set<string>>();
-  for (const a of appointments) {
+  appointments.forEach((a, i) => {
     const key = localDateKey(a.scheduled_at);
     if (!byDay.has(key)) byDay.set(key, new Set());
-    byDay.get(key)!.add(a.patient_id);
-  }
+    byDay.get(key)!.add(dedupeKey(a, i));
+  });
 
   const rows: Record<string, unknown>[] = [];
   let cursor = new Date(start);
@@ -101,8 +105,8 @@ export const getPatientVolumeReport = async (input: DateRangeInput): Promise<Rep
     cursor = addDays(cursor, 1);
   }
 
-  const totalUniquePatients = new Set(appointments.map((a) => a.patient_id)).size;
-  const priorUniquePatients = new Set(priorAppointments.map((a) => a.patient_id)).size;
+  const totalUniquePatients = new Set(appointments.map(dedupeKey)).size;
+  const priorUniquePatients = new Set(priorAppointments.map(dedupeKey)).size;
 
   return {
     title: 'Daily Patient Volume',
@@ -368,9 +372,9 @@ export const getDoctorFollowUpsDueReport = async (doctorId?: number): Promise<Re
     consultationId: c.consultation_id,
     followUpDate: c.follow_up_date,
     isOverdue: (c.follow_up_date as Date) < todayStart,
-    patientId: c.appointment.patient.patient_id,
-    patientName: c.appointment.patient.full_name,
-    patientPhone: c.appointment.patient.phone,
+    patientId: c.appointment.patient?.patient_id ?? null,
+    patientName: c.appointment.patient?.full_name ?? c.appointment.temp_patient_name ?? 'Unregistered Patient',
+    patientPhone: c.appointment.patient?.phone ?? c.appointment.temp_patient_phone ?? null,
     doctorName: c.appointment.doctor.username,
   }));
 
@@ -521,15 +525,19 @@ export const getDoctorPatientVisitsReport = async (input: DateRangeInput & { doc
     doctorName = doctor.username;
   }
 
+  // Visit *frequency* only means something for a stable, repeat-identifiable patient — a
+  // temporary/unregistered walk-in has no persistent identity to accumulate a count against, so
+  // it's excluded here rather than shown as a permanent one-off "patient" in a frequency report.
   const appointments = await prisma.appointment.findMany({
-    where: { scheduled_at: { gte: start, lte: end }, ...(input.doctorId ? { doctor_id: input.doctorId } : {}) },
+    where: { scheduled_at: { gte: start, lte: end }, patient_id: { not: null }, ...(input.doctorId ? { doctor_id: input.doctorId } : {}) },
     select: { patient_id: true, patient: { select: { full_name: true } } },
   });
 
   const byPatient = new Map<string, { patientId: string; patientName: string; visits: number }>();
   for (const a of appointments) {
-    if (!byPatient.has(a.patient_id)) byPatient.set(a.patient_id, { patientId: a.patient_id, patientName: a.patient.full_name, visits: 0 });
-    byPatient.get(a.patient_id)!.visits += 1;
+    const patientId = a.patient_id as string;
+    if (!byPatient.has(patientId)) byPatient.set(patientId, { patientId, patientName: a.patient!.full_name, visits: 0 });
+    byPatient.get(patientId)!.visits += 1;
   }
 
   const rows = Array.from(byPatient.values()).sort((a, b) => b.visits - a.visits);
@@ -727,10 +735,16 @@ export const getDoctorClinicalStatistics = async (input: DateRangeInput & { doct
   const avgConsultationSeconds = avgOf(durations);
   const priorAvgConsultationSeconds = avgOf(priorDurations);
 
+  // New patients / demographics both need a stable, registered identity (DOB lives on Patient) —
+  // temporary walk-ins are excluded from both, same reasoning as the visit-frequency report above.
+  const registeredAppointments = appointments.filter(
+    (a): a is typeof a & { patient_id: string; patient: NonNullable<(typeof a)['patient']> } => a.patient_id !== null && a.patient !== null
+  );
+
   // New patients: the first appointment this doctor ever had with each patient, bucketed by
   // whether that first visit falls in the current vs prior period.
   const firstSeen = new Map<string, Date>();
-  for (const a of appointments) if (!firstSeen.has(a.patient_id)) firstSeen.set(a.patient_id, a.scheduled_at);
+  for (const a of registeredAppointments) if (!firstSeen.has(a.patient_id)) firstSeen.set(a.patient_id, a.scheduled_at);
   let newPatients = 0;
   let priorNewPatients = 0;
   for (const date of firstSeen.values()) {
@@ -748,7 +762,7 @@ export const getDoctorClinicalStatistics = async (input: DateRangeInput & { doct
 
   const now = new Date();
   const seenPatients = new Map<string, Date>();
-  for (const a of appointmentsInRange) if (!seenPatients.has(a.patient_id)) seenPatients.set(a.patient_id, a.patient.dob as Date);
+  for (const a of appointmentsInRange) if (a.patient_id && a.patient && !seenPatients.has(a.patient_id)) seenPatients.set(a.patient_id, a.patient.dob as Date);
   const patientDemographics = AGE_BUCKETS.map((bucket) => ({
     label: bucket.label,
     count: Array.from(seenPatients.values()).filter((dob) => {
@@ -941,7 +955,10 @@ export const getOverviewReport = async (input: DateRangeInput) => {
     prisma.appointment.count({ where: { scheduled_at: { gte: priorStart, lte: priorEnd } } }),
     prisma.consultation.findMany({
       where: { status: 'Finalized', created_at: { gte: start, lte: end } },
-      select: { consultation_id: true, appointment: { select: { patient_id: true, doctor: { select: { user_id: true, username: true } } } } },
+      select: {
+        consultation_id: true,
+        appointment: { select: { appointment_id: true, patient_id: true, doctor: { select: { user_id: true, username: true } } } },
+      },
     }),
     prisma.consultation.count({ where: { status: 'Finalized', created_at: { gte: priorStart, lte: priorEnd } } }),
     prisma.prescription.count({ where: { issued_at: { gte: start, lte: end } } }),
@@ -1021,7 +1038,7 @@ export const getOverviewReport = async (input: DateRangeInput) => {
     const doctor = c.appointment.doctor;
     const agg = getDoctorAgg(doctor.user_id, doctor.username);
     agg.consultations += 1;
-    agg.patients.add(c.appointment.patient_id);
+    agg.patients.add(c.appointment.patient_id ?? `temp-${c.appointment.appointment_id}`);
   }
   for (const inv of invoices) {
     const doctor = inv.consultation?.appointment.doctor;

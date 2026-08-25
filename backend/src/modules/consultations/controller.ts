@@ -110,6 +110,16 @@ export const context = async (req: Request, res: Response) => {
   }
 };
 
+export const patientHistory = async (req: Request, res: Response) => {
+  try {
+    const excludeAppointmentId = req.query.excludeAppointmentId ? Number(req.query.excludeAppointmentId) : undefined;
+    const result = await service.getPatientConsultationHistory(String(req.params.patientId), excludeAppointmentId);
+    res.status(200).json(result);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
 export const uploadDocument = async (req: Request, res: Response) => {
   try {
     const file = (req as any).file;

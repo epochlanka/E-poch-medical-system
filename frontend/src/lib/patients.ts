@@ -86,6 +86,8 @@ export type PatientHistoryEvent =
   | { type: 'appointment'; date: string; appointmentId: number; status: string; doctorName: string }
   | { type: 'consultation'; date: string; consultationId: number; diagnosis: string | null; status: string; followUpDate: string | null }
   | { type: 'prescription'; date: string; prescriptionId: number; status: string; items: { medicine: string; dosage: string; qty: number }[] }
-  | { type: 'invoice'; date: string; invoiceId: number; totalAmount: number; paymentStatus: string };
+  | { type: 'invoice'; date: string; invoiceId: number; totalAmount: number; paymentStatus: string }
+  | { type: 'document'; date: string; documentId: number; consultationId: number; filename: string; originalName: string; mimeType: string }
+  | { type: 'vitals'; date: string; consultationId: number; vitals: Record<string, unknown> };
 
 export const getPatientHistory = (patientId: string) => api.get<PatientHistoryEvent[]>(`/patients/${patientId}/history`).then((r) => r.data);

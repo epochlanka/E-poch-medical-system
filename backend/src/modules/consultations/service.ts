@@ -319,12 +319,13 @@ export const listConsultations = async (filters: ListConsultationsFilters) => {
       notes: c.notes,
       createdAt: c.created_at,
       followUpDate: c.follow_up_date,
-      patientId: c.appointment.patient.patient_id,
-      patientName: c.appointment.patient.full_name,
-      patientGender: c.appointment.patient.gender,
-      patientDob: c.appointment.patient.dob,
-      patientPhone: c.appointment.patient.phone,
-      patientPhotoUrl: c.appointment.patient.photo_url,
+      patientId: c.appointment.patient?.patient_id ?? null,
+      patientName: c.appointment.patient?.full_name ?? c.appointment.temp_patient_name ?? 'Unregistered Patient',
+      patientGender: c.appointment.patient?.gender ?? c.appointment.temp_patient_gender ?? null,
+      patientDob: c.appointment.patient?.dob ?? null,
+      patientPhone: c.appointment.patient?.phone ?? c.appointment.temp_patient_phone ?? null,
+      patientPhotoUrl: c.appointment.patient?.photo_url ?? null,
+      isTemporary: c.appointment.is_temporary,
       doctorId: c.appointment.doctor.user_id,
       doctorName: c.appointment.doctor.username,
     })),
@@ -363,24 +364,31 @@ export const getConsultationContext = async (appointmentId: number, actor: Actor
   });
   const consultation = consultationRow ? serializeConsultation(consultationRow) : null;
 
-  const [pastConsultations, lastOtherAppointment, recentPrescription] = await Promise.all([
-    prisma.consultation.findMany({
-      where: { appointment: { patient_id: appointment.patient_id }, status: 'Finalized', appointment_id: { not: appointmentId } },
-      select: { medical_history_json: true, diagnosis: true, created_at: true },
-      orderBy: { created_at: 'desc' },
-      take: 10,
-    }),
-    prisma.appointment.findFirst({
-      where: { patient_id: appointment.patient_id, appointment_id: { not: appointmentId }, scheduled_at: { lt: startOfDay() } },
-      orderBy: { scheduled_at: 'desc' },
-      select: { scheduled_at: true },
-    }),
-    prisma.prescription.findFirst({
-      where: { consultation: { appointment: { patient_id: appointment.patient_id } } },
-      include: { items: { include: { medicine: { select: { name: true } } } } },
-      orderBy: { issued_at: 'desc' },
-    }),
-  ]);
+  // A temporary walk-in has no patient_id — there is no real identity to aggregate history
+  // against, and `patient_id: null` would otherwise match every *other* unregistered walk-in's
+  // appointments too (Prisma treats `null` as a real filter value), leaking unrelated patients'
+  // chronic conditions/medications/last-visit into this context. Skip these lookups entirely.
+  const patientId = appointment.patient_id;
+  const [pastConsultations, lastOtherAppointment, recentPrescription] = patientId
+    ? await Promise.all([
+        prisma.consultation.findMany({
+          where: { appointment: { patient_id: patientId }, status: 'Finalized', appointment_id: { not: appointmentId } },
+          select: { medical_history_json: true, diagnosis: true, created_at: true },
+          orderBy: { created_at: 'desc' },
+          take: 10,
+        }),
+        prisma.appointment.findFirst({
+          where: { patient_id: patientId, appointment_id: { not: appointmentId }, scheduled_at: { lt: startOfDay() } },
+          orderBy: { scheduled_at: 'desc' },
+          select: { scheduled_at: true },
+        }),
+        prisma.prescription.findFirst({
+          where: { consultation: { appointment: { patient_id: patientId } } },
+          include: { items: { include: { medicine: { select: { name: true } } } } },
+          orderBy: { issued_at: 'desc' },
+        }),
+      ])
+    : [[], null, null];
 
   const chronicConditions = Array.from(
     new Set(pastConsultations.flatMap((c) => (c.medical_history_json ? (JSON.parse(c.medical_history_json) as string[]) : [])))
@@ -394,18 +402,113 @@ export const getConsultationContext = async (appointmentId: number, actor: Actor
       status: appointment.status,
       scheduledAt: appointment.scheduled_at,
       patient: appointment.patient,
+      isTemporary: appointment.is_temporary,
+      tempPatient: appointment.is_temporary
+        ? {
+            name: appointment.temp_patient_name,
+            gender: appointment.temp_patient_gender,
+            phone: appointment.temp_patient_phone,
+            age: appointment.temp_patient_age,
+          }
+        : null,
       doctor: appointment.doctor,
     },
     consultation,
     patientSummary: {
-      bloodGroup: appointment.patient.blood_group,
-      allergies: appointment.patient.allergies,
+      bloodGroup: appointment.patient?.blood_group ?? null,
+      allergies: appointment.patient?.allergies ?? null,
       chronicConditions,
       currentMedications: recentPrescription?.items.map((i) => i.medicine.name) ?? [],
       lastVisit: lastOtherAppointment?.scheduled_at ?? null,
     },
     recentConsultations,
   };
+};
+
+// ---- Patient Consultation History (History tab) ------------------------------------------
+// Registered patients only — the caller is expected to only invoke this with a real patient_id
+// (the doctor-frontend never shows the History tab, and never has a patientId to pass, for a
+// temporary/unregistered walk-in). Called with a patientId that matches nothing just returns [].
+
+export const getPatientConsultationHistory = async (patientId: string, excludeAppointmentId?: number) => {
+  const consultations = await prisma.consultation.findMany({
+    where: {
+      appointment: { patient_id: patientId },
+      status: 'Finalized',
+      ...(excludeAppointmentId ? { appointment_id: { not: excludeAppointmentId } } : {}),
+    },
+    include: {
+      appointment: {
+        select: {
+          appointment_id: true,
+          scheduled_at: true,
+          doctor: { select: { user_id: true, username: true, registration_number: true } },
+        },
+      },
+    },
+    orderBy: { created_at: 'desc' },
+  });
+
+  const consultationIds = consultations.map((c) => c.consultation_id);
+
+  // Two batched queries (not one per visit) — prescriptions and lab orders for every past visit
+  // fetched together, then grouped in memory below, so this stays O(1) round-trips regardless
+  // of how many past consultations the patient has.
+  const [prescriptions, labTestOrders] = consultationIds.length
+    ? await Promise.all([
+        prisma.prescription.findMany({
+          where: { consultation_id: { in: consultationIds } },
+          include: { items: { include: { medicine: { select: { name: true } } } } },
+          orderBy: { issued_at: 'asc' },
+        }),
+        prisma.labTestOrder.findMany({
+          where: { consultation_id: { in: consultationIds } },
+          include: { results: { orderBy: { entered_at: 'asc' } } },
+          orderBy: { order_date: 'asc' },
+        }),
+      ])
+    : [[], []];
+
+  return consultations.map((c) => ({
+    consultationId: c.consultation_id,
+    appointmentId: c.appointment_id,
+    createdAt: c.created_at,
+    finalizedAt: c.finalized_at,
+    doctorName: c.appointment.doctor.username,
+    doctorRegistrationNumber: c.appointment.doctor.registration_number,
+    complaint: c.complaint,
+    historyOfPresentIllness: c.history_of_present_illness,
+    examinationFindings: c.examination_findings,
+    vitals: c.vitals_json ? JSON.parse(c.vitals_json) : null,
+    medicalHistory: c.medical_history_json ? (JSON.parse(c.medical_history_json) as string[]) : [],
+    diagnosis: c.diagnosis,
+    icd10Code: c.icd10_code,
+    notes: c.notes,
+    followUpDate: c.follow_up_date,
+    prescriptions: prescriptions
+      .filter((rx) => rx.consultation_id === c.consultation_id)
+      .map((rx) => ({
+        prescriptionId: rx.prescription_id,
+        status: rx.status,
+        issuedAt: rx.issued_at,
+        items: rx.items.map((i) => ({ medicine: i.medicine.name, dosage: i.dosage, qty: i.qty })),
+      })),
+    labTestOrders: labTestOrders
+      .filter((lt) => lt.consultation_id === c.consultation_id)
+      .map((lt) => ({
+        labTestOrderId: lt.lab_test_order_id,
+        testName: lt.test_name,
+        status: lt.status,
+        priority: lt.priority,
+        results: lt.results.map((r) => ({
+          parameterName: r.parameter_name,
+          value: r.result_value,
+          unit: r.unit,
+          referenceRange: r.reference_range,
+          flag: r.result_flag,
+        })),
+      })),
+  }));
 };
 
 // ---- Attach Files (consultation-scoped document uploads) --------------------------------

@@ -9,16 +9,36 @@ const router = Router();
 const APPOINTMENT_STATUSES = ['Waiting', 'Called', 'Consulting', 'Completed', 'Skipped', 'Cancelled', 'No Show'] as const;
 
 const createAppointmentSchema = z.object({
+  body: z
+    .object({
+      patient_id: z.string().min(1).optional(),
+      is_temporary: z.boolean().optional(),
+      temp_patient_name: z.string().min(1).optional(),
+      temp_patient_gender: z.enum(['Male', 'Female', 'Other']).optional(),
+      temp_patient_phone: z.string().optional(),
+      temp_patient_age: z.number().int().positive().max(150).optional(),
+      doctor_id: z.number().positive('Doctor ID is required'),
+      scheduled_at: z.string().datetime({ message: 'Must be a valid ISO datetime' }),
+      reason: z.string().optional(),
+      is_walk_in: z.boolean().optional(),
+      consultation_type: z.string().optional(),
+      visit_type: z.enum(['Appointment', 'Follow-up']).optional(),
+      priority: z.enum(['Normal', 'Urgent', 'Emergency']).optional(),
+      notes: z.string().optional()
+    })
+    // Exactly one identity path — a registered patient, or a temporary walk-in with a name.
+    .refine((d) => (d.is_temporary ? !d.patient_id && !!d.temp_patient_name : !!d.patient_id), {
+      message: 'Provide either patient_id, or is_temporary with temp_patient_name',
+      path: ['patient_id']
+    })
+});
+
+const convertToPatientSchema = z.object({
   body: z.object({
-    patient_id: z.string().min(1, 'Patient ID is required'),
-    doctor_id: z.number().positive('Doctor ID is required'),
-    scheduled_at: z.string().datetime({ message: 'Must be a valid ISO datetime' }),
-    reason: z.string().optional(),
-    is_walk_in: z.boolean().optional(),
-    consultation_type: z.string().optional(),
-    visit_type: z.enum(['Appointment', 'Follow-up']).optional(),
-    priority: z.enum(['Normal', 'Urgent', 'Emergency']).optional(),
-    notes: z.string().optional()
+    patient_id: z.string().min(1, 'Patient ID is required')
+  }),
+  params: z.object({
+    id: z.string().transform((val) => parseInt(val, 10))
   })
 });
 
@@ -129,5 +149,6 @@ router.get('/', appointmentsController.getAllAppointments);
 router.patch('/:id/status', validate(updateStatusSchema), appointmentsController.updateStatus);
 router.patch('/:id/time', validate(updateTimeSchema), appointmentsController.updateTime);
 router.patch('/:id/skip', validate(skipSchema), appointmentsController.skipAppointment);
+router.patch('/:id/convert-to-patient', validate(convertToPatientSchema), appointmentsController.convertToPatient);
 
 export { router as appointmentsRouter };

@@ -56,7 +56,12 @@ export class AppointmentsService {
    * alongside whoever's already booked, not claiming an exclusive slot).
    */
   async createAppointment(data: {
-    patient_id: string;
+    patient_id?: string;
+    is_temporary?: boolean;
+    temp_patient_name?: string;
+    temp_patient_gender?: string;
+    temp_patient_phone?: string;
+    temp_patient_age?: number;
     doctor_id: number;
     scheduled_at: Date;
     reason?: string;
@@ -67,6 +72,16 @@ export class AppointmentsService {
     notes?: string;
     created_by: number;
   }) {
+    // Exactly one identity path: a real registered Patient, or a today-only temporary walk-in
+    // (FR-026 extension — "Continue Without Registration"). Enforced again here, not just at the
+    // zod layer, since this service method is the actual source of truth for what gets persisted.
+    if (data.is_temporary) {
+      if (data.patient_id) throw new ValidationError('A temporary walk-in cannot also reference a registered patient');
+      if (!data.temp_patient_name?.trim()) throw new ValidationError('A name is required to add a temporary patient to the queue');
+    } else if (!data.patient_id) {
+      throw new ValidationError('patient_id is required unless this is a temporary walk-in');
+    }
+
     if (!data.is_walk_in) {
       const conflict = await prisma.appointment.findFirst({
         where: { doctor_id: data.doctor_id, scheduled_at: data.scheduled_at, status: { in: ACTIVE_STATUSES } },
@@ -76,7 +91,12 @@ export class AppointmentsService {
 
     return prisma.appointment.create({
       data: {
-        patient_id: data.patient_id,
+        patient_id: data.is_temporary ? null : data.patient_id,
+        is_temporary: data.is_temporary ?? false,
+        temp_patient_name: data.is_temporary ? data.temp_patient_name!.trim() : null,
+        temp_patient_gender: data.is_temporary ? data.temp_patient_gender ?? null : null,
+        temp_patient_phone: data.is_temporary ? data.temp_patient_phone ?? null : null,
+        temp_patient_age: data.is_temporary ? data.temp_patient_age ?? null : null,
         doctor_id: data.doctor_id,
         scheduled_at: data.scheduled_at,
         reason: data.reason,
@@ -88,6 +108,29 @@ export class AppointmentsService {
         created_by: data.created_by,
         status: 'Waiting',
       },
+      include: { patient: { select: patientSelect }, doctor: { select: doctorSelect } },
+    });
+  }
+
+  /**
+   * Convert a temporary/unregistered walk-in's appointment to point at a just-registered Patient
+   * — the one bridge back from "Continue Without Registration" to a permanent record. Required
+   * before billing (Invoice.patient_id is a hard FK — see billing/service.ts's createInvoice
+   * guard) but useful any time reception decides the walk-in should have a real chart after all.
+   * temp_* fields are left in place as a historical trace of how the visit started; only
+   * is_temporary flips false since the appointment now has a real patient_id.
+   */
+  async convertToPatient(appointment_id: number, patient_id: string) {
+    const appointment = await prisma.appointment.findUnique({ where: { appointment_id } });
+    if (!appointment) throw new NotFoundError('Appointment not found');
+    if (!appointment.is_temporary) throw new ValidationError('This appointment is not a temporary walk-in');
+
+    const patient = await prisma.patient.findUnique({ where: { patient_id } });
+    if (!patient) throw new NotFoundError('Patient not found');
+
+    return prisma.appointment.update({
+      where: { appointment_id },
+      data: { patient_id, is_temporary: false },
       include: { patient: { select: patientSelect }, doctor: { select: doctorSelect } },
     });
   }
@@ -236,14 +279,18 @@ export class AppointmentsService {
     // T-0xx tokens — rather than a per-column counter, so a card's number is stable regardless
     // of which column it's currently sitting in.
     appointments.forEach((a, i) => {
+      // A temporary walk-in has no Patient row — fall back to the minimal details captured at
+      // queue-entry time (see Appointment.temp_patient_* in schema.prisma) rather than crashing.
       const card = {
         appointment_id: a.appointment_id,
         token: i + 1,
-        patient_id: a.patient.patient_id,
-        patient_name: a.patient.full_name,
-        dob: a.patient.dob,
-        gender: a.patient.gender,
-        phone: a.patient.phone,
+        patient_id: a.patient?.patient_id ?? null,
+        patient_name: a.patient?.full_name ?? a.temp_patient_name ?? 'Unregistered Patient',
+        dob: a.patient?.dob ?? null,
+        gender: a.patient?.gender ?? a.temp_patient_gender ?? null,
+        phone: a.patient?.phone ?? a.temp_patient_phone ?? null,
+        is_temporary: a.is_temporary,
+        temp_patient_age: a.temp_patient_age ?? null,
         doctor_id: a.doctor_id,
         doctor_name: a.doctor.username,
         scheduled_at: a.scheduled_at,
@@ -323,6 +370,8 @@ export class AppointmentsService {
         { patient: { full_name: { contains: term } } },
         { patient: { phone: { contains: term } } },
         { patient_id: { contains: term } },
+        { temp_patient_name: { contains: term } },
+        { temp_patient_phone: { contains: term } },
         ...(Number.isFinite(asId) && asId > 0 ? [{ appointment_id: asId }] : []),
       ];
     }
@@ -454,6 +503,12 @@ export class AppointmentsService {
     if (!appointment) throw new NotFoundError('Appointment not found');
     assertDoctorOwnsIfDoctor(actor, appointment.doctor_id);
 
+    // Completed/Cancelled/No Show are terminal — finalizeConsultation() is the only legitimate
+    // path into Completed, and nothing should ever move an appointment back out of any of these.
+    if (['Completed', 'Cancelled', 'No Show'].includes(appointment.status) && status !== appointment.status) {
+      throw new ValidationError(`Cannot change status of a ${appointment.status} appointment`);
+    }
+
     const isRecall = status === 'Waiting' && appointment.status === 'Skipped';
 
     const updated = await prisma.appointment.update({
@@ -478,6 +533,10 @@ export class AppointmentsService {
     const appointment = await prisma.appointment.findUnique({ where: { appointment_id } });
     if (!appointment) throw new NotFoundError('Appointment not found');
     assertDoctorOwnsIfDoctor(actor, appointment.doctor_id);
+
+    if (!['Waiting', 'Called'].includes(appointment.status)) {
+      throw new ValidationError(`Cannot skip an appointment that is currently ${appointment.status}`);
+    }
 
     const updated = await prisma.appointment.update({
       where: { appointment_id },
@@ -513,7 +572,13 @@ export class AppointmentsService {
         ...(filters.doctorId ? { doctor_id: filters.doctorId } : {}),
         ...(filters.consultationType ? { consultation_type: filters.consultationType } : {}),
         ...(filters.search
-          ? { OR: [{ patient: { full_name: { contains: filters.search } } }, { patient_id: { contains: filters.search } }] }
+          ? {
+              OR: [
+                { patient: { full_name: { contains: filters.search } } },
+                { patient_id: { contains: filters.search } },
+                { temp_patient_name: { contains: filters.search } },
+              ],
+            }
           : {}),
       },
     };
@@ -535,6 +600,10 @@ export class AppointmentsService {
               consultation_type: true,
               priority: true,
               is_walk_in: true,
+              is_temporary: true,
+              temp_patient_name: true,
+              temp_patient_gender: true,
+              temp_patient_phone: true,
               patient: { select: patientSelect },
               doctor: { select: doctorSelect },
             },

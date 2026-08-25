@@ -89,13 +89,36 @@ export interface PrescriptionDetail {
       appointment_id: number;
       consultation_type: string | null;
       scheduled_at: string;
-      patient: { patient_id: string; full_name: string; gender: string; dob: string; phone: string | null; allergies: string | null };
+      // Null for a temporary/unregistered walk-in — use displayDetailPatient() below.
+      patient: { patient_id: string; full_name: string; gender: string; dob: string; phone: string | null; allergies: string | null } | null;
+      is_temporary: boolean;
+      temp_patient_name: string | null;
+      temp_patient_gender: string | null;
+      temp_patient_phone: string | null;
+      temp_patient_age: number | null;
       doctor: { user_id: number; username: string; registration_number: string | null };
     };
   };
 }
 
 export const getPrescription = (prescriptionId: number) => api.get<PrescriptionDetail>(`/prescriptions/${prescriptionId}`).then((r) => r.data);
+
+// Normalizes a registered Patient and a temporary walk-in's minimal captured details into one
+// always-non-null shape, so pharmacy views can render displayDetailPatient(detail).fullName etc.
+// without a null check at every call site.
+export const displayDetailPatient = (detail: Pick<PrescriptionDetail, 'consultation'>) => {
+  const a = detail.consultation.appointment;
+  return {
+    patientId: a.patient?.patient_id ?? null,
+    fullName: a.patient?.full_name ?? a.temp_patient_name ?? 'Unregistered Patient',
+    gender: a.patient?.gender ?? a.temp_patient_gender ?? null,
+    dob: a.patient?.dob ?? null,
+    approxAge: a.temp_patient_age ?? null,
+    phone: a.patient?.phone ?? a.temp_patient_phone ?? null,
+    allergies: a.patient?.allergies ?? null,
+    isTemporary: a.is_temporary,
+  };
+};
 
 // The PDF route only accepts a Bearer Authorization header (no query-param token support in
 // requireAuth), so a plain <a href>/window.open() can't carry auth — fetch it as a blob through

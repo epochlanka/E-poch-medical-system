@@ -357,4 +357,51 @@ describe('Pharmacy API', () => {
     expect(res.body.total).toBe(res.body.active + res.body.inactive);
     expect(res.body.total).toBe(res.body.autoCount + res.body.manualCount);
   });
+
+  describe('Temporary/unregistered walk-in patients in the pharmacy queue', () => {
+    it('lists a temporary walk-in\'s prescription in the queue and label PDF without crashing on the null patient', async () => {
+      const receptionist = await prisma.user.findUniqueOrThrow({ where: { username: 'reception' } });
+      const appointment = await prisma.appointment.create({
+        data: {
+          doctor_id: doctorId,
+          scheduled_at: new Date(),
+          status: 'Consulting',
+          created_by: receptionist.user_id,
+          is_walk_in: true,
+          is_temporary: true,
+          temp_patient_name: `Temp Pharmacy Test ${runId}`,
+        },
+      });
+      const consultRes = await request(app)
+        .post('/api/v1/consultations')
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ appointment_id: appointment.appointment_id });
+      const rxRes = await request(app)
+        .post('/api/v1/prescriptions')
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ consultation_id: consultRes.body.consultation_id, items: [{ medicine_id: medicineId, dosage: '1 tab', qty: 5 }] });
+      expect(rxRes.status).toBe(201);
+
+      const queueRes = await request(app).get('/api/v1/pharmacy/queue').set('Authorization', `Bearer ${pharmacistToken}`);
+      expect(queueRes.status).toBe(200);
+      const entry = queueRes.body.Pending.find((r: any) => r.prescriptionId === rxRes.body.prescription_id);
+      expect(entry).toBeDefined();
+      expect(entry.patientId).toBeNull();
+      expect(entry.patientName).toBe(`Temp Pharmacy Test ${runId}`);
+      expect(entry.isTemporary).toBe(true);
+
+      const dispenseRes = await request(app)
+        .post(`/api/v1/pharmacy/prescriptions/${rxRes.body.prescription_id}/dispense`)
+        .set('Authorization', `Bearer ${pharmacistToken}`)
+        .send({ items: [{ rx_item_id: rxRes.body.items[0].rx_item_id, batch_id: earlyBatchId }] });
+      expect(dispenseRes.status).toBe(200);
+
+      const labelRes = await request(app).get(`/api/v1/pharmacy/prescriptions/${rxRes.body.prescription_id}/label`).set('Authorization', `Bearer ${pharmacistToken}`);
+      expect(labelRes.status).toBe(200);
+      expect(labelRes.headers['content-type']).toBe('application/pdf');
+
+      const pdfRes = await request(app).get(`/api/v1/prescriptions/${rxRes.body.prescription_id}/pdf`).set('Authorization', `Bearer ${doctorToken}`);
+      expect(pdfRes.status).toBe(200);
+    });
+  });
 });

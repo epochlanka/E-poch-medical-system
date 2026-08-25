@@ -1,5 +1,5 @@
 import { api } from './api';
-import type { ConsultationPatient } from './consultations';
+import type { ConsultationPatient, TempPatientInfo } from './consultations';
 
 export interface PrescriptionItemInput {
   medicine_id: number;
@@ -158,7 +158,15 @@ export interface PastPrescription {
 
 export interface PrescriptionContext {
   consultation: { consultationId: number; status: string; diagnosis: string | null; icd10Code: string | null };
-  appointment: { appointmentId: number; scheduledAt: string; patient: ConsultationPatient; doctor: { user_id: number; username: string; registration_number: string | null } };
+  appointment: {
+    appointmentId: number;
+    scheduledAt: string;
+    // Null for a temporary/unregistered walk-in — use displayPrescriptionPatient() below.
+    patient: ConsultationPatient | null;
+    isTemporary: boolean;
+    tempPatient: TempPatientInfo | null;
+    doctor: { user_id: number; username: string; registration_number: string | null };
+  };
   existingPrescriptions: { prescription_id: number; status: string; issued_at: string }[];
   patientSummary: { allergies: string | null; chronicConditions: string[]; currentMedications: string[]; priorVisitCount: number };
   pastPrescriptions: PastPrescription[];
@@ -166,6 +174,24 @@ export interface PrescriptionContext {
 
 export const getPrescriptionContext = (consultationId: number) =>
   api.get<PrescriptionContext>(`/prescriptions/context/${consultationId}`).then((r) => r.data);
+
+// Same normalization as consultations.ts's displayPatient() — always-non-null shape covering
+// both a registered Patient and a temporary walk-in's minimal captured details.
+export const displayPrescriptionPatient = (ctx: Pick<PrescriptionContext, 'appointment'>) => {
+  const p = ctx.appointment.patient;
+  const t = ctx.appointment.tempPatient;
+  return {
+    patientId: p?.patient_id ?? null,
+    fullName: p?.full_name ?? t?.name ?? 'Unregistered Patient',
+    gender: p?.gender ?? t?.gender ?? null,
+    dob: p?.dob ?? null,
+    approxAge: t?.age ?? null,
+    phone: p?.phone ?? t?.phone ?? null,
+    photoUrl: p?.photo_url ?? null,
+    bloodGroup: p?.blood_group ?? null,
+    isTemporary: ctx.appointment.isTemporary,
+  };
+};
 
 export const downloadPrescriptionPdf = async (prescriptionId: number, code: string) => {
   const res = await api.get(`/prescriptions/${prescriptionId}/pdf`, { responseType: 'blob' });

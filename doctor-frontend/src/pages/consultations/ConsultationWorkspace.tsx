@@ -3,8 +3,17 @@ import type { ChangeEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import { fileUrl } from '../../lib/api';
-import { getConsultationContext, createConsultation, updateConsultation, finalizeConsultation, listAmendments, AMENDABLE_FIELDS } from '../../lib/consultations';
-import type { ConsultationInput, AmendmentEntry, AmendableField } from '../../lib/consultations';
+import {
+  getConsultationContext,
+  createConsultation,
+  updateConsultation,
+  finalizeConsultation,
+  listAmendments,
+  AMENDABLE_FIELDS,
+  displayPatient,
+  getPatientConsultationHistory,
+} from '../../lib/consultations';
+import type { ConsultationInput, AmendmentEntry, AmendableField, PatientConsultationHistoryEntry } from '../../lib/consultations';
 import { searchIcd11 } from '../../lib/icd11';
 import type { Icd11Match } from '../../lib/icd11';
 import { listLabTestOrders, printLabTestOrder, printLabResultReport } from '../../lib/labTestOrders';
@@ -13,7 +22,7 @@ import AmendModal from './AmendModal';
 import AddLabTestModal from '../labTestOrders/AddLabTestModal';
 import MarkReceivedModal from '../labTestOrders/MarkReceivedModal';
 import LabResultModal from '../labTestOrders/LabResultModal';
-import { getLiveQueue, calculateAge, tokenNumber } from '../../lib/queue';
+import { getLiveQueue, calculateAge, tokenNumber, displayPatientName } from '../../lib/queue';
 import { updatePatientAllergies } from '../../lib/patients';
 import {
   ChevronLeftIcon,
@@ -135,7 +144,7 @@ const WorkspacePicker = () => {
                 <td>
                   <span className="q-token next">{tokenNumber(a.appointment_id)}</span>
                 </td>
-                <td style={{ fontWeight: 600 }}>{a.patient.full_name}</td>
+                <td style={{ fontWeight: 600 }}>{displayPatientName(a)}</td>
                 <td>
                   <button className="pat-btn primary" style={{ fontSize: 12, padding: '6px 12px' }} onClick={() => navigate(`/consultations/workspace/${a.appointment_id}`)}>
                     Open
@@ -176,6 +185,10 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
   const [amendments, setAmendments] = useState<AmendmentEntry[] | null>(null);
   const [amendReloadToken, setAmendReloadToken] = useState(0);
 
+  const [patientHistory, setPatientHistory] = useState<PatientConsultationHistoryEntry[] | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [expandedHistoryId, setExpandedHistoryId] = useState<number | null>(null);
+
   const [diagnosisResults, setDiagnosisResults] = useState<Icd11Match[]>([]);
   const [diagnosisOpen, setDiagnosisOpen] = useState(false);
   const [diagnosisError, setDiagnosisError] = useState(false);
@@ -184,6 +197,10 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
 
   useEffect(() => {
     if (!context) return;
+    // A different appointment (different patient) may have just loaded — don't leave the
+    // previous patient's history cached under the new one.
+    setPatientHistory(null);
+    setExpandedHistoryId(null);
     const c = context.consultation;
     setConsultationId(c?.consultation_id ?? null);
     setFollowUpDate(c?.follow_up_date ? c.follow_up_date.slice(0, 10) : '');
@@ -227,6 +244,26 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
     // change — consultationId and status both stay the same across an amend, so without this the
     // freshly-saved entry silently wouldn't show up until the next full page load.
   }, [consultationId, isConsultationFinalized, amendReloadToken]);
+
+  // History tab, fetched lazily (only once the doctor actually opens it, not on every workspace
+  // load) and only for a registered patient — a temporary walk-in has no patient_id to call this
+  // with, and must never get a permanent history record (see backend guard).
+  const historyPatientId = context?.appointment.patient?.patient_id ?? null;
+  useEffect(() => {
+    if (tab !== 'history' || !historyPatientId || patientHistory !== null) return;
+    let cancelled = false;
+    setHistoryLoading(true);
+    getPatientConsultationHistory(historyPatientId, appointmentId)
+      .then((entries) => {
+        if (!cancelled) setPatientHistory(entries);
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, historyPatientId, appointmentId, patientHistory]);
 
   const [labTestOrders, setLabTestOrders] = useState<LabTestOrder[]>([]);
   const reloadLabTestOrders = () => {
@@ -282,7 +319,7 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
   if (error || !context) return <div className="dash-error-banner">Couldn't load this appointment: {error}</div>;
 
   const { appointment } = context;
-  const { patient } = appointment;
+  const patient = displayPatient(context);
   const consultation = context.consultation;
   const isFinalized = consultation?.status === 'Finalized';
   const canStart = appointment.status === 'Consulting';
@@ -395,10 +432,11 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
   };
 
   const handleSaveAllergies = async () => {
+    if (!patient.patientId) return;
     setSaveError(null);
     setSavingAllergies(true);
     try {
-      await updatePatientAllergies(patient.patient_id, allergiesDraft.trim());
+      await updatePatientAllergies(patient.patientId, allergiesDraft.trim());
       setEditingAllergies(false);
       reload();
     } catch (err: any) {
@@ -446,18 +484,20 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
       {saveError && <div className="dash-error-banner">{saveError}</div>}
 
       <div className="cons-banner">
-        {patient.photo_url ? (
-          <img className="cons-banner-avatar" src={fileUrl(patient.photo_url)} alt={patient.full_name} />
+        {patient.photoUrl ? (
+          <img className="cons-banner-avatar" src={fileUrl(patient.photoUrl)} alt={patient.fullName} />
         ) : (
-          <div className="cons-banner-avatar">{initials(patient.full_name)}</div>
+          <div className="cons-banner-avatar">{initials(patient.fullName)}</div>
         )}
         <div>
           <div className="cons-banner-name">
-            {patient.full_name}
+            {patient.fullName}
             <span className="q-token">{tokenNumber(appointmentId)}</span>
+            {patient.isTemporary && <span className="badge badge-amber">Temporary / Unregistered</span>}
           </div>
           <div className="cons-banner-meta">
-            MRN: {patient.patient_id} &nbsp;·&nbsp; {calculateAge(patient.dob)} Y / {patient.gender}
+            MRN: {patient.patientId ?? 'Temporary — Today Only'} &nbsp;·&nbsp;{' '}
+            {patient.dob ? `${calculateAge(patient.dob)} Y` : patient.approxAge ? `~${patient.approxAge} Y` : '—'} / {patient.gender ?? '—'}
           </div>
           {patient.phone && <div className="cons-banner-sub">{patient.phone}</div>}
         </div>
@@ -785,21 +825,169 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
           )}
 
           {tab === 'history' && (
-            <div className="cons-box">
-              <div className="cons-box-title">Past Consultations</div>
-              {context.recentConsultations.length === 0 && <div className="pat-empty">No past consultations for this patient.</div>}
-              {context.recentConsultations.map((c, i) => (
-                <div className="cons-recent-row" key={i}>
-                  <span className="cons-recent-diagnosis">{c.diagnosis || 'No diagnosis recorded'}</span>
-                  <span className="cons-recent-date">{formatDate(c.date)}</span>
-                </div>
-              ))}
+            <>
+              <div className="cons-box">
+                <div className="cons-box-title">History</div>
+                {patient.isTemporary ? (
+                  <div className="pat-empty">History isn't available for temporary/unregistered patients — register them to start building a visit history.</div>
+                ) : historyLoading ? (
+                  <div className="pat-empty">Loading…</div>
+                ) : !patientHistory || patientHistory.length === 0 ? (
+                  <div className="pat-empty">No past consultations for this patient.</div>
+                ) : (
+                  <div className="cons-history-list">
+                    {patientHistory.map((h) => {
+                      const isExpanded = expandedHistoryId === h.consultationId;
+                      const medNames = h.prescriptions.flatMap((rx) => rx.items.map((i) => i.medicine));
+                      const labNames = h.labTestOrders.map((l) => l.testName);
+                      return (
+                        <div className="cons-history-entry" key={h.consultationId}>
+                          <div className="cons-history-entry-header">
+                            <span className="cons-history-entry-date">{formatDate(h.createdAt)} — Consultation</span>
+                          </div>
+                          <div className="cons-history-entry-row">
+                            <span className="cons-history-entry-label">Doctor</span> Dr. {h.doctorName}
+                          </div>
+                          <div className="cons-history-entry-row">
+                            <span className="cons-history-entry-label">Diagnosis</span> {h.diagnosis || 'No diagnosis recorded'}
+                          </div>
+                          <div className="cons-history-entry-row">
+                            <span className="cons-history-entry-label">Prescription</span> {medNames.length ? medNames.join(', ') : 'None'}
+                          </div>
+                          <div className="cons-history-entry-row">
+                            <span className="cons-history-entry-label">Lab Tests</span> {labNames.length ? labNames.join(', ') : 'None'}
+                          </div>
+                          <button
+                            type="button"
+                            className="card-link"
+                            style={{ marginTop: 8 }}
+                            onClick={() => setExpandedHistoryId(isExpanded ? null : h.consultationId)}
+                          >
+                            {isExpanded ? 'Hide Full Consultation' : 'View Full Consultation →'}
+                          </button>
+
+                          {isExpanded && (
+                            <div className="cons-history-detail">
+                              <div className="cd-summary-box gray">
+                                <div className="cd-summary-box-label">Chief Complaint</div>
+                                {h.complaint || '—'}
+                              </div>
+                              <div className="cd-summary-box gray">
+                                <div className="cd-summary-box-label">History of Present Illness</div>
+                                {h.historyOfPresentIllness || '—'}
+                              </div>
+                              <div className="cd-summary-box gray">
+                                <div className="cd-summary-box-label">Examination Findings</div>
+                                {h.examinationFindings || '—'}
+                              </div>
+
+                              <div className="cons-box-title" style={{ marginTop: 14 }}>
+                                Vital Signs
+                              </div>
+                              <div className="cons-vital-stat-grid">
+                                {vitalStat(
+                                  'Blood Pressure',
+                                  h.vitals?.bp_systolic && h.vitals?.bp_diastolic ? `${h.vitals.bp_systolic}/${h.vitals.bp_diastolic}` : '',
+                                  'mmHg'
+                                )}
+                                {vitalStat('Temperature', h.vitals?.temp?.toString() ?? '', '°C')}
+                                {vitalStat('Heart Rate', h.vitals?.pulse?.toString() ?? '', 'bpm')}
+                                {vitalStat('Respiratory Rate', h.vitals?.respiratory_rate?.toString() ?? '', '/min')}
+                                {vitalStat('SpO2', h.vitals?.spo2?.toString() ?? '', '%')}
+                                {vitalStat('Weight', h.vitals?.weight?.toString() ?? '', 'kg')}
+                                {vitalStat('Height', h.vitals?.height?.toString() ?? '', 'cm')}
+                                {vitalStat('BMI', h.vitals?.bmi?.toString() ?? '', '')}
+                              </div>
+
+                              <div className="cons-box-title" style={{ marginTop: 14 }}>
+                                Medical History
+                              </div>
+                              {h.medicalHistory.length === 0 ? (
+                                <div className="pat-empty">No conditions tagged for this visit.</div>
+                              ) : (
+                                <div className="cons-chips">
+                                  {h.medicalHistory.map((cond) => (
+                                    <span className="cons-chip" key={cond}>
+                                      {cond}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+
+                              <div className="cd-summary-box blue" style={{ marginTop: 14 }}>
+                                <div className="cd-summary-box-label">Diagnosis</div>
+                                {h.diagnosis || 'No diagnosis recorded'} {h.icd10Code && `(${h.icd10Code})`}
+                              </div>
+
+                              <div className="cons-box-title" style={{ marginTop: 14 }}>
+                                Prescriptions
+                              </div>
+                              {h.prescriptions.length === 0 ? (
+                                <div className="pat-empty">No prescriptions issued at this visit.</div>
+                              ) : (
+                                h.prescriptions.map((rx) => (
+                                  <div className="cons-rx-row" key={rx.prescriptionId} style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                                      <span style={{ fontWeight: 600, color: '#0f172a' }}>RX{String(rx.prescriptionId).padStart(6, '0')}</span>
+                                      <span className={`badge ${rx.status === 'Collected' ? 'badge-green' : rx.status === 'Dispensed' ? 'badge-blue' : 'badge-gray'}`}>
+                                        {rx.status}
+                                      </span>
+                                    </div>
+                                    <span className="pat-muted" style={{ fontSize: 12.5 }}>
+                                      {rx.items.map((i) => `${i.medicine} (${i.dosage} × ${i.qty})`).join(', ')}
+                                    </span>
+                                  </div>
+                                ))
+                              )}
+
+                              <div className="cons-box-title" style={{ marginTop: 14 }}>
+                                Lab Test Orders
+                              </div>
+                              {h.labTestOrders.length === 0 ? (
+                                <div className="pat-empty">No lab tests ordered at this visit.</div>
+                              ) : (
+                                h.labTestOrders.map((lt) => (
+                                  <div className="cons-rx-row" key={lt.labTestOrderId} style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                                      <span style={{ fontWeight: 600, color: '#0f172a' }}>{lt.testName}</span>
+                                      <span className={`badge ${lt.status === 'Completed' ? 'badge-green' : lt.status === 'Cancelled' ? 'badge-red' : 'badge-gray'}`}>
+                                        {lt.status}
+                                      </span>
+                                    </div>
+                                    {lt.results.length > 0 && (
+                                      <span className="pat-muted" style={{ fontSize: 12.5 }}>
+                                        {lt.results
+                                          .map((r) => `${r.parameterName}: ${r.value}${r.unit ? ` ${r.unit}` : ''}${r.flag && r.flag !== 'Normal' ? ` (${r.flag})` : ''}`)
+                                          .join(', ')}
+                                      </span>
+                                    )}
+                                  </div>
+                                ))
+                              )}
+
+                              <div className="cd-summary-box amber" style={{ marginTop: 14 }}>
+                                <div className="cd-summary-box-label">Follow-up</div>
+                                {h.followUpDate ? formatDate(h.followUpDate) : 'No follow-up scheduled'}
+                              </div>
+
+                              {h.notes && (
+                                <div className="cd-summary-box blue">
+                                  <div className="cd-summary-box-label">Notes</div>
+                                  {h.notes}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
 
               {isFinalized && (
-                <>
-                  <div className="cons-box-title" style={{ marginTop: 20 }}>
-                    Amendment History
-                  </div>
+                <div className="cons-box" style={{ marginTop: 16 }}>
+                  <div className="cons-box-title">Amendment History</div>
                   {amendments === null && <div className="pat-empty">Loading…</div>}
                   {amendments !== null && amendments.length === 0 && <div className="pat-empty">No amendments have been made to this record.</div>}
                   {amendments !== null &&
@@ -821,9 +1009,9 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
                         </span>
                       </div>
                     ))}
-                </>
+                </div>
               )}
-            </div>
+            </>
           )}
         </div>
 
@@ -836,13 +1024,17 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
               <div>
                 <div className="cons-box-title" style={{ marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <span>Allergies</span>
-                  {canEdit && !editingAllergies && (
+                  {canEdit && !editingAllergies && !patient.isTemporary && (
                     <button type="button" className="card-link" style={{ fontSize: 11.5 }} onClick={startEditAllergies}>
                       <EditIcon /> {context.patientSummary.allergies ? 'Edit' : 'Add'}
                     </button>
                   )}
                 </div>
-                {editingAllergies ? (
+                {patient.isTemporary ? (
+                  <span className="pat-muted" style={{ fontSize: 12.5 }}>
+                    Unknown — this patient isn't registered yet. Register them to record allergies.
+                  </span>
+                ) : editingAllergies ? (
                   <div>
                     <textarea
                       className="cons-textarea"

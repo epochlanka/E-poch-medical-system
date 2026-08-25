@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApiData } from '../../hooks/useApiData';
-import { getDoctors, listQueueLog } from '../../lib/appointments';
+import { getDoctors, listQueueLog, displayPatientName, displayPatientId } from '../../lib/appointments';
 import type { Doctor, QueueLogEntry, QueueLogParams } from '../../lib/appointments';
 import { getClinicSettings } from '../../lib/settings';
 import { RefreshIcon, DownloadIcon, SearchIcon, ChevronLeftIcon, ChevronRightIcon, EyeIcon, XCircleIcon } from '../../components/layout/Icons';
@@ -35,8 +35,8 @@ const toCsv = (rows: QueueLogEntry[]) => {
   const body = rows.map((r) => [
     formatDateTime(r.created_at),
     r.action,
-    r.appointment.patient.full_name,
-    r.appointment.patient.patient_id,
+    displayPatientName(r.appointment),
+    displayPatientId(r.appointment),
     `Dr. ${r.appointment.doctor.username}`,
     r.reason ?? '',
     `${r.actor.username} (${r.actor.role})`,
@@ -48,18 +48,18 @@ const ViewLogModal = ({ entry, onClose }: { entry: QueueLogEntry; onClose: () =>
   <div className="modal-backdrop" onClick={onClose}>
     <div className="modal-card" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
       <div className="modal-title">
-        {entry.action} — {entry.appointment.patient.full_name}
+        {entry.action} — {displayPatientName(entry.appointment)}
       </div>
       <div className="modal-subtitle">{formatDateTime(entry.created_at)}</div>
       <div className="srl-detail-grid">
         <div className="srl-detail-field">
           <span className="srl-detail-label">Patient ID</span>
-          <span className="srl-detail-value">{entry.appointment.patient.patient_id}</span>
+          <span className="srl-detail-value">{displayPatientId(entry.appointment)}</span>
         </div>
         <div className="srl-detail-field">
           <span className="srl-detail-label">Age / Gender</span>
           <span className="srl-detail-value">
-            {calculateAge(entry.appointment.patient.dob)} Y | {entry.appointment.patient.gender}
+            {entry.appointment.patient ? `${calculateAge(entry.appointment.patient.dob)} Y | ${entry.appointment.patient.gender}` : entry.appointment.temp_patient_gender ?? '—'}
           </span>
         </div>
         <div className="srl-detail-field">
@@ -330,13 +330,13 @@ const SkipRecallLog = () => {
                     <span className={`badge ${r.action === 'Skipped' ? 'badge-amber' : 'badge-green'} srl-action-badge`}>{r.action}</span>
                   </td>
                   <td className="srl-patient-cell">
-                    <div className="name">{r.appointment.patient.full_name}</div>
+                    <div className="name">{displayPatientName(r.appointment)}</div>
                     <div className="sub">
-                      {calculateAge(r.appointment.patient.dob)} Y | {r.appointment.patient.gender}
+                      {r.appointment.patient ? `${calculateAge(r.appointment.patient.dob)} Y | ${r.appointment.patient.gender}` : r.appointment.temp_patient_gender ?? '—'}
                     </div>
                   </td>
                   <td>
-                    <span className="badge badge-blue">{r.appointment.patient.patient_id}</span>
+                    <span className={`badge ${r.appointment.is_temporary ? 'badge-amber' : 'badge-blue'}`}>{displayPatientId(r.appointment)}</span>
                   </td>
                   <td className="srl-doctor-cell">
                     <div>Dr. {r.appointment.doctor.username}</div>

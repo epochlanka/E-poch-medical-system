@@ -7,8 +7,11 @@ import {
   listAppointments,
   updateAppointmentStatus,
   tokenNumber,
-  calculateAge,
   waitingMinutes,
+  displayPatientName,
+  displayPatientId,
+  displayPatientGender,
+  displayAgeLabel,
 } from '../../lib/queue';
 import type { QueueAppointment, AppointmentStatus } from '../../lib/queue';
 import { PatientsIcon, ClockIcon, StethoscopeIcon, CheckCircleIcon, RefreshIcon, PhoneIcon } from '../../components/layout/Icons';
@@ -78,7 +81,6 @@ const LiveQueue = () => {
     [queue]
   );
   const calledList = useMemo(() => (queue ?? []).filter((a) => a.status === 'Called'), [queue]);
-  const consultingEntry = useMemo(() => (queue ?? []).find((a) => a.status === 'Consulting'), [queue]);
   const firstWaitingId = waitingSorted[0]?.appointment_id;
 
   const visibleRows = showAllRows ? [...calledList, ...waitingSorted] : [...calledList, ...waitingSorted].slice(0, 8);
@@ -127,6 +129,23 @@ const LiveQueue = () => {
 
       {error && <div className="dash-error-banner">Couldn't load the queue: {error}</div>}
 
+      <div className="q-controls-top">
+        <button
+          className="q-top-control-btn primary"
+          disabled={!firstWaitingId || busyId !== null}
+          onClick={() => firstWaitingId && runAction(firstWaitingId, () => updateAppointmentStatus(firstWaitingId, 'Called'))}
+        >
+          <PhoneIcon /> Call Next Patient
+        </button>
+        <button
+          className="q-top-control-btn"
+          disabled={(!calledList[0] && !waitingSorted[0]) || busyId !== null}
+          onClick={() => setSkipTarget(calledList[0] ?? waitingSorted[0])}
+        >
+          Skip Patient
+        </button>
+      </div>
+
       <div className="dash-kpi-row">
         <KpiCard icon={<PatientsIcon />} iconBg="#eaf1fe" iconColor="#2563eb" label="Total in Queue" value={String(stats?.totalInQueue ?? 0)} loading={!stats} footer={<span className="kpi-view-all" style={{ color: '#94a3b8', fontWeight: 500 }}>Patients</span>} />
         <KpiCard icon={<ClockIcon />} iconBg="#dcfce7" iconColor="#16a34a" label="Waiting &gt; 30 min" value={String(stats?.waitingOver30 ?? 0)} loading={!stats} footer={<span className="kpi-view-all" style={{ color: '#94a3b8', fontWeight: 500 }}>Patients</span>} />
@@ -142,7 +161,17 @@ const LiveQueue = () => {
               <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', margin: 0 }}>Current Queue</h3>
             </div>
             <div className="pat-table-scroll">
-              <table className="pat-table">
+              <table className="pat-table q-live-queue-table">
+                <colgroup>
+                  <col style={{ width: '3%' }} />
+                  <col style={{ width: '8%' }} />
+                  <col style={{ width: '19%' }} />
+                  <col style={{ width: '12%' }} />
+                  <col style={{ width: '11%' }} />
+                  <col style={{ width: '10%' }} />
+                  <col style={{ width: '9%' }} />
+                  <col style={{ width: '28%' }} />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>#</th>
@@ -182,13 +211,15 @@ const LiveQueue = () => {
                             <span className={`q-token${isNext ? ' next' : ''}`}>{tokenNumber(a.appointment_id)}</span>
                           </td>
                           <td>
-                            <div style={{ fontWeight: 600, color: '#0f172a' }}>{a.patient.full_name}</div>
+                            <div style={{ fontWeight: 600, color: '#0f172a' }}>
+                              {displayPatientName(a)} {a.is_temporary && <span className="badge badge-amber">Temporary</span>}
+                            </div>
                             <span className="pat-muted" style={{ fontSize: 11.5 }}>
-                              {a.patient.patient_id}
+                              {displayPatientId(a)}
                             </span>
                           </td>
                           <td>
-                            {calculateAge(a.patient.dob)} Y / {a.patient.gender}
+                            {displayAgeLabel(a) ?? '—'} {displayPatientGender(a) ? `/ ${displayPatientGender(a)}` : ''}
                           </td>
                           <td>{formatTime(a.scheduled_at)}</td>
                           <td className={`q-wait-time ${waitClass(mins)}`}>{mins} min</td>
@@ -246,58 +277,6 @@ const LiveQueue = () => {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {consultingEntry ? (
-              <div className="q-now-card">
-                <div className="q-now-header">NOW IN CONSULTATION</div>
-                <div className="q-now-row">
-                  <span className="q-now-label">Token No.</span>
-                  <span className="q-token next">{tokenNumber(consultingEntry.appointment_id)}</span>
-                </div>
-                <div className="q-now-row">
-                  <span className="q-now-label">Patient</span>
-                  <span className="q-now-value">{consultingEntry.patient.full_name}</span>
-                </div>
-                <div className="q-now-row">
-                  <span className="q-now-label">MRN</span>
-                  <span className="q-now-value">{consultingEntry.patient.patient_id}</span>
-                </div>
-                <div className="q-now-row">
-                  <span className="q-now-label">Since</span>
-                  <span className="q-now-value">{formatTime(consultingEntry.consultation?.created_at ?? consultingEntry.scheduled_at)}</span>
-                </div>
-                <div className="q-now-row">
-                  <span className="q-now-label">Duration</span>
-                  <span className="q-now-value" style={{ color: '#16a34a' }}>
-                    {waitingMinutes(consultingEntry.consultation?.created_at ?? consultingEntry.scheduled_at)} min
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <div className="q-now-card empty">No patient currently in consultation.</div>
-            )}
-
-            <div className="card">
-              <div className="card-header">
-                <h3 className="card-title">Queue Controls</h3>
-              </div>
-              <div className="q-controls">
-                <button
-                  className="q-control-btn primary"
-                  disabled={!firstWaitingId || busyId !== null}
-                  onClick={() => firstWaitingId && runAction(firstWaitingId, () => updateAppointmentStatus(firstWaitingId, 'Called'))}
-                >
-                  <PhoneIcon /> Call Next Patient
-                </button>
-                <button
-                  className="q-control-btn"
-                  disabled={!calledList[0] && !waitingSorted[0]}
-                  onClick={() => setSkipTarget(calledList[0] ?? waitingSorted[0])}
-                >
-                  Skip Patient
-                </button>
-              </div>
-            </div>
-
             <div className="card">
               <div className="card-header">
                 <h3 className="card-title">Queue Summary</h3>
@@ -366,9 +345,11 @@ const LiveQueue = () => {
                           <span className="q-token">{tokenNumber(a.appointment_id)}</span>
                         </td>
                         <td>
-                          <div style={{ fontWeight: 600 }}>{a.patient.full_name}</div>
+                          <div style={{ fontWeight: 600 }}>
+                            {displayPatientName(a)} {a.is_temporary && <span className="badge badge-amber">Temporary</span>}
+                          </div>
                           <span className="pat-muted" style={{ fontSize: 11.5 }}>
-                            {a.patient.patient_id}
+                            {displayPatientId(a)}
                           </span>
                         </td>
                         <td>{formatDate(a.scheduled_at)}</td>

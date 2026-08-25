@@ -139,8 +139,11 @@ export interface ConsultationSummary {
   diagnosis: string | null;
   createdAt: string;
   followUpDate: string | null;
-  patientId: string;
+  // Null patientId means this visit was a temporary/unregistered walk-in — patientName already
+  // falls back to the captured temp name server-side.
+  patientId: string | null;
   patientName: string;
+  isTemporary: boolean;
   doctorId: number;
   doctorName: string;
 }

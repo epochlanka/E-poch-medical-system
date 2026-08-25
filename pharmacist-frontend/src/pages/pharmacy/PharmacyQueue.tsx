@@ -5,7 +5,7 @@ import { getDoctors } from '../../lib/appointments';
 import type { Doctor } from '../../lib/appointments';
 import { getPharmacyQueue, setPrescriptionPreparing, collectPrescription } from '../../lib/pharmacy';
 import type { QueueBoard, QueueItem, QueueStatus } from '../../lib/pharmacy';
-import { getPrescription, downloadPrescriptionPdf } from '../../lib/prescriptions';
+import { getPrescription, downloadPrescriptionPdf, displayDetailPatient } from '../../lib/prescriptions';
 import type { PrescriptionDetail } from '../../lib/prescriptions';
 import {
   UsersIcon,
@@ -413,17 +413,21 @@ const PharmacyQueue = () => {
 
             {detailLoading && <p style={{ fontSize: 13, color: '#94a3b8' }}>Loading…</p>}
 
-            {detail && (
+            {detail && (() => {
+              const patient = displayDetailPatient(detail);
+              return (
               <>
                 <div className="pq-detail-grid" style={{ marginTop: 10 }}>
                   <div className="pq-detail-field">
                     <span className="pq-detail-label">Patient</span>
-                    <span className="pq-detail-value">{detail.consultation.appointment.patient.full_name}</span>
+                    <span className="pq-detail-value">
+                      {patient.fullName} {patient.isTemporary && <span className="badge badge-amber">Temporary</span>}
+                    </span>
                   </div>
                   <div className="pq-detail-field">
                     <span className="pq-detail-label">Age / Gender</span>
                     <span className="pq-detail-value">
-                      {calculateAge(detail.consultation.appointment.patient.dob)} Y / {detail.consultation.appointment.patient.gender}
+                      {patient.dob ? `${calculateAge(patient.dob)} Y` : patient.approxAge ? `~${patient.approxAge} Y` : '—'} / {patient.gender ?? '—'}
                     </span>
                   </div>
                   <div className="pq-detail-field">
@@ -493,7 +497,8 @@ const PharmacyQueue = () => {
                   )}
                 </div>
               </>
-            )}
+              );
+            })()}
           </div>
         </div>
       )}

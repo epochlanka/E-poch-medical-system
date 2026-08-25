@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
-import { getLiveQueue, updateAppointmentStatus } from '../../lib/appointments';
+import { getLiveQueue, updateAppointmentStatus, displayPatientName, displayPatientGender } from '../../lib/appointments';
 import { listConsultations } from '../../lib/consultations';
 import { StethoscopeIcon, ClockIcon, ChevronRightIcon } from '../../components/layout/Icons';
 import { calculateAge, formatDateTime } from './consultationUtils';
@@ -49,11 +49,13 @@ const ConsultationsQueue = () => {
         {active.map((a) => (
           <div className="appt-row" key={a.appointment_id}>
             <span className="appt-time">{new Date(a.scheduled_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
-            <div className="appt-avatar">{a.patient.full_name.slice(0, 2).toUpperCase()}</div>
+            <div className="appt-avatar">{displayPatientName(a).slice(0, 2).toUpperCase()}</div>
             <div className="appt-info">
-              <div className="appt-name">{a.patient.full_name}</div>
+              <div className="appt-name">
+                {displayPatientName(a)} {a.is_temporary && <span className="badge badge-amber">Temporary</span>}
+              </div>
               <div className="appt-mrn">
-                {a.patient.gender}, {calculateAge(a.patient.dob)} yrs · Dr. {a.doctor.username}
+                {displayPatientGender(a) ?? '—'}, {a.patient?.dob ? `${calculateAge(a.patient.dob)} yrs` : a.temp_patient_age ? `~${a.temp_patient_age} yrs` : '—'} · Dr. {a.doctor.username}
               </div>
             </div>
             <span className={`badge ${STATUS_BADGE[a.status]}`}>{a.status}</span>

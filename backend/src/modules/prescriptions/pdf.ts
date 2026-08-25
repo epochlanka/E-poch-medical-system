@@ -7,8 +7,9 @@ export const streamPrescriptionPdf = (prescription: any, res: Response) => {
   const doc = new PDFDocument({ margin: 50 });
   doc.pipe(res);
 
-  const patient = prescription.consultation.appointment.patient;
-  const doctor = prescription.consultation.appointment.doctor;
+  const appointment = prescription.consultation.appointment;
+  const patient = appointment.patient;
+  const doctor = appointment.doctor;
 
   doc.fontSize(18).text(CLINIC_NAME, { align: 'center' });
   doc.fontSize(11).fillColor('#555').text('Prescription', { align: 'center' });
@@ -20,9 +21,14 @@ export const streamPrescriptionPdf = (prescription: any, res: Response) => {
   if (prescription.is_refill) doc.text('Type: Refill / Repeat Prescription');
   doc.moveDown(0.5);
 
-  doc.text(`Patient: ${patient.full_name} (${patient.patient_id})`);
-  doc.text(`DOB: ${new Date(patient.dob).toISOString().slice(0, 10)}   Gender: ${patient.gender}`);
-  if (patient.allergies) doc.text(`Known allergies: ${patient.allergies}`);
+  if (patient) {
+    doc.text(`Patient: ${patient.full_name} (${patient.patient_id})`);
+    doc.text(`DOB: ${new Date(patient.dob).toISOString().slice(0, 10)}   Gender: ${patient.gender}`);
+    if (patient.allergies) doc.text(`Known allergies: ${patient.allergies}`);
+  } else {
+    doc.text(`Patient: ${appointment.temp_patient_name ?? 'Unregistered Patient'} (Temporary — Today Only)`);
+    if (appointment.temp_patient_gender) doc.text(`Gender: ${appointment.temp_patient_gender}`);
+  }
   doc.moveDown();
 
   doc.fontSize(13).text('Medicines', { underline: true });
@@ -56,8 +62,9 @@ export const streamExternalPurchaseSlipPdf = (prescription: any, res: Response) 
   const doc = new PDFDocument({ margin: 50 });
   doc.pipe(res);
 
-  const patient = prescription.consultation.appointment.patient;
-  const doctor = prescription.consultation.appointment.doctor;
+  const appointment = prescription.consultation.appointment;
+  const patient = appointment.patient;
+  const doctor = appointment.doctor;
   const externalItems = prescription.items.filter((i: any) => i.external_qty > 0);
 
   doc.fontSize(18).text(CLINIC_NAME, { align: 'center' });
@@ -69,8 +76,12 @@ export const streamExternalPurchaseSlipPdf = (prescription: any, res: Response) 
   doc.text(`Date: ${new Date(prescription.issued_at).toISOString().slice(0, 10)}`);
   doc.moveDown(0.5);
 
-  doc.text(`Patient: ${patient.full_name} (${patient.patient_id})`);
-  doc.text(`DOB: ${new Date(patient.dob).toISOString().slice(0, 10)}   Gender: ${patient.gender}`);
+  if (patient) {
+    doc.text(`Patient: ${patient.full_name} (${patient.patient_id})`);
+    doc.text(`DOB: ${new Date(patient.dob).toISOString().slice(0, 10)}   Gender: ${patient.gender}`);
+  } else {
+    doc.text(`Patient: ${appointment.temp_patient_name ?? 'Unregistered Patient'} (Temporary — Today Only)`);
+  }
   doc.moveDown();
 
   doc.fontSize(13).text('Medicines — External Purchase', { underline: true });

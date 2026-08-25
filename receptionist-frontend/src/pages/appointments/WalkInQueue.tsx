@@ -4,7 +4,7 @@ import { useApiData } from '../../hooks/useApiData';
 import { fileUrl } from '../../lib/api';
 import { listPatients } from '../../lib/patients';
 import type { Patient } from '../../lib/patients';
-import { getDoctors, createAppointment, getLiveQueue, getQueueStats } from '../../lib/appointments';
+import { getDoctors, createAppointment, getLiveQueue, getQueueStats, displayPatientName } from '../../lib/appointments';
 import type { Doctor, QueueAppointment } from '../../lib/appointments';
 import { getClinicSettings } from '../../lib/settings';
 import {
@@ -18,6 +18,7 @@ import {
   StethoscopeIcon,
   ClockIcon,
   RefreshIcon,
+  ChevronRightIcon,
 } from '../../components/layout/Icons';
 import NewPatientModal from '../patients/NewPatientModal';
 import { initials, calculateAge, formatDate } from '../patients/patientUtils';
@@ -32,9 +33,25 @@ const DRAFT_KEY = 'epoch_reception_walkin_draft';
 
 type Priority = 'Normal' | 'Urgent' | 'Emergency';
 
+// Minimal capture for "Continue Without Registration" — deliberately just enough for today's
+// visit (FR-026 extension). Kept as strings while editing; parsed/trimmed at submit time.
+interface TempPatientDraft {
+  name: string;
+  gender: string;
+  age: string;
+  phone: string;
+}
+
+const emptyTempPatient: TempPatientDraft = { name: '', gender: '', age: '', phone: '' };
+
 interface WalkInState {
   patientMode: 'existing' | 'new';
+  // Which of the two "New Patient" options is active — 'choose' shows both option cards,
+  // 'temporary' expands the minimal capture form. 'register' has no distinct UI state since it
+  // just opens the existing NewPatientModal (success flips patientMode back to 'existing').
+  newPatientStep: 'choose' | 'temporary';
   patient: Patient | null;
+  tempPatient: TempPatientDraft | null;
   doctor: Doctor | null;
   consultationType: string;
   visitType: 'Appointment' | 'Follow-up';
@@ -45,7 +62,9 @@ interface WalkInState {
 
 const emptyWalkIn: WalkInState = {
   patientMode: 'existing',
+  newPatientStep: 'choose',
   patient: null,
+  tempPatient: null,
   doctor: null,
   consultationType: CONSULTATION_TYPES[0],
   visitType: 'Appointment',
@@ -57,7 +76,7 @@ const emptyWalkIn: WalkInState = {
 const loadDraft = (): WalkInState | null => {
   try {
     const raw = localStorage.getItem(DRAFT_KEY);
-    return raw ? { ...emptyWalkIn, ...JSON.parse(raw), patient: null } : null;
+    return raw ? { ...emptyWalkIn, ...JSON.parse(raw), patient: null, tempPatient: null, newPatientStep: 'choose' } : null;
   } catch {
     return null;
   }
@@ -138,7 +157,8 @@ const WalkInQueue = () => {
     setWalkIn((w) => ({ ...w, patient }));
   };
 
-  const canSubmit = !!walkIn.patient && !!walkIn.doctor && !!walkIn.consultationType;
+  const tempPatientValid = !!walkIn.tempPatient?.name.trim();
+  const canSubmit = (!!walkIn.patient || tempPatientValid) && !!walkIn.doctor && !!walkIn.consultationType;
 
   const handleSaveDraft = () => {
     localStorage.setItem(DRAFT_KEY, JSON.stringify(walkIn));
@@ -146,12 +166,20 @@ const WalkInQueue = () => {
   };
 
   const handleSubmit = async () => {
-    if (!walkIn.patient || !walkIn.doctor) return;
+    if ((!walkIn.patient && !tempPatientValid) || !walkIn.doctor) return;
     setSubmitting(true);
     setError(null);
     try {
       const result: any = await createAppointment({
-        patient_id: walkIn.patient.patient_id,
+        ...(walkIn.patient
+          ? { patient_id: walkIn.patient.patient_id }
+          : {
+              is_temporary: true,
+              temp_patient_name: walkIn.tempPatient!.name.trim(),
+              temp_patient_gender: walkIn.tempPatient!.gender || undefined,
+              temp_patient_phone: walkIn.tempPatient!.phone.trim() || undefined,
+              temp_patient_age: walkIn.tempPatient!.age ? Number(walkIn.tempPatient!.age) : undefined,
+            }),
         doctor_id: walkIn.doctor.user_id,
         scheduled_at: new Date().toISOString(),
         reason: walkIn.reason || undefined,
@@ -180,16 +208,22 @@ const WalkInQueue = () => {
   const totalInQueue = queueStats ? queueStats.waitingCount + queueStats.calledCount + queueStats.inConsultation : 0;
 
   if (created) {
+    const addedName = walkIn.patient?.full_name ?? walkIn.tempPatient?.name;
     return (
       <div className="reg-steps" style={{ flexDirection: 'column', maxWidth: 480, margin: '60px auto', textAlign: 'center' }}>
         <div className="modal-success-icon" style={{ margin: '0 auto 14px' }}>
           ✓
         </div>
         <h2 style={{ margin: '0 0 6px', color: '#0f172a' }}>Added to the queue</h2>
-        <p style={{ color: '#64748b', margin: '0 0 20px' }}>
-          {walkIn.patient?.full_name} is now token #{previewToken} in Dr. {walkIn.doctor?.username}'s queue.
+        <p style={{ color: '#64748b', margin: '0 0 12px' }}>
+          {addedName} is now token #{previewToken} in Dr. {walkIn.doctor?.username}'s queue.
         </p>
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+        {!walkIn.patient && (
+          <span className="wi-temp-badge" style={{ margin: '0 0 20px', display: 'inline-flex' }}>
+            Temporary / Unregistered — Today Only
+          </span>
+        )}
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: walkIn.patient ? 0 : 8 }}>
           <button
             className="pat-btn"
             onClick={() => {
@@ -248,11 +282,19 @@ const WalkInQueue = () => {
 
             <div className="bk-toggle">
               <label>
-                <input type="radio" checked={walkIn.patientMode === 'existing'} onChange={() => setWalkIn((w) => ({ ...w, patientMode: 'existing' }))} />
+                <input
+                  type="radio"
+                  checked={walkIn.patientMode === 'existing'}
+                  onChange={() => setWalkIn((w) => ({ ...w, patientMode: 'existing', tempPatient: null, newPatientStep: 'choose' }))}
+                />
                 Existing Patient
               </label>
               <label>
-                <input type="radio" checked={walkIn.patientMode === 'new'} onChange={() => setWalkIn((w) => ({ ...w, patientMode: 'new' }))} />
+                <input
+                  type="radio"
+                  checked={walkIn.patientMode === 'new'}
+                  onChange={() => setWalkIn((w) => ({ ...w, patientMode: 'new', patient: null }))}
+                />
                 New Patient
               </label>
             </div>
@@ -295,10 +337,88 @@ const WalkInQueue = () => {
                   </Link>
                 </div>
               </>
+            ) : walkIn.newPatientStep === 'temporary' ? (
+              <div className="wi-temp-form">
+                <button
+                  type="button"
+                  className="wi-temp-form-back"
+                  onClick={() => setWalkIn((w) => ({ ...w, newPatientStep: 'choose', tempPatient: null }))}
+                >
+                  ← Back to options
+                </button>
+                <div className="wi-banner" style={{ marginTop: 8 }}>
+                  <InfoIcon /> Only a name is required. This patient won't get a permanent record — they'll be added to today's queue only.
+                </div>
+                <div className="reg-grid cols-2" style={{ marginTop: 10 }}>
+                  <div className="modal-field span-2">
+                    <label>Patient Name *</label>
+                    <input
+                      autoFocus
+                      value={walkIn.tempPatient?.name ?? ''}
+                      onChange={(e) => setWalkIn((w) => ({ ...w, tempPatient: { ...(w.tempPatient ?? emptyTempPatient), name: e.target.value } }))}
+                      placeholder="Enter patient's name…"
+                    />
+                  </div>
+                  <div className="modal-field">
+                    <label>Age (Optional)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={150}
+                      value={walkIn.tempPatient?.age ?? ''}
+                      onChange={(e) => setWalkIn((w) => ({ ...w, tempPatient: { ...(w.tempPatient ?? emptyTempPatient), age: e.target.value } }))}
+                      placeholder="e.g. 34"
+                    />
+                  </div>
+                  <div className="modal-field">
+                    <label>Gender (Optional)</label>
+                    <select
+                      value={walkIn.tempPatient?.gender ?? ''}
+                      onChange={(e) => setWalkIn((w) => ({ ...w, tempPatient: { ...(w.tempPatient ?? emptyTempPatient), gender: e.target.value } }))}
+                    >
+                      <option value="">Not specified</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                  <div className="modal-field span-2">
+                    <label>Phone (Optional)</label>
+                    <input
+                      value={walkIn.tempPatient?.phone ?? ''}
+                      onChange={(e) => setWalkIn((w) => ({ ...w, tempPatient: { ...(w.tempPatient ?? emptyTempPatient), phone: e.target.value } }))}
+                      placeholder="Contact number for today, if available"
+                    />
+                  </div>
+                </div>
+              </div>
             ) : (
-              <button className="pat-btn primary" style={{ marginTop: 4 }} onClick={() => setShowNewPatient(true)}>
-                <UserPlusIcon /> Register New Patient
-              </button>
+              <div className="wi-new-patient-options">
+                <button type="button" className="wi-option-card primary" onClick={() => setShowNewPatient(true)}>
+                  <span className="wi-option-icon">
+                    <UserPlusIcon />
+                  </span>
+                  <span className="wi-option-body">
+                    <span className="wi-option-title">Register New Patient</span>
+                    <span className="wi-option-sub">Create a patient record for future visits.</span>
+                  </span>
+                  <ChevronRightIcon />
+                </button>
+                <button
+                  type="button"
+                  className="wi-option-card secondary"
+                  onClick={() => setWalkIn((w) => ({ ...w, newPatientStep: 'temporary', tempPatient: emptyTempPatient }))}
+                >
+                  <span className="wi-option-icon">
+                    <ClockIcon />
+                  </span>
+                  <span className="wi-option-body">
+                    <span className="wi-option-title">Continue Without Registration</span>
+                    <span className="wi-option-sub">Add this patient to today's queue only.</span>
+                  </span>
+                  <ChevronRightIcon />
+                </button>
+              </div>
             )}
           </div>
 
@@ -516,7 +636,7 @@ const WalkInQueue = () => {
 
           <div className="card">
             <div className="card-header">
-              <h3 className="card-title">Next in Queue {walkIn.patient ? '(After Addition)' : ''}</h3>
+              <h3 className="card-title">Next in Queue {walkIn.patient || tempPatientValid ? '(After Addition)' : ''}</h3>
             </div>
             <div className="wi-queue-list">
               {upcomingReal.map((q: QueueAppointment, i: number) => {
@@ -525,22 +645,23 @@ const WalkInQueue = () => {
                   <div className="wi-queue-row" key={q.appointment_id}>
                     <span className="wi-queue-token">{tokenNum}</span>
                     <span className="wi-queue-name">
-                      {q.patient.full_name} <span className="wi-queue-sub">{q.patient.patient_id}</span>
+                      {displayPatientName(q)} <span className="wi-queue-sub">{q.is_temporary ? 'Temporary' : q.patient?.patient_id}</span>
                     </span>
                     <span className={`badge ${q.status === 'Waiting' ? 'badge-amber' : q.status === 'Called' ? 'badge-blue' : 'badge-green'}`}>{q.status}</span>
                   </div>
                 );
               })}
-              {walkIn.patient && (
+              {(walkIn.patient || tempPatientValid) && (
                 <div className="wi-queue-row preview">
                   <span className="wi-queue-token">{previewToken}</span>
                   <span className="wi-queue-name">
-                    {walkIn.patient.full_name} <span className="wi-queue-sub">(New Walk-in)</span>
+                    {walkIn.patient?.full_name ?? walkIn.tempPatient?.name}{' '}
+                    <span className="wi-queue-sub">{walkIn.patient ? '(New Walk-in)' : '(Temporary / Unregistered)'}</span>
                   </span>
                   <span className="badge badge-amber">Waiting</span>
                 </div>
               )}
-              {upcomingReal.length === 0 && !walkIn.patient && <div className="wi-list-empty">No one is currently in the queue.</div>}
+              {upcomingReal.length === 0 && !walkIn.patient && !tempPatientValid && <div className="wi-list-empty">No one is currently in the queue.</div>}
             </div>
           </div>
 
@@ -575,7 +696,7 @@ const WalkInQueue = () => {
             const res = await listPatients({ search: patientId, limit: 1 });
             const p = res.data[0];
             if (p) {
-              setWalkIn((w) => ({ ...w, patient: p, patientMode: 'existing' }));
+              setWalkIn((w) => ({ ...w, patient: p, patientMode: 'existing', tempPatient: null, newPatientStep: 'choose' }));
             }
           }}
         />

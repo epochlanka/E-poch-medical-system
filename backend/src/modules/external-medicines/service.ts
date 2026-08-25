@@ -89,7 +89,11 @@ const getPrescriptionOwner = async (prescriptionId: number) => {
     include: { consultation: { include: { appointment: true } } },
   });
   if (!prescription) throw new NotFoundError('Prescription not found');
-  return { patientId: prescription.consultation.appointment.patient_id, doctorId: prescription.consultation.appointment.doctor_id };
+  const patientId = prescription.consultation.appointment.patient_id;
+  // patient_id is a hard FK on ExternalPrescriptionMedicine (denormalized for history queries) —
+  // a temporary/unregistered walk-in has no Patient row to attach one to.
+  if (!patientId) throw new ValidationError('This patient is not registered yet — register them before recording an external medicine');
+  return { patientId, doctorId: prescription.consultation.appointment.doctor_id };
 };
 
 export const createExternalMedicine = async (prescriptionId: number, input: ExternalMedicineInput, actor: Actor) => {

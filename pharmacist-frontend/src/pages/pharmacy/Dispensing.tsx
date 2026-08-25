@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import { useAuth } from '../../context/AuthContext';
-import { getPrescription, downloadPrescriptionPdf } from '../../lib/prescriptions';
+import { getPrescription, downloadPrescriptionPdf, displayDetailPatient } from '../../lib/prescriptions';
 import type { PrescriptionDetail, PrescriptionItemDetail } from '../../lib/prescriptions';
 import { getBatchSuggestions, dispensePrescription, downloadDispenseLabel, getPharmacyQueue } from '../../lib/pharmacy';
 import type { BatchSuggestion, DispenseItemInput } from '../../lib/pharmacy';
@@ -272,7 +272,7 @@ const DispensingWorkspace = ({ prescriptionId }: { prescriptionId: number }) => 
   const summaryStatus = detail.status === 'Dispensed' ? 'Completed' : allReady ? 'Ready to Complete' : 'In Progress';
   const summaryStatusCls = detail.status === 'Dispensed' || allReady ? 'badge-green' : 'badge-amber';
 
-  const patient = detail.consultation.appointment.patient;
+  const patient = displayDetailPatient(detail);
   const doctor = detail.consultation.appointment.doctor;
 
   return (
@@ -479,16 +479,18 @@ const DispensingWorkspace = ({ prescriptionId }: { prescriptionId: number }) => 
             <div className="disp-summary-grid">
               <div className="disp-summary-row">
                 <span>Name</span>
-                <span className="value">{patient.full_name}</span>
+                <span className="value">
+                  {patient.fullName} {patient.isTemporary && <span className="badge badge-amber">Temporary</span>}
+                </span>
               </div>
               <div className="disp-summary-row">
                 <span>PID</span>
-                <span className="value">{patient.patient_id}</span>
+                <span className="value">{patient.patientId ?? 'Temporary'}</span>
               </div>
               <div className="disp-summary-row">
                 <span>Age / Gender</span>
                 <span className="value">
-                  {calculateAge(patient.dob)} / {patient.gender}
+                  {patient.dob ? calculateAge(patient.dob) : patient.approxAge ? `~${patient.approxAge}` : '—'} / {patient.gender ?? '—'}
                 </span>
               </div>
               <div className="disp-summary-row">

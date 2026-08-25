@@ -125,8 +125,8 @@ export const getQueueSnapshot = async (doctorId?: number) => {
 
   const toAppointmentSummary = (a: (typeof appointments)[number]) => ({
     appointmentId: a.appointment_id,
-    patientId: a.patient.patient_id,
-    patientName: a.patient.full_name,
+    patientId: a.patient?.patient_id ?? null,
+    patientName: a.patient?.full_name ?? a.temp_patient_name ?? 'Unregistered Patient',
     doctorId: a.doctor.user_id,
     doctorName: a.doctor.username,
     status: a.status,
@@ -166,9 +166,9 @@ export const getFollowUpsDue = async (doctorId?: number) => {
     consultationId: c.consultation_id,
     followUpDate: c.follow_up_date,
     isOverdue: (c.follow_up_date as Date) < todayStart,
-    patientId: c.appointment.patient.patient_id,
-    patientName: c.appointment.patient.full_name,
-    patientPhone: c.appointment.patient.phone,
+    patientId: c.appointment.patient?.patient_id ?? null,
+    patientName: c.appointment.patient?.full_name ?? c.appointment.temp_patient_name ?? 'Unregistered Patient',
+    patientPhone: c.appointment.patient?.phone ?? c.appointment.temp_patient_phone ?? null,
     doctorId: c.appointment.doctor.user_id,
     doctorName: c.appointment.doctor.username,
   }));
@@ -308,7 +308,7 @@ export const getAlerts = async (expiryThresholdDays = DEFAULT_EXPIRY_THRESHOLD_D
     alerts.push({
       type: 'skipped-appointment',
       severity: 'amber',
-      message: `${appointment.patient.full_name} was skipped and needs to be recalled`,
+      message: `${appointment.patient?.full_name ?? appointment.temp_patient_name ?? 'Unregistered Patient'} was skipped and needs to be recalled`,
       refId: appointment.appointment_id,
     });
   }
@@ -375,8 +375,8 @@ export const getRecentPrescriptions = async (limit = 5) => {
     code: `RX${String(rx.prescription_id).padStart(6, '0')}`,
     status: rx.status,
     issuedAt: rx.issued_at,
-    patientId: rx.consultation.appointment.patient.patient_id,
-    patientName: rx.consultation.appointment.patient.full_name,
+    patientId: rx.consultation.appointment.patient?.patient_id ?? null,
+    patientName: rx.consultation.appointment.patient?.full_name ?? rx.consultation.appointment.temp_patient_name ?? 'Unregistered Patient',
   }));
 };
 
@@ -470,8 +470,8 @@ export const getDoctorDashboard = async (doctorId: number) => {
     todaysSchedule: todaysAppointments.map((a) => ({
       appointmentId: a.appointment_id,
       scheduledAt: a.scheduled_at,
-      patientId: a.patient.patient_id,
-      patientName: a.patient.full_name,
+      patientId: a.patient?.patient_id ?? null,
+      patientName: a.patient?.full_name ?? a.temp_patient_name ?? 'Unregistered Patient',
       status: a.status,
     })),
     consultationsOverview: Array.from(byDay.entries()).map(([date, count]) => ({ date, count })),
@@ -480,8 +480,8 @@ export const getDoctorDashboard = async (doctorId: number) => {
       code: `RX${String(rx.prescription_id).padStart(6, '0')}`,
       status: rx.status,
       issuedAt: rx.issued_at,
-      patientId: rx.consultation.appointment.patient.patient_id,
-      patientName: rx.consultation.appointment.patient.full_name,
+      patientId: rx.consultation.appointment.patient?.patient_id ?? null,
+      patientName: rx.consultation.appointment.patient?.full_name ?? rx.consultation.appointment.temp_patient_name ?? 'Unregistered Patient',
     })),
   };
 };
@@ -493,11 +493,14 @@ const PHARMACY_PENDING_STATUSES = ['Pending', 'Preparing'];
 type TodaysAppointmentRow = {
   appointment_id: number;
   doctor_id: number;
-  patient_id: string;
+  // Null for a temporary/unregistered walk-in — temp_patient_name carries the display name instead.
+  patient_id: string | null;
   scheduled_at: Date;
   status: string;
   is_walk_in: boolean;
-  patient: { patient_id: string; full_name: string; photo_url: string | null };
+  is_temporary: boolean;
+  temp_patient_name: string | null;
+  patient: { patient_id: string; full_name: string; photo_url: string | null } | null;
   doctor: { user_id: number; username: string };
   consultation: { prescriptions: { status: string }[] } | null;
 };
@@ -575,7 +578,7 @@ export const getReceptionistOverview = async () => {
     }) as Promise<TodaysAppointmentRow[]>,
     prisma.appointment.findMany({
       where: { scheduled_at: { gte: weekStart, lte: todayEnd } },
-      select: { scheduled_at: true, is_walk_in: true, status: true, patient_id: true },
+      select: { appointment_id: true, scheduled_at: true, is_walk_in: true, status: true, patient_id: true },
     }),
     prisma.auditLog.findMany({ take: 8, orderBy: { timestamp: 'desc' }, include: { user: { select: { username: true, role: true } } } }),
   ]);
@@ -602,9 +605,10 @@ export const getReceptionistOverview = async () => {
 
       return {
         appointmentId: a.appointment_id,
-        patientId: a.patient.patient_id,
-        patientName: a.patient.full_name,
-        photoUrl: a.patient.photo_url,
+        patientId: a.patient?.patient_id ?? null,
+        patientName: a.patient?.full_name ?? a.temp_patient_name ?? 'Unregistered Patient',
+        photoUrl: a.patient?.photo_url ?? null,
+        isTemporary: a.is_temporary,
         type: a.is_walk_in ? 'Walk-in' : 'Appointment',
         doctorId: a.doctor.user_id,
         doctorName: a.doctor.username,
@@ -658,7 +662,9 @@ export const getReceptionistOverview = async () => {
     if (!bucket) continue;
     if (a.is_walk_in) bucket.walkIns += 1;
     else bucket.appointments += 1;
-    if (a.status === 'Completed') bucket.patientsSeen.add(a.patient_id);
+    // Temporary walk-ins have no patient_id to dedupe by — each such visit is its own appointment
+    // anyway, so fall back to appointment_id (still counts as one distinct "patient seen").
+    if (a.status === 'Completed') bucket.patientsSeen.add(a.patient_id ?? `temp-${a.appointment_id}`);
   }
   const weeklyOverview = Array.from(dayBuckets.entries()).map(([date, b]) => ({
     date,

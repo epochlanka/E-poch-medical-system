@@ -14,7 +14,9 @@ export interface Overview {
 
 export interface AppointmentSummary {
   appointmentId: number;
-  patientId: string;
+  // Null means this visit was a temporary/unregistered walk-in — patientName already falls back
+  // to the captured temp name server-side.
+  patientId: string | null;
   patientName: string;
   doctorId: number;
   doctorName: string;
@@ -33,7 +35,7 @@ export interface FollowUp {
   consultationId: number;
   followUpDate: string;
   isOverdue: boolean;
-  patientId: string;
+  patientId: string | null;
   patientName: string;
   patientPhone: string | null;
   doctorId: number;
@@ -58,7 +60,7 @@ export interface RecentPrescription {
   code: string;
   status: 'Pending' | 'Preparing' | 'Dispensed' | 'Collected';
   issuedAt: string;
-  patientId: string;
+  patientId: string | null;
   patientName: string;
 }
 

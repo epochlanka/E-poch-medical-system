@@ -1,6 +1,15 @@
 import { useMemo, useState } from 'react';
 import { useApiData } from '../../hooks/useApiData';
-import { getSkipStats, listAppointments, updateAppointmentStatus, tokenNumber, calculateAge, waitingMinutes } from '../../lib/queue';
+import {
+  getSkipStats,
+  listAppointments,
+  updateAppointmentStatus,
+  tokenNumber,
+  displayPatientName,
+  displayPatientId,
+  displayPatientGender,
+  displayAgeLabel,
+} from '../../lib/queue';
 import { PatientsIcon, ClockIcon, RefreshIcon, ChevronLeftIcon, ChevronRightIcon } from '../../components/layout/Icons';
 import KpiCard from '../dashboard/KpiCard';
 import '../dashboard/dashboard.css';
@@ -174,14 +183,16 @@ const SkipRecall = () => {
                         <span className="q-token">{tokenNumber(a.appointment_id)}</span>
                       </td>
                       <td>
-                        <div style={{ fontWeight: 600, color: '#0f172a' }}>{a.patient.full_name}</div>
+                        <div style={{ fontWeight: 600, color: '#0f172a' }}>
+                          {displayPatientName(a)} {a.is_temporary && <span className="badge badge-amber">Temporary</span>}
+                        </div>
                         <span className="pat-muted" style={{ fontSize: 11.5 }}>
-                          {a.patient.patient_id}
+                          {displayPatientId(a)}
                         </span>
                       </td>
                       <td>
-                        <span className={`q-gender-dot ${a.patient.gender === 'Female' ? 'female' : 'male'}`} />
-                        {calculateAge(a.patient.dob)} Y / {a.patient.gender}
+                        <span className={`q-gender-dot ${displayPatientGender(a) === 'Female' ? 'female' : 'male'}`} />
+                        {displayAgeLabel(a) ?? '—'} {displayPatientGender(a) ? `/ ${displayPatientGender(a)}` : ''}
                       </td>
                       <td>
                         <div>{formatTime(skippedIso)}</div>

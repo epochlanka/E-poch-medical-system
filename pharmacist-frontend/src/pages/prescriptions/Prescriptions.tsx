@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApiData } from '../../hooks/useApiData';
 import { getDoctors } from '../../lib/appointments';
 import type { Doctor } from '../../lib/appointments';
-import { listPrescriptions, getPrescriptionStats, getPrescription, downloadPrescriptionPdf } from '../../lib/prescriptions';
+import { listPrescriptions, getPrescriptionStats, getPrescription, downloadPrescriptionPdf, displayDetailPatient } from '../../lib/prescriptions';
 import type { ListPrescriptionsParams, PrescriptionDetail } from '../../lib/prescriptions';
 import { setPrescriptionPreparing } from '../../lib/pharmacy';
 import {
@@ -467,30 +467,32 @@ const Prescriptions = () => {
 
             {detailLoading && <p style={{ fontSize: 13, color: '#94a3b8' }}>Loading…</p>}
 
-            {detail && (
+            {detail && (() => {
+              const patient = displayDetailPatient(detail);
+              return (
               <>
                 <div className="rx-detail-section">
                   <div className="rx-detail-section-title">
-                    <PatientsIcon /> Patient Information
+                    <PatientsIcon /> Patient Information {patient.isTemporary && <span className="badge badge-amber">Temporary</span>}
                   </div>
                   <div className="rx-detail-grid">
                     <div className="rx-detail-field" style={{ gridColumn: 'span 2' }}>
                       <span className="rx-detail-label">Patient Name</span>
-                      <span className="rx-detail-value">{detail.consultation.appointment.patient.full_name}</span>
+                      <span className="rx-detail-value">{patient.fullName}</span>
                     </div>
                     <div className="rx-detail-field">
                       <span className="rx-detail-label">Patient ID</span>
-                      <span className="rx-detail-value">{detail.consultation.appointment.patient.patient_id}</span>
+                      <span className="rx-detail-value">{patient.patientId ?? 'Temporary'}</span>
                     </div>
                     <div className="rx-detail-field">
                       <span className="rx-detail-label">Age / Gender</span>
                       <span className="rx-detail-value">
-                        {calculateAge(detail.consultation.appointment.patient.dob)} Y / {detail.consultation.appointment.patient.gender}
+                        {patient.dob ? `${calculateAge(patient.dob)} Y` : patient.approxAge ? `~${patient.approxAge} Y` : '—'} / {patient.gender ?? '—'}
                       </span>
                     </div>
                     <div className="rx-detail-field" style={{ gridColumn: 'span 2' }}>
                       <span className="rx-detail-label">Contact</span>
-                      <span className="rx-detail-value">{detail.consultation.appointment.patient.phone || '—'}</span>
+                      <span className="rx-detail-value">{patient.phone || '—'}</span>
                     </div>
                   </div>
                 </div>
@@ -566,7 +568,8 @@ const Prescriptions = () => {
                   )}
                 </div>
               </>
-            )}
+              );
+            })()}
           </div>
         )}
       </div>

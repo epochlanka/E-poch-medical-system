@@ -113,7 +113,7 @@ export const createPrescription = async (input: CreatePrescriptionInput, actor: 
     }
   }
 
-  const allergyText = (consultation.appointment.patient.allergies || '').toLowerCase().trim();
+  const allergyText = (consultation.appointment.patient?.allergies || '').toLowerCase().trim();
   const conflicts = allergyText
     ? items.filter((i) => {
         const m = medicineById.get(i.medicine_id)!;
@@ -178,13 +178,18 @@ export const getPrescriptionById = async (id: number) => {
 
   // Same "has this patient been seen before" signal used by the New Prescription builder's
   // Visit Type badge — computed here too since the prescription detail view shows it as well.
-  const priorVisitCount = await prisma.consultation.count({
-    where: {
-      status: 'Finalized',
-      appointment: { patient_id: prescription.consultation.appointment.patient_id },
-      consultation_id: { not: prescription.consultation_id },
-    },
-  });
+  // A temporary walk-in has no patient_id — `patient_id: null` would otherwise match every
+  // *other* unregistered walk-in's consultations too, so short-circuit to 0 instead.
+  const patientId = prescription.consultation.appointment.patient_id;
+  const priorVisitCount = patientId
+    ? await prisma.consultation.count({
+        where: {
+          status: 'Finalized',
+          appointment: { patient_id: patientId },
+          consultation_id: { not: prescription.consultation_id },
+        },
+      })
+    : 0;
 
   return { ...prescription, priorVisitCount };
 };
@@ -257,12 +262,13 @@ export const listPrescriptions = async (filters: ListPrescriptionsFilters) => {
       issuedAt: rx.issued_at,
       appointmentId: rx.consultation.appointment_id,
       consultationType: rx.consultation.appointment.consultation_type,
-      patientId: rx.consultation.appointment.patient.patient_id,
-      patientName: rx.consultation.appointment.patient.full_name,
-      patientGender: rx.consultation.appointment.patient.gender,
-      patientDob: rx.consultation.appointment.patient.dob,
-      patientPhone: rx.consultation.appointment.patient.phone,
-      patientPhotoUrl: rx.consultation.appointment.patient.photo_url,
+      patientId: rx.consultation.appointment.patient?.patient_id ?? null,
+      patientName: rx.consultation.appointment.patient?.full_name ?? rx.consultation.appointment.temp_patient_name ?? 'Unregistered Patient',
+      patientGender: rx.consultation.appointment.patient?.gender ?? rx.consultation.appointment.temp_patient_gender ?? null,
+      patientDob: rx.consultation.appointment.patient?.dob ?? null,
+      patientPhone: rx.consultation.appointment.patient?.phone ?? rx.consultation.appointment.temp_patient_phone ?? null,
+      patientPhotoUrl: rx.consultation.appointment.patient?.photo_url ?? null,
+      isTemporary: rx.consultation.appointment.is_temporary,
       doctorId: rx.consultation.appointment.doctor.user_id,
       doctorName: rx.consultation.appointment.doctor.username,
       items: rx.items.map((i) => ({ medicine: i.medicine.name, dosage: i.dosage, qty: i.qty, dispensedAt: i.dispensed_at })),
@@ -338,19 +344,24 @@ export const getPrescriptionContext = async (consultationId: number) => {
 
   const patientId = consultation.appointment.patient_id;
 
-  const [pastConsultations, pastPrescriptions] = await Promise.all([
-    prisma.consultation.findMany({
-      where: { appointment: { patient_id: patientId }, status: 'Finalized' },
-      select: { medical_history_json: true },
-      take: 20,
-    }),
-    prisma.prescription.findMany({
-      where: { consultation: { appointment: { patient_id: patientId } }, consultation_id: { not: consultationId } },
-      orderBy: { issued_at: 'desc' },
-      take: 10,
-      include: { items: { include: { medicine: { select: { name: true } } } } },
-    }),
-  ]);
+  // A temporary walk-in has no patient_id — `patient_id: null` would otherwise match every
+  // *other* unregistered walk-in's history too (Prisma treats `null` as a real filter value),
+  // so skip these history lookups entirely rather than leak unrelated patients' data in.
+  const [pastConsultations, pastPrescriptions] = patientId
+    ? await Promise.all([
+        prisma.consultation.findMany({
+          where: { appointment: { patient_id: patientId }, status: 'Finalized' },
+          select: { medical_history_json: true },
+          take: 20,
+        }),
+        prisma.prescription.findMany({
+          where: { consultation: { appointment: { patient_id: patientId } }, consultation_id: { not: consultationId } },
+          orderBy: { issued_at: 'desc' },
+          take: 10,
+          include: { items: { include: { medicine: { select: { name: true } } } } },
+        }),
+      ])
+    : [[], []];
 
   const chronicConditions = Array.from(
     new Set(pastConsultations.flatMap((c) => (c.medical_history_json ? (JSON.parse(c.medical_history_json) as string[]) : [])))
@@ -367,11 +378,20 @@ export const getPrescriptionContext = async (consultationId: number) => {
       appointmentId: consultation.appointment.appointment_id,
       scheduledAt: consultation.appointment.scheduled_at,
       patient: consultation.appointment.patient,
+      isTemporary: consultation.appointment.is_temporary,
+      tempPatient: consultation.appointment.is_temporary
+        ? {
+            name: consultation.appointment.temp_patient_name,
+            gender: consultation.appointment.temp_patient_gender,
+            phone: consultation.appointment.temp_patient_phone,
+            age: consultation.appointment.temp_patient_age,
+          }
+        : null,
       doctor: consultation.appointment.doctor,
     },
     existingPrescriptions: consultation.prescriptions,
     patientSummary: {
-      allergies: consultation.appointment.patient.allergies,
+      allergies: consultation.appointment.patient?.allergies ?? null,
       chronicConditions,
       // Whether this patient has any other Finalized visit at all — lets the UI show
       // "New Visit" vs "Return Visit" honestly, from the pastConsultations query already run

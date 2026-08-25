@@ -101,7 +101,9 @@ model PatientDuplicateFlag {
 
 model Appointment {
   appointment_id    Int       @id @default(autoincrement())
-  patient_id        String
+  // Nullable: a temporary/unregistered walk-in (is_temporary=true) has no Patient row at all —
+  // never fabricate a stub Patient just to satisfy this FK. Permanent appointments always set this.
+  patient_id        String?
   doctor_id         Int
   scheduled_at      DateTime
   reason            String? // reason for visit, captured at booking time
@@ -115,7 +117,17 @@ model Appointment {
   notes             String? // internal receptionist notes, distinct from `reason` (the patient-facing reason for visit)
   created_by        Int
 
-  patient      Patient @relation(fields: [patient_id], references: [patient_id])
+  // Today-only walk-in that opted out of permanent registration ("Continue Without Registration").
+  // patient_id stays null for the life of the visit unless a receptionist later converts it via
+  // convertToPatient (required before billing, since Invoice.patient_id is a hard FK). Minimal
+  // capture only — no DOB/NIC/family, since the whole point is skipping full registration.
+  is_temporary      Boolean   @default(false)
+  temp_patient_name   String?
+  temp_patient_gender String?
+  temp_patient_phone  String?
+  temp_patient_age    Int?
+
+  patient      Patient? @relation(fields: [patient_id], references: [patient_id])
   doctor       User    @relation("DoctorAppointments", fields: [doctor_id], references: [user_id])
   receptionist User    @relation("ReceptionistAppointments", fields: [created_by], references: [user_id])
 

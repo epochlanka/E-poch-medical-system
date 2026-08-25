@@ -18,17 +18,38 @@ export interface QueueDoctor {
 
 export interface QueueAppointment {
   appointment_id: number;
-  patient_id: string;
+  patient_id: string | null;
   doctor_id: number;
   scheduled_at: string;
   reason: string | null;
   status: AppointmentStatus;
   skip_reason: string | null;
   skipped_at: string | null;
-  patient: QueuePatient;
+  // A temporary/unregistered walk-in ("Continue Without Registration") has patient: null and
+  // carries its minimal captured details in these fields instead — see displayPatientName/
+  // displayPatientAge below rather than reading `.patient.*` directly anywhere a row is rendered.
+  is_temporary: boolean;
+  temp_patient_name: string | null;
+  temp_patient_gender: string | null;
+  temp_patient_phone: string | null;
+  temp_patient_age: number | null;
+  patient: QueuePatient | null;
   doctor: QueueDoctor;
   consultation?: { created_at: string } | null;
 }
+
+export const displayPatientName = (a: Pick<QueueAppointment, 'patient' | 'temp_patient_name'>) =>
+  a.patient?.full_name ?? a.temp_patient_name ?? 'Unregistered Patient';
+export const displayPatientId = (a: Pick<QueueAppointment, 'patient' | 'is_temporary'>) =>
+  a.patient?.patient_id ?? (a.is_temporary ? 'Temporary' : '—');
+export const displayPatientGender = (a: Pick<QueueAppointment, 'patient' | 'temp_patient_gender'>) => a.patient?.gender ?? a.temp_patient_gender ?? null;
+// A temporary patient has no dob, only an optional approximate age — this returns a ready-to-render
+// "NN Y" (or "~NN Y" for the approximate case) string, or null when nothing is known at all.
+export const displayAgeLabel = (a: Pick<QueueAppointment, 'patient' | 'temp_patient_age'>) => {
+  if (a.patient?.dob) return `${calculateAge(a.patient.dob)} Y`;
+  if (a.temp_patient_age != null) return `~${a.temp_patient_age} Y`;
+  return null;
+};
 
 // Both auto-scope to the caller's own appointments when the caller is a Doctor (server-side —
 // see backend/src/modules/appointments/controller.ts's doctorScope helper), regardless of any

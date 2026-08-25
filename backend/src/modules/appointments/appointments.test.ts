@@ -456,4 +456,89 @@ describe('Appointments API', () => {
       expect(res.body.data.every((r: any) => r.action === 'Skipped')).toBe(true);
     });
   });
+
+  describe('Temporary/unregistered walk-in patients ("Continue Without Registration")', () => {
+    it('rejects a create with neither patient_id nor is_temporary+temp_patient_name', async () => {
+      const res = await request(app)
+        .post('/api/v1/appointments')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ doctor_id: doctorId, scheduled_at: new Date().toISOString(), is_walk_in: true });
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects a temporary walk-in with no temp_patient_name', async () => {
+      const res = await request(app)
+        .post('/api/v1/appointments')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ doctor_id: doctorId, scheduled_at: new Date().toISOString(), is_walk_in: true, is_temporary: true });
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects a create that sets both patient_id and is_temporary', async () => {
+      const res = await request(app)
+        .post('/api/v1/appointments')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          doctor_id: doctorId,
+          scheduled_at: new Date().toISOString(),
+          is_walk_in: true,
+          is_temporary: true,
+          patient_id: 'PT-SEED-001',
+          temp_patient_name: `Walk-in ${runId}`,
+        });
+      expect(res.status).toBe(400);
+    });
+
+    let tempAppointmentId: number;
+
+    it('creates a temporary walk-in with no patient_id, joining the queue with a null patient', async () => {
+      const res = await request(app)
+        .post('/api/v1/appointments')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          doctor_id: doctorId,
+          scheduled_at: new Date().toISOString(),
+          is_walk_in: true,
+          is_temporary: true,
+          temp_patient_name: `Temp Walk-in ${runId}`,
+          temp_patient_gender: 'Male',
+          temp_patient_age: 40,
+        });
+      expect(res.status).toBe(201);
+      expect(res.body.status).toBe('Waiting');
+      expect(res.body.patient_id).toBeNull();
+      expect(res.body.patient).toBeNull();
+      expect(res.body.is_temporary).toBe(true);
+      expect(res.body.temp_patient_name).toBe(`Temp Walk-in ${runId}`);
+      tempAppointmentId = res.body.appointment_id;
+    });
+
+    it('shows the temporary walk-in in the live queue with a display name, without crashing on the null patient', async () => {
+      const res = await request(app).get('/api/v1/appointments/queue').set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      const entry = res.body.find((a: any) => a.appointment_id === tempAppointmentId);
+      expect(entry).toBeDefined();
+      expect(entry.patient).toBeNull();
+      expect(entry.temp_patient_name).toBe(`Temp Walk-in ${runId}`);
+    });
+
+    it('rejects converting a non-temporary appointment', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/appointments/${appointmentId}/convert-to-patient`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ patient_id: 'PT-SEED-001' });
+      expect(res.status).toBe(400);
+    });
+
+    it('converts a temporary walk-in to a registered patient', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/appointments/${tempAppointmentId}/convert-to-patient`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ patient_id: 'PT-SEED-001' });
+      expect(res.status).toBe(200);
+      expect(res.body.is_temporary).toBe(false);
+      expect(res.body.patient_id).toBe('PT-SEED-001');
+      expect(res.body.patient.patient_id).toBe('PT-SEED-001');
+    });
+  });
 });

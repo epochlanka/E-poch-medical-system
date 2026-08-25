@@ -49,12 +49,23 @@ export interface ConsultationPatient {
   photo_url: string | null;
 }
 
+export interface TempPatientInfo {
+  name: string | null;
+  gender: string | null;
+  phone: string | null;
+  age: number | null;
+}
+
 export interface ConsultationContext {
   appointment: {
     appointmentId: number;
     status: string;
     scheduledAt: string;
-    patient: ConsultationPatient;
+    // Null for a temporary/unregistered walk-in ("Continue Without Registration") — use
+    // isTemporary/tempPatient in that case, or better, the displayPatient() helper below.
+    patient: ConsultationPatient | null;
+    isTemporary: boolean;
+    tempPatient: TempPatientInfo | null;
     doctor: { user_id: number; username: string; registration_number: string | null };
   };
   consultation: Consultation | null;
@@ -70,6 +81,77 @@ export interface ConsultationContext {
 
 export const getConsultationContext = (appointmentId: number) =>
   api.get<ConsultationContext>(`/consultations/context/${appointmentId}`).then((r) => r.data);
+
+// ---- Patient Consultation History (History tab) ------------------------------------------
+// Registered patients only — never call this for a temporary/unregistered walk-in, since they
+// have no patient_id to call it with. See displayPatient(context).patientId / .isTemporary above.
+
+export interface PatientHistoryPrescription {
+  prescriptionId: number;
+  status: string;
+  issuedAt: string;
+  items: { medicine: string; dosage: string; qty: number }[];
+}
+
+export interface PatientHistoryLabResult {
+  parameterName: string;
+  value: string;
+  unit: string | null;
+  referenceRange: string | null;
+  flag: string | null;
+}
+
+export interface PatientHistoryLabTestOrder {
+  labTestOrderId: number;
+  testName: string;
+  status: string;
+  priority: string;
+  results: PatientHistoryLabResult[];
+}
+
+export interface PatientConsultationHistoryEntry {
+  consultationId: number;
+  appointmentId: number;
+  createdAt: string;
+  finalizedAt: string | null;
+  doctorName: string;
+  doctorRegistrationNumber: string | null;
+  complaint: string | null;
+  historyOfPresentIllness: string | null;
+  examinationFindings: string | null;
+  vitals: Vitals | null;
+  medicalHistory: string[];
+  diagnosis: string | null;
+  icd10Code: string | null;
+  notes: string | null;
+  followUpDate: string | null;
+  prescriptions: PatientHistoryPrescription[];
+  labTestOrders: PatientHistoryLabTestOrder[];
+}
+
+export const getPatientConsultationHistory = (patientId: string, excludeAppointmentId?: number) =>
+  api
+    .get<PatientConsultationHistoryEntry[]>(`/consultations/patient-history/${patientId}`, { params: { excludeAppointmentId } })
+    .then((r) => r.data);
+
+// Normalizes a registered Patient and a temporary walk-in's minimal captured details into one
+// always-non-null shape, so the workspace UI can render `displayPatient(context).fullName` etc.
+// without a null check at every call site. patientId is null for a temporary walk-in — gate any
+// action that needs a real Patient row (allergy edits, photo upload, etc.) on that.
+export const displayPatient = (ctx: Pick<ConsultationContext, 'appointment' | 'patientSummary'>) => {
+  const p = ctx.appointment.patient;
+  const t = ctx.appointment.tempPatient;
+  return {
+    patientId: p?.patient_id ?? null,
+    fullName: p?.full_name ?? t?.name ?? 'Unregistered Patient',
+    gender: p?.gender ?? t?.gender ?? null,
+    dob: p?.dob ?? null,
+    approxAge: t?.age ?? null,
+    phone: p?.phone ?? t?.phone ?? null,
+    photoUrl: p?.photo_url ?? null,
+    isTemporary: ctx.appointment.isTemporary,
+  };
+};
 
 export interface ConsultationInput {
   vitals?: Vitals;
@@ -132,12 +214,15 @@ export interface ConsultationSummary {
   notes: string | null;
   createdAt: string;
   followUpDate: string | null;
-  patientId: string;
+  // Null patientId/patientGender/patientDob means this visit was a temporary/unregistered
+  // walk-in — patientName already falls back to the captured temp name server-side.
+  patientId: string | null;
   patientName: string;
-  patientGender: string;
-  patientDob: string;
+  patientGender: string | null;
+  patientDob: string | null;
   patientPhone: string | null;
   patientPhotoUrl: string | null;
+  isTemporary: boolean;
   doctorId: number;
   doctorName: string;
 }

@@ -7,6 +7,7 @@ import {
   getTodaysSchedule,
   updateAppointmentStatus,
   listDoctors,
+  displayPatientName,
 } from '../../lib/appointments';
 import type { AppointmentListStatus, ListAppointmentsParams, QueueAppointment } from '../../lib/appointments';
 import {
@@ -350,11 +351,13 @@ const Appointments = () => {
                       </td>
                       <td>
                         <div className="pat-name-cell">
-                          <div className="pat-avatar">{initials(a.patient.full_name)}</div>
+                          <div className="pat-avatar">{initials(displayPatientName(a))}</div>
                           <div>
-                            <div className="pat-name">{a.patient.full_name}</div>
+                            <div className="pat-name">
+                              {displayPatientName(a)} {a.is_temporary && <span className="badge badge-amber">Temporary</span>}
+                            </div>
                             <div className="pat-muted" style={{ fontSize: 11.5 }}>
-                              {a.patient.phone || '—'}
+                              {a.patient?.phone ?? a.temp_patient_phone ?? '—'}
                             </div>
                           </div>
                         </div>

@@ -24,8 +24,11 @@ const serializeQueueItem = (rx: any) => ({
   isRefill: rx.is_refill,
   issuedAt: rx.issued_at,
   lastActivityAt: lastActivityAt(rx),
-  patientId: rx.consultation.appointment.patient.patient_id,
-  patientName: rx.consultation.appointment.patient.full_name,
+  // A temporary/unregistered walk-in has no Patient row — fall back to the minimal details
+  // captured at queue-entry time (Appointment.temp_patient_*).
+  patientId: rx.consultation.appointment.patient?.patient_id ?? null,
+  patientName: rx.consultation.appointment.patient?.full_name ?? rx.consultation.appointment.temp_patient_name ?? 'Unregistered Patient',
+  isTemporary: rx.consultation.appointment.is_temporary,
   doctorId: rx.consultation.appointment.doctor.user_id,
   doctorName: rx.consultation.appointment.doctor.username,
   consultationType: rx.consultation.appointment.consultation_type,

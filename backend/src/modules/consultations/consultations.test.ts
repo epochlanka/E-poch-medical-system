@@ -297,4 +297,74 @@ describe('Consultations API', () => {
       expect(res.status).toBe(400);
     });
   });
+
+  describe('Patient Consultation History (GET /consultations/patient-history/:patientId)', () => {
+    it("returns a registered patient's finalized visits, each with doctor, diagnosis, prescriptions, and lab test orders — newest first, Draft visits excluded, and excludeAppointmentId honored", async () => {
+      const { appointment, patient } = await makeConsultingAppointment(doctorId);
+      const medicine = await prisma.medicine.create({
+        data: { name: `History Test Drug ${runId}`, unit: 'tablet', unit_price: 10, is_active: true },
+      });
+
+      const createRes = await request(app)
+        .post('/api/v1/consultations')
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ appointment_id: appointment.appointment_id, complaint: 'Sore throat', diagnosis: `Pharyngitis ${runId}` });
+      const histConsultationId = createRes.body.consultation_id;
+
+      await request(app)
+        .post('/api/v1/prescriptions')
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ consultation_id: histConsultationId, items: [{ medicine_id: medicine.medicine_id, dosage: '1 tab', qty: 5 }] });
+
+      await request(app)
+        .post('/api/v1/lab-test-orders')
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ consultation_id: histConsultationId, test_name: `History Test CBC ${runId}` });
+
+      const finalizeRes = await request(app).post(`/api/v1/consultations/${histConsultationId}/finalize`).set('Authorization', `Bearer ${doctorToken}`);
+      expect(finalizeRes.status).toBe(200);
+
+      // A second, still-Draft consultation for the same patient — must never show up in history.
+      const { appointment: draftAppointment } = await makeConsultingAppointment(doctorId);
+      await prisma.appointment.update({ where: { appointment_id: draftAppointment.appointment_id }, data: { patient_id: patient.patient_id } });
+      const draftRes = await request(app)
+        .post('/api/v1/consultations')
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ appointment_id: draftAppointment.appointment_id });
+
+      const historyRes = await request(app)
+        .get(`/api/v1/consultations/patient-history/${patient.patient_id}`)
+        .set('Authorization', `Bearer ${doctorToken}`);
+      expect(historyRes.status).toBe(200);
+      expect(Array.isArray(historyRes.body)).toBe(true);
+      expect(historyRes.body.some((c: any) => c.consultationId === draftRes.body.consultation_id)).toBe(false);
+
+      const entry = historyRes.body.find((c: any) => c.consultationId === histConsultationId);
+      expect(entry).toBeDefined();
+      expect(entry.appointmentId).toBe(appointment.appointment_id);
+      expect(entry.doctorName).toBe('doctor');
+      expect(entry.complaint).toBe('Sore throat');
+      expect(entry.diagnosis).toBe(`Pharyngitis ${runId}`);
+      expect(entry.prescriptions).toHaveLength(1);
+      expect(entry.prescriptions[0].items).toEqual([{ medicine: medicine.name, dosage: '1 tab', qty: 5 }]);
+      expect(entry.labTestOrders).toHaveLength(1);
+      expect(entry.labTestOrders[0].testName).toBe(`History Test CBC ${runId}`);
+      expect(entry.labTestOrders[0]).toHaveProperty('results');
+
+      // excludeAppointmentId hides that one visit, as used when viewing that visit's own workspace.
+      const excludedRes = await request(app)
+        .get(`/api/v1/consultations/patient-history/${patient.patient_id}`)
+        .query({ excludeAppointmentId: appointment.appointment_id })
+        .set('Authorization', `Bearer ${doctorToken}`);
+      expect(excludedRes.body.some((c: any) => c.consultationId === histConsultationId)).toBe(false);
+    });
+
+    it('returns an empty array for a patient id with no finalized visits (also covers the temporary-walk-in case, which never has a real patient_id to call this with)', async () => {
+      const res = await request(app)
+        .get(`/api/v1/consultations/patient-history/PT-DOES-NOT-EXIST-${runId}`)
+        .set('Authorization', `Bearer ${doctorToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([]);
+    });
+  });
 });

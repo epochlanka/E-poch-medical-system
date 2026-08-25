@@ -6,14 +6,19 @@ interface Appointment {
   appointment_id: number;
   scheduled_at: string;
   status: string;
+  // Null for a temporary/unregistered walk-in added from Reception without a permanent record.
+  is_temporary?: boolean;
+  temp_patient_name?: string | null;
   patient: {
     full_name: string;
     gender: string;
-  };
+  } | null;
   doctor: {
     username: string;
   };
 }
+
+const patientName = (app: Appointment) => app.patient?.full_name ?? app.temp_patient_name ?? 'Unregistered Patient';
 
 const formatTime = (isoString: string) => {
   const d = new Date(isoString);
@@ -161,7 +166,7 @@ const QueueDashboard: React.FC = () => {
               <div key={app.appointment_id} style={{ ...styles.card, borderLeft: '4px solid #e5e7eb' }}>
                 <div style={styles.cardHeader}>
                   <div>
-                    <h4 style={styles.patientName}>{app.patient.full_name}</h4>
+                    <h4 style={styles.patientName}>{patientName(app)}</h4>
                     <p style={styles.doctorText}>Dr. {app.doctor.username}</p>
                   </div>
                   
@@ -219,7 +224,7 @@ const QueueDashboard: React.FC = () => {
               <div key={app.appointment_id} style={{ ...styles.card, borderLeft: '4px solid #f59e0b' }}>
                 <div style={styles.cardHeader}>
                   <div>
-                    <h4 style={styles.patientName}>{app.patient.full_name}</h4>
+                    <h4 style={styles.patientName}>{patientName(app)}</h4>
                     <p style={styles.doctorText}>Called by Dr. {app.doctor.username}</p>
                   </div>
                   <span style={{ ...styles.timeBadge, background: '#fef3c7', color: '#92400e' }}>
@@ -252,7 +257,7 @@ const QueueDashboard: React.FC = () => {
               <div key={app.appointment_id} style={{ ...styles.card, borderLeft: '4px solid #10b981' }}>
                 <div style={styles.cardHeader}>
                   <div>
-                    <h4 style={styles.patientName}>{app.patient.full_name}</h4>
+                    <h4 style={styles.patientName}>{patientName(app)}</h4>
                     <p style={{ ...styles.doctorText, color: '#059669', fontWeight: 500 }}>
                       Consulting with Dr. {app.doctor.username}
                     </p>

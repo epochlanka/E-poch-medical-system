@@ -9,6 +9,11 @@ export class AppointmentsController {
       const created_by = (req as any).user?.user_id || 1;
       const data = {
         patient_id: req.body.patient_id,
+        is_temporary: req.body.is_temporary ?? false,
+        temp_patient_name: req.body.temp_patient_name,
+        temp_patient_gender: req.body.temp_patient_gender,
+        temp_patient_phone: req.body.temp_patient_phone,
+        temp_patient_age: req.body.temp_patient_age,
         doctor_id: req.body.doctor_id,
         scheduled_at: new Date(req.body.scheduled_at),
         reason: req.body.reason,
@@ -215,6 +220,18 @@ export class AppointmentsController {
       const { scheduled_at } = req.body;
 
       const updated = await appointmentsService.updateTime(appointment_id, new Date(scheduled_at));
+      res.status(200).json(updated);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  convertToPatient = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const appointment_id = Number(req.params.id);
+      const { patient_id } = req.body;
+
+      const updated = await appointmentsService.convertToPatient(appointment_id, patient_id);
       res.status(200).json(updated);
     } catch (error) {
       next(error);

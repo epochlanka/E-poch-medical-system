@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import { fileUrl } from '../../lib/api';
-import { listConsultations, getConsultationContext } from '../../lib/consultations';
+import { listConsultations, getConsultationContext, displayPatient } from '../../lib/consultations';
 import type { ConsultationSummary } from '../../lib/consultations';
 import { getFollowUps } from '../../lib/dashboard';
 import { calculateAge } from '../../lib/queue';
@@ -338,16 +338,18 @@ const MyConsultations = () => {
                         <div className="pat-name-cell">
                           {c.patientPhotoUrl ? <img className="pat-avatar" src={fileUrl(c.patientPhotoUrl)} alt="" /> : <div className="pat-avatar">{initials(c.patientName)}</div>}
                           <div>
-                            <div className="pat-name">{c.patientName}</div>
+                            <div className="pat-name">
+                              {c.patientName} {c.isTemporary && <span className="badge badge-amber">Temporary</span>}
+                            </div>
                             <span className="pat-muted" style={{ fontSize: 11.5 }}>
-                              {c.patientId}
+                              {c.patientId ?? 'Temporary'}
                             </span>
                           </div>
                         </div>
                       </td>
                       <td>
                         <span className={`q-gender-dot ${c.patientGender === 'Female' ? 'female' : 'male'}`} />
-                        {calculateAge(c.patientDob)} Y / {c.patientGender}
+                        {c.patientDob ? `${calculateAge(c.patientDob)} Y` : '—'} / {c.patientGender ?? '—'}
                       </td>
                       <td>
                         <span className={`badge ${STATUS_BADGE[c.status]}`}>{STATUS_LABEL[c.status]}</span>
@@ -433,7 +435,7 @@ const DetailPanel = ({ appointmentId, onClose }: { appointmentId: number; onClos
   }
 
   const { appointment, consultation, recentConsultations } = context;
-  const { patient } = appointment;
+  const patient = displayPatient(context);
   const isFinalized = consultation?.status === 'Finalized';
   const visitType = recentConsultations.length > 0 ? 'Return Visit' : 'New Visit';
 
@@ -448,17 +450,19 @@ const DetailPanel = ({ appointmentId, onClose }: { appointmentId: number; onClos
 
       <div className="cd-patient-row">
         <div style={{ display: 'flex', gap: 10 }}>
-          {patient.photo_url ? <img className="pat-avatar" src={fileUrl(patient.photo_url)} alt="" /> : <div className="pat-avatar">{initials(patient.full_name)}</div>}
+          {patient.photoUrl ? <img className="pat-avatar" src={fileUrl(patient.photoUrl)} alt="" /> : <div className="pat-avatar">{initials(patient.fullName)}</div>}
           <div>
-            <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 14 }}>{patient.full_name}</div>
+            <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 14 }}>
+              {patient.fullName} {patient.isTemporary && <span className="badge badge-amber">Temporary</span>}
+            </div>
             <div className="pat-muted" style={{ fontSize: 11.5 }}>
-              MRN: {patient.patient_id}
+              MRN: {patient.patientId ?? 'Temporary'}
             </div>
           </div>
         </div>
         <div className="cd-patient-meta">
           <div>
-            {calculateAge(patient.dob)} Y / {patient.gender}
+            {patient.dob ? `${calculateAge(patient.dob)} Y` : patient.approxAge ? `~${patient.approxAge} Y` : '—'} / {patient.gender ?? '—'}
           </div>
           {patient.phone && <div>{patient.phone}</div>}
         </div>

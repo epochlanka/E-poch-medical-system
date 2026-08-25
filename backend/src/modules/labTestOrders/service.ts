@@ -49,6 +49,11 @@ export const createLabTestOrder = async (input: CreateLabTestOrderInput, actor: 
   });
   if (!consultation) throw new NotFoundError('Consultation not found');
   assertDoctorOwnsConsultation(actor, consultation.appointment.doctor_id);
+  // patient_id is a hard FK on LabTestOrder — a temporary/unregistered walk-in has no Patient
+  // row to attach a lab order to.
+  if (!consultation.appointment.patient_id) {
+    throw new ValidationError('This patient is not registered yet — register them before ordering a lab test');
+  }
 
   let testName = input.test_name?.trim();
   let testCategory = input.test_category?.trim() || undefined;

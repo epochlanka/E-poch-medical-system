@@ -4,16 +4,29 @@ export type AppointmentStatus = 'Waiting' | 'Called' | 'Consulting' | 'Completed
 
 export interface QueueAppointment {
   appointment_id: number;
-  patient_id: string;
+  patient_id: string | null;
   doctor_id: number;
   scheduled_at: string;
   reason: string | null;
   status: AppointmentStatus;
-  patient: { full_name: string; gender: string; dob: string; phone: string | null };
+  // A temporary/unregistered walk-in ("Continue Without Registration", added from Reception) has
+  // patient: null and carries its minimal captured details in these fields instead — use
+  // displayPatientName/displayPatientId/displayAgeGender below rather than `.patient.*` directly.
+  is_temporary: boolean;
+  temp_patient_name: string | null;
+  temp_patient_gender: string | null;
+  temp_patient_phone: string | null;
+  temp_patient_age: number | null;
+  patient: { full_name: string; gender: string; dob: string; phone: string | null } | null;
   doctor: { username: string; registration_number: string | null };
 }
 
 export const getLiveQueue = () => api.get<QueueAppointment[]>('/appointments/queue').then((r) => r.data);
+
+export const displayPatientName = (a: Pick<QueueAppointment, 'patient' | 'temp_patient_name'>) =>
+  a.patient?.full_name ?? a.temp_patient_name ?? 'Unregistered Patient';
+export const displayPatientId = (a: Pick<QueueAppointment, 'patient_id' | 'is_temporary'>) => a.patient_id ?? (a.is_temporary ? 'Temporary' : '—');
+export const displayPatientGender = (a: Pick<QueueAppointment, 'patient' | 'temp_patient_gender'>) => a.patient?.gender ?? a.temp_patient_gender ?? null;
 
 export const updateAppointmentStatus = (appointmentId: number, status: AppointmentStatus) =>
   api.patch(`/appointments/${appointmentId}/status`, { status }).then((r) => r.data);

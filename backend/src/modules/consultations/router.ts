@@ -85,6 +85,11 @@ const listSchema = z.object({
 
 const contextParamsSchema = z.object({ params: z.object({ appointmentId: z.coerce.number().int().positive() }) });
 
+const patientHistorySchema = z.object({
+  params: z.object({ patientId: z.string().min(1) }),
+  query: z.object({ excludeAppointmentId: z.coerce.number().int().positive().optional() }),
+});
+
 // ---- Attach Files (Multer) --------------------------------------------------
 
 fs.mkdirSync(uploadsDir, { recursive: true });
@@ -118,6 +123,7 @@ const uploadDocMiddleware = (req: Request, res: Response, next: NextFunction) =>
 // before the generic /:consultationId catch-all, per this codebase's route-ordering rule.
 
 router.get('/context/:appointmentId', requireRole(READ_ROLES), validate(contextParamsSchema), controller.context);
+router.get('/patient-history/:patientId', requireRole(READ_ROLES), validate(patientHistorySchema), controller.patientHistory);
 router.delete('/documents/:documentId', requireRole(WRITE_ROLES), controller.deleteDocument);
 
 router.get('/', requireRole(READ_ROLES), validate(listSchema), controller.list);

@@ -5,6 +5,7 @@ import {
   getQueueBoard,
   updateAppointmentStatus,
   skipAppointment,
+  convertToPatient,
 } from '../../lib/appointments';
 import type { Doctor, BoardCard, QueueBoard } from '../../lib/appointments';
 import { getClinicSettings } from '../../lib/settings';
@@ -19,7 +20,9 @@ import {
   SearchIcon,
   PhoneIcon,
   AlertIcon,
+  UserPlusIcon,
 } from '../../components/layout/Icons';
+import NewPatientModal from '../patients/NewPatientModal';
 import { initials, calculateAge } from '../patients/patientUtils';
 import { CONSULTATION_TYPES } from './appointmentUtils';
 import '../../styles/shared.css';
@@ -41,15 +44,24 @@ const formatTime = (iso: string | null) =>
 
 const csvEscape = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
 
+// A temporary/unregistered walk-in has no dob (only an optional approximate age) and no
+// patient_id — these two helpers keep every render/export site consistent about the fallback.
+const ageLabel = (card: BoardCard) => {
+  if (card.dob) return `${calculateAge(card.dob)} Y`;
+  if (card.temp_patient_age != null) return `~${card.temp_patient_age} Y`;
+  return 'Age —';
+};
+const patientIdLabel = (card: BoardCard) => card.patient_id ?? (card.is_temporary ? 'Temporary' : '—');
+
 const toCsv = (rows: { column: string; card: BoardCard }[]) => {
   const header = ['Token', 'Column', 'Patient', 'Patient ID', 'Age', 'Gender', 'Doctor', 'Type', 'Status', 'Time'];
   const body = rows.map(({ column, card }) => [
     String(card.token),
     column,
     card.patient_name,
-    card.patient_id,
-    String(calculateAge(card.dob)),
-    card.gender,
+    patientIdLabel(card),
+    ageLabel(card),
+    card.gender ?? '—',
     `Dr. ${card.doctor_name}`,
     card.is_walk_in ? 'Walk-in' : card.visit_type,
     card.status,
@@ -145,16 +157,15 @@ const RecallReasonModal = ({ card, onClose, onConfirm }: { card: BoardCard; onCl
 };
 
 const Card = ({ card, column, selected, onClick }: { card: BoardCard; column: 'waiting' | 'doctor' | 'pharmacy' | 'completed'; selected?: boolean; onClick?: () => void }) => {
-  const age = calculateAge(card.dob);
   return (
     <div className={`lq-card${selected ? ' selected' : ''}`} onClick={onClick}>
       <div className="lq-card-top">
         <span className="lq-card-token">{card.token}</span>
         <span className="lq-card-name">{card.patient_name}</span>
-        <span className="lq-card-id">{card.patient_id}</span>
+        {card.is_temporary ? <span className="lq-temp-badge">Temporary</span> : <span className="lq-card-id">{card.patient_id}</span>}
       </div>
       <div className="lq-card-sub">
-        {age} Y | {card.gender}
+        {ageLabel(card)} | {card.gender ?? '—'}
       </div>
       {column === 'waiting' && (
         <div className="lq-card-sub">
@@ -246,6 +257,7 @@ const LiveQueueBoard = () => {
   const [recallOpen, setRecallOpen] = useState(false);
   const [recallTarget, setRecallTarget] = useState<BoardCard | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [registerTarget, setRegisterTarget] = useState<BoardCard | null>(null);
 
   const { data: clinic } = useApiData(() => getClinicSettings(), []);
 
@@ -329,6 +341,15 @@ const LiveQueueBoard = () => {
   const handleRecall = (reason: string) => {
     if (!recallTarget) return;
     runAction(() => updateAppointmentStatus(recallTarget.appointment_id, 'Waiting', reason || undefined)).then(() => setRecallTarget(null));
+  };
+
+  // Bridges a temporary/unregistered walk-in back to a permanent Patient — required before this
+  // visit can be billed (Invoice.patient_id is a hard FK; see billing/service.ts's createInvoice
+  // guard). NewPatientModal creates the Patient row; convertToPatient re-points this appointment
+  // at it, clearing is_temporary server-side.
+  const handleRegistered = (patientId: string) => {
+    if (!registerTarget) return;
+    runAction(() => convertToPatient(registerTarget.appointment_id, patientId)).then(() => setRegisterTarget(null));
   };
 
   const handleExport = () => {
@@ -565,7 +586,9 @@ const LiveQueueBoard = () => {
               {selectedCard ? (
                 <>
                   <div className="lq-next-token-number">{selectedCard.token}</div>
-                  <div className="lq-next-token-name">{selectedCard.patient_name}</div>
+                  <div className="lq-next-token-name">
+                    {selectedCard.patient_name} {selectedCard.is_temporary && <span className="lq-temp-badge">Temporary</span>}
+                  </div>
                   <div className="lq-next-token-sub">
                     {selectedCard.is_walk_in ? 'Walk-in' : selectedCard.visit_type} · {formatTime(selectedCard.scheduled_at)}
                   </div>
@@ -581,6 +604,15 @@ const LiveQueueBoard = () => {
               >
                 <PhoneIcon /> Call Next
               </button>
+              {selectedCard?.is_temporary && (
+                <button
+                  className="pat-btn"
+                  style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}
+                  onClick={() => setRegisterTarget(selectedCard)}
+                >
+                  <UserPlusIcon /> Register Patient
+                </button>
+              )}
             </div>
           </div>
 
@@ -632,6 +664,7 @@ const LiveQueueBoard = () => {
 
       {skipTarget && <SkipReasonModal card={skipTarget} onClose={() => setSkipTarget(null)} onConfirm={handleSkip} />}
       {recallTarget && <RecallReasonModal card={recallTarget} onClose={() => setRecallTarget(null)} onConfirm={handleRecall} />}
+      {registerTarget && <NewPatientModal onClose={() => setRegisterTarget(null)} onSuccess={handleRegistered} />}
     </div>
   );
 };

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useApiData } from '../../hooks/useApiData';
 import { getPatientHistory } from '../../lib/patients';
-import { CalendarIcon, StethoscopeIcon, PrescriptionIcon, InvoiceIcon } from '../../components/layout/Icons';
+import { CalendarIcon, StethoscopeIcon, PrescriptionIcon, InvoiceIcon, FileIcon, HeartPulseIcon } from '../../components/layout/Icons';
 import { formatDateTime } from './consultationUtils';
 
 const ICONS: Record<string, ReactNode> = {
@@ -9,6 +9,8 @@ const ICONS: Record<string, ReactNode> = {
   consultation: <StethoscopeIcon />,
   prescription: <PrescriptionIcon />,
   invoice: <InvoiceIcon />,
+  document: <FileIcon />,
+  vitals: <HeartPulseIcon />,
 };
 
 const summarize = (event: any): string => {
@@ -21,6 +23,10 @@ const summarize = (event: any): string => {
       return `Prescription (${event.items.length} item${event.items.length === 1 ? '' : 's'}) — ${event.status}`;
     case 'invoice':
       return `Invoice — ${event.paymentStatus} (${event.totalAmount.toLocaleString(undefined, { style: 'currency', currency: 'USD' })})`;
+    case 'document':
+      return `Document uploaded — ${event.originalName}`;
+    case 'vitals':
+      return 'Vitals recorded';
     default:
       return '';
   }

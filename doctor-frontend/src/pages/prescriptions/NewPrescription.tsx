@@ -4,7 +4,7 @@ import { useApiData } from '../../hooks/useApiData';
 import { fileUrl } from '../../lib/api';
 import { searchMedicines } from '../../lib/medicines';
 import type { Medicine } from '../../lib/medicines';
-import { getPrescriptionContext, createPrescription, downloadPrescriptionPdf, downloadExternalPurchaseSlip } from '../../lib/prescriptions';
+import { getPrescriptionContext, createPrescription, downloadPrescriptionPdf, downloadExternalPurchaseSlip, displayPrescriptionPatient } from '../../lib/prescriptions';
 import type { PrescriptionItemInput, PrescriptionItem } from '../../lib/prescriptions';
 import { bulkCreateExternalMedicines, previewExternalMedicineSlip } from '../../lib/externalMedicines';
 import { listConsultations } from '../../lib/consultations';
@@ -373,7 +373,7 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
 
   // Live allergy check — same substring match the backend runs authoritatively at submit time;
   // this is purely a heads-up before sending, not a second source of truth.
-  const allergyText = (context?.appointment.patient.allergies || '').toLowerCase().trim();
+  const allergyText = (context?.appointment.patient?.allergies || '').toLowerCase().trim();
   const allergyConflictItems = allergyText
     ? items.filter((i) => allergyText.includes(i.name.toLowerCase()) || (i.generic_name && allergyText.includes(i.generic_name.toLowerCase())))
     : [];
@@ -449,7 +449,7 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
   if (loading) return <p style={{ padding: 24, color: '#64748b' }}>Loading…</p>;
   if (error || !context) return <div className="dash-error-banner">Couldn't load this consultation: {error}</div>;
 
-  const { patient } = context.appointment;
+  const patient = displayPrescriptionPatient(context);
   const visitType = context.patientSummary.priorVisitCount > 0 ? 'Return Visit' : 'New Visit';
 
   const stockIssues = items.filter((i) => i.totalQty > 0 && i.totalQty < Number(i.qty));
@@ -464,7 +464,7 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
           </div>
           <h2 style={{ margin: '0 0 6px', color: '#0f172a' }}>Prescription Submitted</h2>
           <p style={{ color: '#64748b', fontSize: 13.5, margin: '0 0 20px' }}>
-            {submitted.code} has been sent to the pharmacy for {patient.full_name}.
+            {submitted.code} has been sent to the pharmacy for {patient.fullName}.
           </p>
 
           {!submitted.externalSaved && (
@@ -531,15 +531,18 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
 
       <div className="cons-box" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {patient.photo_url ? (
-            <img className="cons-banner-avatar" src={fileUrl(patient.photo_url)} alt={patient.full_name} />
+          {patient.photoUrl ? (
+            <img className="cons-banner-avatar" src={fileUrl(patient.photoUrl)} alt={patient.fullName} />
           ) : (
-            <div className="cons-banner-avatar">{initials(patient.full_name)}</div>
+            <div className="cons-banner-avatar">{initials(patient.fullName)}</div>
           )}
           <div>
-            <div className="cons-banner-name">{patient.full_name}</div>
+            <div className="cons-banner-name">
+              {patient.fullName} {patient.isTemporary && <span className="badge badge-amber">Temporary / Unregistered</span>}
+            </div>
             <div className="cons-banner-meta">
-              MRN: {patient.patient_id} · {calculateAge(patient.dob)} Y / {patient.gender}
+              MRN: {patient.patientId ?? 'Temporary — Today Only'} ·{' '}
+              {patient.dob ? `${calculateAge(patient.dob)} Y` : patient.approxAge ? `~${patient.approxAge} Y` : '—'} / {patient.gender ?? '—'}
             </div>
             {patient.phone && <div className="cons-banner-sub">{patient.phone}</div>}
           </div>
@@ -840,7 +843,9 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
                     <span className="rxp-alert-title">
                       <CheckCircleIcon /> No known drug allergies
                     </span>
-                    <span className="rxp-alert-body">{patient.allergies ? 'No conflicts with the current items.' : 'No allergies recorded for this patient.'}</span>
+                    <span className="rxp-alert-body">
+                      {context.patientSummary.allergies ? 'No conflicts with the current items.' : 'No allergies recorded for this patient.'}
+                    </span>
                   </div>
                 ) : (
                   <div className="rxp-alert-box warn">
@@ -848,7 +853,7 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
                       <AlertIcon /> Allergy conflict
                     </span>
                     <span className="rxp-alert-body">
-                      {allergyConflictItems.map((i) => i.name).join(', ')} may conflict with a documented allergy ({patient.allergies}).
+                      {allergyConflictItems.map((i) => i.name).join(', ')} may conflict with a documented allergy ({context.patientSummary.allergies}).
                     </span>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600 }}>
                       <input type="checkbox" checked={allergyAck} onChange={(e) => setAllergyAck(e.target.checked)} />
@@ -893,11 +898,11 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
             </div>
             <div className="rxp-summary-item">
               <span className="rxp-summary-item-label">Blood Group</span>
-              <span className="rxp-summary-item-value">{patient.blood_group || '—'}</span>
+              <span className="rxp-summary-item-value">{patient.bloodGroup || '—'}</span>
             </div>
             <div className="rxp-summary-item">
               <span className="rxp-summary-item-label">Known Allergies</span>
-              <span className={`rxp-summary-item-value${patient.allergies ? '' : ' muted'}`}>{patient.allergies || 'None recorded'}</span>
+              <span className={`rxp-summary-item-value${context.patientSummary.allergies ? '' : ' muted'}`}>{context.patientSummary.allergies || 'None recorded'}</span>
             </div>
             <div className="rxp-summary-item">
               <span className="rxp-summary-item-label">Chronic Conditions</span>

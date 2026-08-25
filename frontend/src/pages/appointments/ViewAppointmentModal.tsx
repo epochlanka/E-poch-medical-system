@@ -1,4 +1,5 @@
 import type { QueueAppointment } from '../../lib/appointments';
+import { displayPatientName, displayPatientGender } from '../../lib/appointments';
 import { CalendarIcon } from '../../components/layout/Icons';
 import { formatDate, formatTime, appointmentCode, STATUS_BADGE } from './appointmentUtils';
 import { calculateAge } from '../patients/patientUtils';
@@ -18,7 +19,7 @@ const ViewAppointmentModal = ({ appointment: a, onClose }: ViewAppointmentModalP
           </div>
           <div style={{ flex: 1 }}>
             <h3 className="modal-title" style={{ marginBottom: 2 }}>
-              {a.patient.full_name}
+              {displayPatientName(a)} {a.is_temporary && <span className="badge badge-amber">Temporary</span>}
             </h3>
             <p className="modal-subtitle" style={{ margin: 0 }}>
               {appointmentCode(a.appointment_id, a.scheduled_at)}
@@ -31,12 +32,13 @@ const ViewAppointmentModal = ({ appointment: a, onClose }: ViewAppointmentModalP
           <div className="pat-view-field">
             <span className="pat-view-label">Patient</span>
             <span className="pat-view-value">
-              {a.patient.full_name} · {calculateAge(a.patient.dob)} yrs · {a.patient.gender}
+              {displayPatientName(a)} · {a.patient?.dob ? `${calculateAge(a.patient.dob)} yrs` : a.temp_patient_age ? `~${a.temp_patient_age} yrs` : '—'} ·{' '}
+              {displayPatientGender(a) ?? '—'}
             </span>
           </div>
           <div className="pat-view-field">
             <span className="pat-view-label">Phone</span>
-            <span className="pat-view-value">{a.patient.phone || '—'}</span>
+            <span className="pat-view-value">{a.patient?.phone ?? a.temp_patient_phone ?? '—'}</span>
           </div>
           <div className="pat-view-field">
             <span className="pat-view-label">Doctor</span>

@@ -17,8 +17,15 @@ export interface AvailabilitySlot {
 export const getAvailability = (doctorId: number, date: string) =>
   api.get<{ date: string; slots: AvailabilitySlot[] }>('/appointments/availability', { params: { doctorId, date } }).then((r) => r.data);
 
+// Exactly one identity path: a registered patient_id, OR is_temporary + temp_patient_name for a
+// "Continue Without Registration" walk-in (see backend/src/modules/appointments/router.ts).
 export interface CreateAppointmentInput {
-  patient_id: string;
+  patient_id?: string;
+  is_temporary?: boolean;
+  temp_patient_name?: string;
+  temp_patient_gender?: string;
+  temp_patient_phone?: string;
+  temp_patient_age?: number;
   doctor_id: number;
   scheduled_at: string;
   reason?: string;
@@ -31,15 +38,31 @@ export interface CreateAppointmentInput {
 
 export const createAppointment = (input: CreateAppointmentInput) => api.post('/appointments', input).then((r) => r.data);
 
+export const convertToPatient = (appointmentId: number, patientId: string) =>
+  api.patch(`/appointments/${appointmentId}/convert-to-patient`, { patient_id: patientId }).then((r) => r.data);
+
 export interface QueueAppointment {
   appointment_id: number;
   scheduled_at: string;
   status: string;
   priority?: string;
   is_walk_in: boolean;
-  patient: { full_name: string; patient_id: string };
+  // A temporary/unregistered walk-in has patient: null — fall back to temp_patient_* for display.
+  is_temporary: boolean;
+  temp_patient_name: string | null;
+  temp_patient_gender: string | null;
+  temp_patient_phone: string | null;
+  temp_patient_age: number | null;
+  patient: { full_name: string; patient_id: string } | null;
   doctor: { user_id: number; username: string; registration_number: string | null };
 }
+
+// Resolve a display name/id for a queue row regardless of whether it's a registered patient or a
+// temporary walk-in — use this instead of reading `.patient.*` directly anywhere a queue row is rendered.
+export const displayPatientName = (a: Pick<QueueAppointment, 'patient' | 'temp_patient_name'>) =>
+  a.patient?.full_name ?? a.temp_patient_name ?? 'Unregistered Patient';
+export const displayPatientId = (a: Pick<QueueAppointment, 'patient' | 'is_temporary'>) =>
+  a.patient?.patient_id ?? (a.is_temporary ? 'Temporary' : '—');
 
 export const getLiveQueue = () => api.get<QueueAppointment[]>('/appointments/queue').then((r) => r.data);
 
@@ -66,11 +89,15 @@ export const skipAppointment = (appointmentId: number, reason: string) => api.pa
 export interface BoardCard {
   appointment_id: number;
   token: number;
-  patient_id: string;
+  // Null patient_id/dob means this is a temporary/unregistered walk-in — patient_name already
+  // falls back to temp_patient_name server-side (see getQueueBoard in appointments/service.ts).
+  patient_id: string | null;
   patient_name: string;
-  dob: string;
-  gender: string;
+  dob: string | null;
+  gender: string | null;
   phone: string | null;
+  is_temporary: boolean;
+  temp_patient_age: number | null;
   doctor_id: number;
   doctor_name: string;
   scheduled_at: string;
@@ -114,7 +141,11 @@ export interface QueueLogEntry {
     consultation_type: string | null;
     priority: string;
     is_walk_in: boolean;
-    patient: { full_name: string; patient_id: string; gender: string; dob: string; phone: string | null };
+    is_temporary: boolean;
+    temp_patient_name: string | null;
+    temp_patient_gender: string | null;
+    temp_patient_phone: string | null;
+    patient: { full_name: string; patient_id: string; gender: string; dob: string; phone: string | null } | null;
     doctor: { user_id: number; username: string; registration_number: string | null };
   };
 }

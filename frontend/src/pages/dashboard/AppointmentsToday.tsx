@@ -43,7 +43,7 @@ const AppointmentsToday = () => {
           <div className="appt-avatar">{initials(a.patientName)}</div>
           <div className="appt-info">
             <div className="appt-name">{a.patientName}</div>
-            <div className="appt-mrn">{a.patientId}</div>
+            <div className="appt-mrn">{a.patientId ?? 'Temporary'}</div>
           </div>
           <span className={`badge ${STATUS_BADGE[a.status]}`}>{a.status}</span>
         </div>

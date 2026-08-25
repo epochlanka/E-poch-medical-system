@@ -61,6 +61,10 @@ export const createInvoice = async (input: CreateInvoiceInput, actor: Actor) => 
   if (consultation.invoices.length > 0) {
     throw new ValidationError('An active invoice already exists for this consultation');
   }
+  const patientId = consultation.appointment.patient_id;
+  if (!patientId) {
+    throw new ValidationError('This patient is not registered yet — register them before creating an invoice for this visit');
+  }
 
   const clinicSettings = await prisma.clinicSettings.findUnique({ where: { id: 1 } });
   const fee = input.consultation_fee ?? clinicSettings?.default_consultation_fee ?? FALLBACK_CONSULTATION_FEE;
@@ -110,7 +114,7 @@ export const createInvoice = async (input: CreateInvoiceInput, actor: Actor) => 
   const created = await prisma.$transaction(async (tx) => {
     const invoice = await tx.invoice.create({
       data: {
-        patient_id: consultation.appointment.patient_id,
+        patient_id: patientId,
         consultation_id: consultation.consultation_id,
         subtotal,
         discount_total: discountTotal,

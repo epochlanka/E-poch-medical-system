@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { updateAppointmentTime } from '../../lib/appointments';
+import { updateAppointmentTime, displayPatientName } from '../../lib/appointments';
 import type { QueueAppointment } from '../../lib/appointments';
 
 interface RescheduleModalProps {
@@ -42,7 +42,7 @@ const RescheduleModal = ({ appointment, onClose, onSaved }: RescheduleModalProps
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
         <h3 className="modal-title">Reschedule Appointment</h3>
-        <p className="modal-subtitle">{appointment.patient.full_name} with Dr. {appointment.doctor.username}</p>
+        <p className="modal-subtitle">{displayPatientName(appointment)} with Dr. {appointment.doctor.username}</p>
 
         <form onSubmit={handleSubmit}>
           <div className="modal-grid">
