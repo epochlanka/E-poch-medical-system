@@ -1,0 +1,17 @@
+@media print {
+  .shell-sidebar,
+  .shell-topbar,
+  .shell-backdrop,
+  .med-no-print {
+    display: none !important;
+  }
+  .shell-content {
+    padding: 0 !important;
+  }
+  .pat-table-card {
+    border: none !important;
+  }
+  .ph-layout {
+    display: block !important;
+  }
+}

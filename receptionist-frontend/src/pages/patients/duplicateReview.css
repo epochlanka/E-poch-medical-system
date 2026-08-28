@@ -1,0 +1,252 @@
+/* ---- Match score badge ---- */
+.dup-score-box {
+  width: 84px;
+  text-align: center;
+  padding: 10px 6px;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+.dup-score-pct {
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+.dup-score-label {
+  font-size: 10px;
+  font-weight: 700;
+  margin-top: 3px;
+  line-height: 1.2;
+}
+.dup-score-box.very-high {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.dup-score-box.high {
+  background: #fef3c7;
+  color: #b45309;
+}
+.dup-score-box.moderate {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.dup-score-box.low {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+/* ---- Patient compare cell ---- */
+.dup-compare {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dup-patient-mini {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 170px;
+}
+.dup-patient-mini-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.dup-patient-mini-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+.dup-patient-mini-detail {
+  font-size: 11px;
+  color: #94a3b8;
+}
+.dup-vs {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #f1f5f9;
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.dup-inactive-badge {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #dc2626;
+  background: #fee2e2;
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-left: 4px;
+}
+
+/* ---- Key matching info cell ---- */
+.dup-match-info {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  min-width: 190px;
+}
+.dup-match-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: #475569;
+}
+.dup-match-row .dup-match-icon {
+  color: #94a3b8;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.dup-match-row .dup-match-label {
+  font-weight: 600;
+  color: #334155;
+  flex-shrink: 0;
+}
+.dup-match-row.exact {
+  color: #15803d;
+}
+.dup-match-row.similar {
+  color: #b45309;
+}
+
+/* ---- Date added cell ---- */
+.dup-date-cell {
+  font-size: 12.5px;
+  color: #334155;
+}
+.dup-added-by {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+/* ---- Actions cell ---- */
+.dup-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 140px;
+}
+.dup-action-btn {
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  text-align: center;
+  white-space: nowrap;
+  font-family: inherit;
+}
+.dup-action-btn.primary {
+  background: #2563eb;
+  color: white;
+}
+.dup-action-btn.primary:hover {
+  background: #1d4ed8;
+}
+.dup-action-btn.warn {
+  background: white;
+  border-color: #fdba74;
+  color: #b45309;
+}
+.dup-action-btn.warn:hover {
+  background: #fffbeb;
+}
+.dup-action-btn.info {
+  background: white;
+  border-color: #93c5fd;
+  color: #2563eb;
+}
+.dup-action-btn.info:hover {
+  background: #eff6ff;
+}
+.dup-action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ---- Merge / Detail modal ---- */
+.dup-modal-compare {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 20px;
+}
+.dup-modal-vs {
+  align-self: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #f1f5f9;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dup-modal-patient {
+  border: 1px solid #e7ebf3;
+  border-radius: 14px;
+  padding: 16px;
+}
+.dup-modal-patient.chosen {
+  border-color: #2563eb;
+  background: #f5f8ff;
+}
+.dup-modal-patient-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.dup-modal-field {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12.5px;
+  padding: 5px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+.dup-modal-field:last-child {
+  border-bottom: none;
+}
+.dup-modal-field-label {
+  color: #94a3b8;
+  font-weight: 600;
+}
+.dup-modal-field-value {
+  color: #0f172a;
+  font-weight: 500;
+  text-align: right;
+}
+.dup-modal-keep-btn {
+  width: 100%;
+  margin-top: 12px;
+  padding: 9px;
+  border-radius: 10px;
+  border: 1px solid #2563eb;
+  background: white;
+  color: #2563eb;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+}
+.dup-modal-keep-btn.chosen {
+  background: #2563eb;
+  color: white;
+}
+
+.dup-match-summary {
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+}

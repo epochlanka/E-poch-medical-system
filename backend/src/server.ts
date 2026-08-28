@@ -1,6 +1,7 @@
 import http from 'http';
 import { Server } from 'socket.io';
 import app from './app';
+import { libreOfficeStatus } from './modules/letters/libreoffice';
 
 const PORT = process.env.PORT || 3000;
 
@@ -34,4 +35,14 @@ app.set('io', io);
 
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+
+  const lo = libreOfficeStatus();
+  if (lo.ok) {
+    console.log(`LibreOffice (letter PDF rendering) found at: ${lo.path}`);
+  } else {
+    console.warn(
+      'WARNING: LibreOffice was not found. Letter preview/issue will fail with 503 until ' +
+        'LibreOffice is installed or LIBREOFFICE_PATH is set.'
+    );
+  }
 });

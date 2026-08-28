@@ -1,0 +1,174 @@
+.dash-kpi-row-6 {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+/* ---- Multi-series line chart (Today's Overview) ---- */
+.dr-line-chart {
+  width: 100%;
+  height: 220px;
+}
+.dr-line-grid {
+  stroke: #f1f5f9;
+  stroke-width: 1;
+}
+.dr-line-path {
+  stroke-width: 2.5;
+  fill: none;
+}
+.dr-line-dot {
+  fill: white;
+  stroke-width: 2.5;
+}
+.dr-line-axis {
+  font-size: 10.5px;
+  fill: #94a3b8;
+}
+.chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.chart-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #475569;
+}
+.chart-legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ---- Queue tabs ---- */
+.rcp-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: #f8fafc;
+  border-radius: 11px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.rcp-tab {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.rcp-tab:hover {
+  color: #1e293b;
+}
+.rcp-tab.active {
+  background: white;
+  color: #2563eb;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.1);
+}
+
+/* ---- Today's Schedule list ---- */
+.rcp-schedule-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+.rcp-schedule-row:last-child {
+  border-bottom: none;
+}
+.rcp-schedule-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.rcp-schedule-dot.in-progress {
+  background: #16a34a;
+}
+.rcp-schedule-dot.upcoming {
+  background: #2563eb;
+}
+.rcp-schedule-time {
+  font-size: 13px;
+  font-weight: 700;
+  color: #334155;
+  width: 66px;
+  flex-shrink: 0;
+}
+.rcp-schedule-info {
+  flex: 1;
+  min-width: 0;
+}
+.rcp-schedule-doctor {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rcp-schedule-count {
+  font-size: 11.5px;
+  color: #94a3b8;
+}
+
+/* ---- Recent activity list ---- */
+.rcp-activity-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+.rcp-activity-row:last-child {
+  border-bottom: none;
+}
+.rcp-activity-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: #eaf1fe;
+  color: #2563eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.rcp-activity-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: #334155;
+  line-height: 1.4;
+}
+.rcp-activity-time {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+@media (max-width: 1180px) {
+  .dash-kpi-row-6 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+@media (max-width: 720px) {
+  .dash-kpi-row-6 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

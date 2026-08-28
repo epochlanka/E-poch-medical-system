@@ -5,8 +5,27 @@ import rateLimit from 'express-rate-limit';
 import pinoHttp from 'pino-http';
 import dotenv from 'dotenv';
 import passport from 'passport';
+import path from 'path';
 
 import authRouter from './modules/auth/router';
+import dashboardRouter from './modules/dashboard/router';
+import patientsRouter from './modules/patients/router';
+import familiesRouter from './modules/families/router';
+import medicinesRouter from './modules/medicines/router';
+import consultationsRouter from './modules/consultations/router';
+import prescriptionsRouter from './modules/prescriptions/router';
+import pharmacyRouter from './modules/pharmacy/router';
+import inventoryRouter from './modules/inventory/router';
+import suppliersRouter from './modules/suppliers/router';
+import billingRouter from './modules/billing/router';
+import reportsRouter from './modules/reports/router';
+import settingsRouter from './modules/settings/router';
+import securityRouter from './modules/security/router';
+import { appointmentsRouter } from './modules/appointments/router';
+import icd11Router from './modules/icd11/router';
+import labTestOrdersRouter from './modules/labTestOrders/router';
+import externalMedicinesRouter from './modules/external-medicines/router';
+import lettersRouter from './modules/letters/router';
 
 // Load environment variables
 dotenv.config();
@@ -27,9 +46,12 @@ app.use(express.urlencoded({ extended: true }));
 app.use(pinoHttp());
 
 // Rate limiting
+// All portals (admin, doctor, receptionist, pharmacist) share one backend, so on a single
+// dev machine they all count against the same IP's budget — keep this generous enough for
+// several portals polling simultaneously while still guarding against abuse.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per `window` (here, per 15 minutes)
+  max: 2000, // Limit each IP to 2000 requests per `window` (here, per 15 minutes)
   message: 'Too many requests from this IP, please try again after 15 minutes',
 });
 app.use('/api', limiter);
@@ -37,8 +59,40 @@ app.use('/api', limiter);
 // Initialize Passport
 app.use(passport.initialize());
 
+// Serve uploaded patient photos (frontend runs on a different origin/port in dev,
+// so relax Cross-Origin-Resource-Policy for this path only — the images aren't sensitive).
+app.use(
+  '/uploads',
+  (req: Request, res: Response, next: NextFunction) => {
+    // Letter templates and issued letters are patient documents — they are only ever served
+    // through the authenticated /api/v1/letters routes, never statically.
+    if (/^\/(letter-templates|issued-letters)\//.test(req.path)) return res.status(404).end();
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    next();
+  },
+  express.static(path.join(__dirname, '..', 'uploads'))
+);
+
 // Setup API Routes
 app.use('/api/v1/auth', authRouter);
+app.use('/api/v1/dashboard', dashboardRouter);
+app.use('/api/v1/patients', patientsRouter);
+app.use('/api/v1/families', familiesRouter);
+app.use('/api/v1/medicines', medicinesRouter);
+app.use('/api/v1/consultations', consultationsRouter);
+app.use('/api/v1/prescriptions', prescriptionsRouter);
+app.use('/api/v1/pharmacy', pharmacyRouter);
+app.use('/api/v1/inventory', inventoryRouter);
+app.use('/api/v1/suppliers', suppliersRouter);
+app.use('/api/v1/invoices', billingRouter);
+app.use('/api/v1/reports', reportsRouter);
+app.use('/api/v1/settings', settingsRouter);
+app.use('/api/v1/security', securityRouter);
+app.use('/api/v1/appointments', appointmentsRouter);
+app.use('/api/v1/icd11', icd11Router);
+app.use('/api/v1/lab-test-orders', labTestOrdersRouter);
+app.use('/api/v1/external-medicines', externalMedicinesRouter);
+app.use('/api/v1/letters', lettersRouter);
 
 app.get('/api/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', message: 'E-Poch Medical System API is running' });

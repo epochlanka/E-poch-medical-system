@@ -1,0 +1,117 @@
+import { Router, Request, Response, NextFunction } from 'express';
+import { z } from 'zod';
+import multer from 'multer';
+import { validate } from '../../middlewares/validate';
+import { requireAuth, requireRole } from '../../middlewares/auth';
+import * as controller from './controller';
+
+const router = Router();
+
+router.use(requireAuth);
+
+const READ_ROLES = ['Admin', 'Receptionist', 'Doctor', 'Pharmacist'];
+const WRITE_ROLES = ['Admin', 'Pharmacist'];
+
+const searchSchema = z.object({
+  query: z.object({
+    search: z.string().optional(),
+    category: z.string().optional(),
+    includeInactive: z.string().optional(),
+  }),
+});
+
+const medicineIdParamsSchema = z.object({ params: z.object({ medicineId: z.coerce.number().int().positive() }) });
+
+const createSchema = z.object({
+  body: z.object({
+    name: z.string().min(1, 'Name is required'),
+    generic_name: z.string().optional(),
+    brand_name: z.string().optional(),
+    category: z.string().optional(),
+    form: z.string().optional(),
+    strength: z.string().optional(),
+    manufacturer: z.string().optional(),
+    unit: z.string().min(1, 'Unit is required'),
+    reorder_level: z.number().int().min(0).optional(),
+    max_stock_level: z.number().int().min(0).optional(),
+    unit_price: z.number().min(0).optional(),
+    buy_price: z.number().min(0).optional(),
+    barcode: z.string().optional(),
+  }),
+});
+
+const updateSchema = z.object({
+  params: z.object({ medicineId: z.coerce.number().int().positive() }),
+  body: z.object({
+    name: z.string().min(1).optional(),
+    generic_name: z.string().optional(),
+    brand_name: z.string().optional(),
+    category: z.string().optional(),
+    form: z.string().optional(),
+    strength: z.string().optional(),
+    manufacturer: z.string().optional(),
+    unit: z.string().min(1).optional(),
+    reorder_level: z.number().int().min(0).optional(),
+    max_stock_level: z.number().int().min(0).optional(),
+    unit_price: z.number().min(0).optional(),
+    buy_price: z.number().min(0).optional(),
+    barcode: z.string().optional(),
+    is_active: z.boolean().optional(),
+  }),
+});
+
+const catalogQuerySchema = z.object({
+  query: z.object({
+    search: z.string().optional(),
+    category: z.string().optional(),
+    form: z.string().optional(),
+    manufacturer: z.string().optional(),
+    status: z.enum(['active', 'inactive', 'all']).optional(),
+    page: z.coerce.number().int().positive().optional(),
+    limit: z.coerce.number().int().positive().optional(),
+  }),
+});
+
+const csvUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype !== 'text/csv' && !file.originalname.toLowerCase().endsWith('.csv')) {
+      return cb(new Error('Only CSV files are allowed'));
+    }
+    cb(null, true);
+  },
+});
+
+const uploadCsvMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  csvUpload.single('file')(req, res, (err: unknown) => {
+    if (err) return res.status(400).json({ message: err instanceof Error ? err.message : 'Upload failed' });
+    next();
+  });
+};
+
+const stockQuerySchema = z.object({
+  query: z.object({
+    search: z.string().optional(),
+    category: z.string().optional(),
+    status: z.enum(['in-stock', 'low-stock', 'out-of-stock', 'expiring-soon']).optional(),
+    supplierId: z.coerce.number().int().positive().optional(),
+    page: z.coerce.number().int().positive().optional(),
+    limit: z.coerce.number().int().positive().optional(),
+  }),
+});
+
+// Static-segment routes (/stats, /stock) must be registered before the generic /:medicineId
+// catch-all, or Express will swallow them as if they were a medicine id.
+router.get('/stats', requireRole(READ_ROLES), controller.stats);
+router.get('/stock', requireRole(READ_ROLES), validate(stockQuerySchema), controller.listStock);
+router.get('/catalog-meta', requireRole(READ_ROLES), controller.catalogMeta);
+router.get('/catalog', requireRole(READ_ROLES), validate(catalogQuerySchema), controller.listCatalog);
+router.post('/import', requireRole(WRITE_ROLES), uploadCsvMiddleware, controller.importMedicines);
+
+router.get('/', requireRole(READ_ROLES), validate(searchSchema), controller.search);
+router.post('/', requireRole(WRITE_ROLES), validate(createSchema), controller.create);
+router.get('/:medicineId', requireRole(READ_ROLES), validate(medicineIdParamsSchema), controller.getById);
+router.put('/:medicineId', requireRole(WRITE_ROLES), validate(updateSchema), controller.update);
+
+export default router;
