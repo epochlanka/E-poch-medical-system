@@ -2,6 +2,10 @@ import http from 'http';
 import { Server } from 'socket.io';
 import app from './app';
 import { libreOfficeStatus } from './modules/letters/libreoffice';
+import { installProcessErrorHandlers, verifyEmailTransport, emailStatus, logger } from './errors';
+
+// Catch stray promise rejections / uncaught exceptions before anything else starts.
+installProcessErrorHandlers();
 
 const PORT = process.env.PORT || 3000;
 
@@ -35,6 +39,15 @@ app.set('io', io);
 
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+
+  const mail = emailStatus();
+  logger.info(
+    { emailConfigured: mail.configured, alertRecipient: mail.to },
+    mail.configured
+      ? `Error-alert email enabled -> ${mail.to}`
+      : 'Error-alert email NOT configured (set SMTP_HOST / SMTP_USER / SMTP_PASS) — errors will be logged only'
+  );
+  void verifyEmailTransport();
 
   const lo = libreOfficeStatus();
   if (lo.ok) {

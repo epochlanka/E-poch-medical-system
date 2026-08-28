@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import * as service from './service';
 import { ExternalApiError } from './errors';
+import { respondWithServerError } from '../../errors';
 
 export const search = async (req: Request, res: Response) => {
   try {
@@ -8,7 +9,6 @@ export const search = async (req: Request, res: Response) => {
     res.status(200).json(results);
   } catch (error) {
     if (error instanceof ExternalApiError) return res.status(502).json({ message: error.message });
-    req.log.error(error);
-    res.status(500).json({ message: 'Internal Server Error' });
+    return respondWithServerError(req, res, error, 'icd11');
   }
 };

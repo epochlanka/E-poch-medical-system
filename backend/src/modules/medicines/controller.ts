@@ -1,12 +1,12 @@
 import { Request, Response } from 'express';
 import * as service from './service';
 import { NotFoundError, ValidationError } from './errors';
+import { respondWithServerError } from '../../errors';
 
 const handleError = (req: Request, res: Response, error: any) => {
   if (error instanceof NotFoundError) return res.status(404).json({ message: error.message });
   if (error instanceof ValidationError) return res.status(400).json({ message: error.message });
-  req.log.error(error);
-  return res.status(500).json({ message: 'Internal Server Error' });
+  return respondWithServerError(req, res, error, 'medicines');
 };
 
 export const search = async (req: Request, res: Response) => {

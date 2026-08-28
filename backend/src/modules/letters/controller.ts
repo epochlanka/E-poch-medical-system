@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import * as service from './service';
 import { NotFoundError, ValidationError, ForbiddenError, DocxError, ConversionError } from './errors';
+import { respondWithServerError } from '../../errors';
 
 const actor = (req: Request) =>
   req.user as any as { user_id: number; role: string; username: string; registration_number?: string | null };
@@ -10,8 +11,7 @@ const handleError = (req: Request, res: Response, error: any) => {
   if (error instanceof ForbiddenError) return res.status(403).json({ message: error.message });
   if (error instanceof ValidationError || error instanceof DocxError) return res.status(400).json({ message: error.message });
   if (error instanceof ConversionError) return res.status(503).json({ message: error.message });
-  req.log.error(error);
-  return res.status(500).json({ message: 'Internal Server Error' });
+  return respondWithServerError(req, res, error, 'letters');
 };
 
 const fileBuf = (req: Request): { buf?: Buffer; name?: string } => {

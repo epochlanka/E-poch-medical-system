@@ -13,6 +13,14 @@ services:
       - sqlite_data:/usr/src/app/prisma
     environment:
       - DATABASE_URL=file:./dev.db
+      # Error-monitoring / SMTP settings are read from backend/.env (bind-mounted above) via
+      # dotenv — see backend/.env.example. Nothing secret is set here.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
     # command is handled by Dockerfile CMD
 
   frontend:

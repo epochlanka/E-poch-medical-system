@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import * as service from './service';
 import { streamPatientHistoryPdf } from './pdf';
 import { NotFoundError, ValidationError, DuplicatePatientError } from './errors';
+import { respondWithServerError } from '../../errors';
 
 const actorId = (req: Request): number => (req.user as any).user_id;
 const patientIdParam = (req: Request): string => req.params.patientId as string;
@@ -12,8 +13,7 @@ const handleError = (req: Request, res: Response, error: any) => {
   if (error instanceof DuplicatePatientError) {
     return res.status(409).json({ message: error.message, conflictingPatient: error.conflictingPatient });
   }
-  req.log.error(error);
-  return res.status(500).json({ message: 'Internal Server Error' });
+  return respondWithServerError(req, res, error, 'patients');
 };
 
 const parseTypes = (types?: string) => (types ? (types.split(',').map((t) => t.trim()) as any) : undefined);

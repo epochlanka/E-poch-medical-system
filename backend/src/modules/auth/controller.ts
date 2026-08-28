@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import * as service from './service';
 import { AccountLockedError, InvalidCredentialsError, InvalidTotpError, TotpRequiredError, ValidationError } from './errors';
+import { respondWithServerError } from '../../errors';
 
 const actor = (req: Request) => req.user as any as { user_id: number; role: string; username: string; sessionId?: number };
 
@@ -33,8 +34,7 @@ const handleError = (req: Request, res: Response, error: any) => {
   if (error instanceof InvalidCredentialsError) return res.status(401).json({ message: error.message });
   if (error instanceof InvalidTotpError) return res.status(401).json({ message: error.message });
   if (error instanceof ValidationError) return res.status(400).json({ message: error.message });
-  req.log.error(error);
-  return res.status(500).json({ message: 'Internal Server Error' });
+  return respondWithServerError(req, res, error, 'auth');
 };
 
 export const changePassword = async (req: Request, res: Response) => {

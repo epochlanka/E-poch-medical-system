@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import * as service from './service';
 import { streamLabTestRequestPdf, streamLabResultReportPdf } from './pdf';
 import { NotFoundError, ValidationError, ForbiddenError } from './errors';
+import { respondWithServerError } from '../../errors';
 
 const actor = (req: Request) => req.user as any as { user_id: number; role: string };
 
@@ -9,8 +10,7 @@ const handleError = (req: Request, res: Response, error: any) => {
   if (error instanceof NotFoundError) return res.status(404).json({ message: error.message });
   if (error instanceof ForbiddenError) return res.status(403).json({ message: error.message });
   if (error instanceof ValidationError) return res.status(400).json({ message: error.message });
-  req.log.error(error);
-  return res.status(500).json({ message: 'Internal Server Error' });
+  return respondWithServerError(req, res, error, 'labTestOrders');
 };
 
 export const create = async (req: Request, res: Response) => {

@@ -12,6 +12,7 @@ import {
   getReceptionistOverview,
   getPharmacistOverview,
 } from './service';
+import { respondWithServerError } from '../../errors';
 
 const parseThresholdDays = (value: unknown, fallback = 90) => {
   const parsed = Number(value);
@@ -34,8 +35,7 @@ export const overview = async (req: Request, res: Response) => {
     const data = await getOverview(parseThresholdDays(req.query.days));
     res.status(200).json(data);
   } catch (error: any) {
-    req.log.error(error);
-    res.status(500).json({ message: 'Failed to load dashboard overview' });
+    return respondWithServerError(req, res, error, 'dashboard');
   }
 };
 
@@ -44,8 +44,7 @@ export const queueSnapshot = async (req: Request, res: Response) => {
     const data = await getQueueSnapshot(doctorScope(req));
     res.status(200).json(data);
   } catch (error: any) {
-    req.log.error(error);
-    res.status(500).json({ message: 'Failed to load queue snapshot' });
+    return respondWithServerError(req, res, error, 'dashboard');
   }
 };
 
@@ -54,8 +53,7 @@ export const followUpsDue = async (req: Request, res: Response) => {
     const data = await getFollowUpsDue(doctorScope(req));
     res.status(200).json(data);
   } catch (error: any) {
-    req.log.error(error);
-    res.status(500).json({ message: 'Failed to load follow-ups due' });
+    return respondWithServerError(req, res, error, 'dashboard');
   }
 };
 
@@ -73,8 +71,7 @@ export const followUpsList = async (req: Request, res: Response) => {
     });
     res.status(200).json(data);
   } catch (error: any) {
-    req.log.error(error);
-    res.status(500).json({ message: 'Failed to load follow-ups list' });
+    return respondWithServerError(req, res, error, 'dashboard');
   }
 };
 
@@ -83,8 +80,7 @@ export const alerts = async (req: Request, res: Response) => {
     const data = await getAlerts(parseThresholdDays(req.query.days));
     res.status(200).json(data);
   } catch (error: any) {
-    req.log.error(error);
-    res.status(500).json({ message: 'Failed to load alerts' });
+    return respondWithServerError(req, res, error, 'dashboard');
   }
 };
 
@@ -93,8 +89,7 @@ export const revenueTrend = async (req: Request, res: Response) => {
     const data = await getRevenueTrend(parsePositiveInt(req.query.days, 30));
     res.status(200).json(data);
   } catch (error: any) {
-    req.log.error(error);
-    res.status(500).json({ message: 'Failed to load revenue trend' });
+    return respondWithServerError(req, res, error, 'dashboard');
   }
 };
 
@@ -103,8 +98,7 @@ export const recentPrescriptions = async (req: Request, res: Response) => {
     const data = await getRecentPrescriptions(parsePositiveInt(req.query.limit, 5));
     res.status(200).json(data);
   } catch (error: any) {
-    req.log.error(error);
-    res.status(500).json({ message: 'Failed to load recent prescriptions' });
+    return respondWithServerError(req, res, error, 'dashboard');
   }
 };
 
@@ -114,8 +108,7 @@ export const doctorDashboard = async (req: Request, res: Response) => {
     const data = await getDoctorDashboard(user.user_id);
     res.status(200).json(data);
   } catch (error: any) {
-    req.log.error(error);
-    res.status(500).json({ message: 'Failed to load doctor dashboard' });
+    return respondWithServerError(req, res, error, 'dashboard');
   }
 };
 
@@ -124,8 +117,7 @@ export const receptionistDashboard = async (req: Request, res: Response) => {
     const data = await getReceptionistOverview();
     res.status(200).json(data);
   } catch (error: any) {
-    req.log.error(error);
-    res.status(500).json({ message: 'Failed to load receptionist dashboard' });
+    return respondWithServerError(req, res, error, 'dashboard');
   }
 };
 
@@ -134,8 +126,7 @@ export const pharmacistDashboard = async (req: Request, res: Response) => {
     const data = await getPharmacistOverview();
     res.status(200).json(data);
   } catch (error: any) {
-    req.log.error(error);
-    res.status(500).json({ message: 'Failed to load pharmacist dashboard' });
+    return respondWithServerError(req, res, error, 'dashboard');
   }
 };
 
@@ -144,7 +135,6 @@ export const topMedicines = async (req: Request, res: Response) => {
     const data = await getTopMedicines(parsePositiveInt(req.query.limit, 5), parsePositiveInt(req.query.days, 30));
     res.status(200).json(data);
   } catch (error: any) {
-    req.log.error(error);
-    res.status(500).json({ message: 'Failed to load top medicines' });
+    return respondWithServerError(req, res, error, 'dashboard');
   }
 };

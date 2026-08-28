@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import * as service from './service';
 import { NotFoundError, ValidationError } from './errors';
+import { respondWithServerError } from '../../errors';
 
 const actorId = (req: Request): number => (req.user as any).user_id;
 const familyIdParam = (req: Request): number => Number(req.params.familyId);
@@ -8,8 +9,7 @@ const familyIdParam = (req: Request): number => Number(req.params.familyId);
 const handleError = (req: Request, res: Response, error: any) => {
   if (error instanceof NotFoundError) return res.status(404).json({ message: error.message });
   if (error instanceof ValidationError) return res.status(400).json({ message: error.message });
-  req.log.error(error);
-  return res.status(500).json({ message: 'Internal Server Error' });
+  return respondWithServerError(req, res, error, 'families');
 };
 
 export const list = async (req: Request, res: Response) => {
