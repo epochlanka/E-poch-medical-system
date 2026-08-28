@@ -25,6 +25,7 @@ import { appointmentsRouter } from './modules/appointments/router';
 import icd11Router from './modules/icd11/router';
 import labTestOrdersRouter from './modules/labTestOrders/router';
 import externalMedicinesRouter from './modules/external-medicines/router';
+import lettersRouter from './modules/letters/router';
 
 // Load environment variables
 dotenv.config();
@@ -63,6 +64,9 @@ app.use(passport.initialize());
 app.use(
   '/uploads',
   (req: Request, res: Response, next: NextFunction) => {
+    // Letter templates and issued letters are patient documents — they are only ever served
+    // through the authenticated /api/v1/letters routes, never statically.
+    if (/^\/(letter-templates|issued-letters)\//.test(req.path)) return res.status(404).end();
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     next();
   },
@@ -88,6 +92,7 @@ app.use('/api/v1/appointments', appointmentsRouter);
 app.use('/api/v1/icd11', icd11Router);
 app.use('/api/v1/lab-test-orders', labTestOrdersRouter);
 app.use('/api/v1/external-medicines', externalMedicinesRouter);
+app.use('/api/v1/letters', lettersRouter);
 
 app.get('/api/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', message: 'E-Poch Medical System API is running' });

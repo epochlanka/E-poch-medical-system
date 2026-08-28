@@ -684,6 +684,86 @@ async function main() {
     });
   }
 
+  // ---- Lab test catalog -----------------------------------------------------------------
+  // A small standard panel so lab-test-order flows (and their tests) work from a clean seed.
+  const labCatalog: {
+    test_name: string;
+    test_code: string;
+    category: string;
+    abbreviation?: string;
+    parameters: { parameter_name: string; unit?: string; reference_range?: string }[];
+  }[] = [
+    {
+      test_name: 'Full Blood Count',
+      test_code: 'FBC',
+      category: 'Haematology',
+      abbreviation: 'CBC',
+      parameters: [
+        { parameter_name: 'Haemoglobin', unit: 'g/dL', reference_range: '13-17' },
+        { parameter_name: 'WBC Count', unit: '×10⁹/L', reference_range: '4-11' },
+        { parameter_name: 'Platelets', unit: '×10⁹/L', reference_range: '150-450' },
+        { parameter_name: 'RBC Count', unit: '×10¹²/L', reference_range: '4.5-5.5' },
+        { parameter_name: 'PCV', unit: '%', reference_range: '40-50' },
+        { parameter_name: 'Neutrophils', unit: '%', reference_range: '40-75' },
+        { parameter_name: 'Lymphocytes', unit: '%', reference_range: '20-45' },
+      ],
+    },
+    {
+      test_name: 'Lipid Profile',
+      test_code: 'LIPID',
+      category: 'Biochemistry',
+      abbreviation: 'Lipids',
+      parameters: [
+        { parameter_name: 'Total Cholesterol', unit: 'mg/dL', reference_range: '0-200' },
+        { parameter_name: 'HDL Cholesterol', unit: 'mg/dL', reference_range: '40-60' },
+        { parameter_name: 'LDL Cholesterol', unit: 'mg/dL', reference_range: '0-130' },
+        { parameter_name: 'Triglycerides', unit: 'mg/dL', reference_range: '0-150' },
+      ],
+    },
+    {
+      test_name: 'Fasting Blood Sugar',
+      test_code: 'FBS',
+      category: 'Biochemistry',
+      abbreviation: 'FBS',
+      parameters: [{ parameter_name: 'Fasting Blood Glucose', unit: 'mg/dL', reference_range: '70-100' }],
+    },
+    {
+      test_name: 'Liver Function Test',
+      test_code: 'LFT',
+      category: 'Biochemistry',
+      abbreviation: 'LFT',
+      parameters: [
+        { parameter_name: 'AST (SGOT)', unit: 'U/L', reference_range: '0-40' },
+        { parameter_name: 'ALT (SGPT)', unit: 'U/L', reference_range: '0-41' },
+        { parameter_name: 'Total Bilirubin', unit: 'mg/dL', reference_range: '0.1-1.2' },
+      ],
+    },
+    {
+      test_name: 'Serum Creatinine',
+      test_code: 'CREAT',
+      category: 'Biochemistry',
+      abbreviation: 'Creat',
+      parameters: [{ parameter_name: 'Creatinine', unit: 'mg/dL', reference_range: '0.7-1.3' }],
+    },
+  ];
+  for (const t of labCatalog) {
+    const test = await prisma.labTestCatalog.upsert({
+      where: { test_code: t.test_code },
+      update: { test_name: t.test_name, category: t.category, abbreviation: t.abbreviation, is_active: true },
+      create: { test_name: t.test_name, test_code: t.test_code, category: t.category, abbreviation: t.abbreviation },
+    });
+    await prisma.labTestParameter.deleteMany({ where: { test_id: test.test_id } });
+    await prisma.labTestParameter.createMany({
+      data: t.parameters.map((p, i) => ({
+        test_id: test.test_id,
+        parameter_name: p.parameter_name,
+        unit: p.unit,
+        reference_range: p.reference_range,
+        display_order: i,
+      })),
+    });
+  }
+
   console.log({ admin: admin.username, doctor: doctor.username, receptionist: receptionist.username, pharmacist: pharmacist.username });
   console.log('Database seeded successfully.');
 }

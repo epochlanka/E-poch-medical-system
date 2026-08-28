@@ -18,6 +18,8 @@ import { searchIcd11 } from '../../lib/icd11';
 import type { Icd11Match } from '../../lib/icd11';
 import { listLabTestOrders, printLabTestOrder, printLabResultReport } from '../../lib/labTestOrders';
 import type { LabTestOrder } from '../../lib/labTestOrders';
+import { listActiveLetterTemplates, previewLetter, issueLetter, listIssuedLettersForPatient, printIssuedLetterAgain } from '../../lib/letters';
+import type { LetterTemplate, IssuedLetterSummary } from '../../lib/letters';
 import AmendModal from './AmendModal';
 import AddLabTestModal from '../labTestOrders/AddLabTestModal';
 import MarkReceivedModal from '../labTestOrders/MarkReceivedModal';
@@ -35,6 +37,9 @@ import {
   PlusIcon,
   EditIcon,
   PrintIcon,
+  EyeIcon,
+  FileIcon,
+  ChevronRightIcon,
 } from '../../components/layout/Icons';
 import '../dashboard/dashboard.css';
 import '../../styles/shared.css';
@@ -59,6 +64,7 @@ const TABS = [
   { key: 'prescription', label: 'Prescription' },
   { key: 'laborders', label: 'Lab Orders' },
   { key: 'followup', label: 'Follow-up' },
+  { key: 'letters', label: 'Letters' },
   { key: 'history', label: 'History' },
 ] as const;
 type TabKey = (typeof TABS)[number]['key'];
@@ -189,6 +195,15 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [expandedHistoryId, setExpandedHistoryId] = useState<number | null>(null);
 
+  const [issuedLetters, setIssuedLetters] = useState<IssuedLetterSummary[] | null>(null);
+
+  const [letterTemplates, setLetterTemplates] = useState<LetterTemplate[] | null>(null);
+  const [selectedLetterTemplateId, setSelectedLetterTemplateId] = useState<number | null>(null);
+  const [letterBody, setLetterBody] = useState('');
+  const [letterBusy, setLetterBusy] = useState<'preview' | 'issue' | null>(null);
+  const [letterError, setLetterError] = useState<string | null>(null);
+  const [letterIssuedNotice, setLetterIssuedNotice] = useState(false);
+
   const [diagnosisResults, setDiagnosisResults] = useState<Icd11Match[]>([]);
   const [diagnosisOpen, setDiagnosisOpen] = useState(false);
   const [diagnosisError, setDiagnosisError] = useState(false);
@@ -201,6 +216,10 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
     // previous patient's history cached under the new one.
     setPatientHistory(null);
     setExpandedHistoryId(null);
+    setIssuedLetters(null);
+    setSelectedLetterTemplateId(null);
+    setLetterBody('');
+    setLetterIssuedNotice(false);
     const c = context.consultation;
     setConsultationId(c?.consultation_id ?? null);
     setFollowUpDate(c?.follow_up_date ? c.follow_up_date.slice(0, 10) : '');
@@ -264,6 +283,66 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
       cancelled = true;
     };
   }, [tab, historyPatientId, appointmentId, patientHistory]);
+
+  // Issued-letters section inside History — same registered-only lazy fetch as above.
+  useEffect(() => {
+    if (tab !== 'history' || !historyPatientId || issuedLetters !== null) return;
+    let cancelled = false;
+    listIssuedLettersForPatient(historyPatientId).then((entries) => {
+      if (!cancelled) setIssuedLetters(entries);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, historyPatientId, issuedLetters]);
+
+  // Letters tab — active templates only, fetched once the doctor opens the tab. Available for
+  // both registered and temporary patients (only the "save a permanent record" step differs).
+  useEffect(() => {
+    if (tab !== 'letters' || letterTemplates !== null) return;
+    listActiveLetterTemplates()
+      .then(setLetterTemplates)
+      .catch(() => setLetterTemplates([]));
+  }, [tab, letterTemplates]);
+
+  const selectedLetterTemplate = letterTemplates?.find((t) => t.letter_template_id === selectedLetterTemplateId) ?? null;
+
+  const handleSelectLetterTemplate = (t: LetterTemplate) => {
+    setSelectedLetterTemplateId(t.letter_template_id);
+    setLetterBody('');
+    setLetterError(null);
+    setLetterIssuedNotice(false);
+  };
+
+  const handlePreviewLetter = async () => {
+    if (!selectedLetterTemplate) return;
+    setLetterBusy('preview');
+    setLetterError(null);
+    try {
+      const url = await previewLetter({ templateId: selectedLetterTemplate.letter_template_id, appointmentId, bodyContent: letterBody });
+      window.open(url, '_blank');
+    } catch (err: any) {
+      setLetterError(err?.response?.data?.message || 'Failed to preview the letter.');
+    } finally {
+      setLetterBusy(null);
+    }
+  };
+
+  const handleIssueLetter = async () => {
+    if (!selectedLetterTemplate) return;
+    setLetterBusy('issue');
+    setLetterError(null);
+    try {
+      const url = await issueLetter({ templateId: selectedLetterTemplate.letter_template_id, appointmentId, bodyContent: letterBody });
+      window.open(url, '_blank');
+      setLetterIssuedNotice(true);
+      setIssuedLetters(null); // so the History tab's Letters section refetches and shows this one
+    } catch (err: any) {
+      setLetterError(err?.response?.data?.message || 'Failed to print/issue the letter.');
+    } finally {
+      setLetterBusy(null);
+    }
+  };
 
   const [labTestOrders, setLabTestOrders] = useState<LabTestOrder[]>([]);
   const reloadLabTestOrders = () => {
@@ -824,6 +903,117 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
             </div>
           )}
 
+          {tab === 'letters' && (
+            <div className="cons-box">
+              <div className="cons-box-title">Issue a Letter</div>
+              {patient.isTemporary && (
+                <div className="wi-banner" style={{ marginBottom: 12 }}>
+                  <AlertIcon /> This is a temporary/unregistered patient — the letter can still be printed, but it won't be saved to a permanent record.
+                </div>
+              )}
+
+              {!selectedLetterTemplate ? (
+                letterTemplates === null ? (
+                  <div className="pat-empty">Loading templates…</div>
+                ) : letterTemplates.length === 0 ? (
+                  <div className="pat-empty">No letter templates are available yet — ask an Admin to create one.</div>
+                ) : (
+                  <div className="cons-history-list">
+                    {letterTemplates.map((t) => (
+                      <button
+                        key={t.letter_template_id}
+                        type="button"
+                        className="cons-history-entry"
+                        style={{ textAlign: 'left', width: '100%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                        onClick={() => handleSelectLetterTemplate(t)}
+                      >
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <FileIcon />{' '}
+                          <span className="cons-history-entry-date">
+                            {t.name}
+                            {t.letter_type && t.letter_type !== 'General' && t.letter_type !== t.name && (
+                              <span className="pat-muted" style={{ fontWeight: 400 }}> · {t.letter_type}</span>
+                            )}
+                          </span>
+                        </span>
+                        <ChevronRightIcon />
+                      </button>
+                    ))}
+                  </div>
+                )
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="card-link"
+                    style={{ marginBottom: 12 }}
+                    onClick={() => {
+                      setSelectedLetterTemplateId(null);
+                      setLetterIssuedNotice(false);
+                    }}
+                  >
+                    ← Change template
+                  </button>
+
+                  <div className="cd-summary-box gray">
+                    <div className="cd-summary-box-label">
+                      {selectedLetterTemplate.name}
+                      {selectedLetterTemplate.letter_type &&
+                      selectedLetterTemplate.letter_type !== 'General' &&
+                      selectedLetterTemplate.letter_type !== selectedLetterTemplate.name
+                        ? ` · ${selectedLetterTemplate.letter_type}`
+                        : ''}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#475569' }}>
+                      The clinic header, footer, logo, stamp, signature block and page layout all come from the Admin's
+                      Word template and are locked here. You only fill in the letter body below.
+                    </div>
+                  </div>
+
+                  {!selectedLetterTemplate.has_body_placeholder && (
+                    <div className="wi-banner" style={{ marginTop: 12 }}>
+                      <AlertIcon /> This template has no {'{{LETTER_BODY}}'} placeholder — anything you type below won't appear in the letter. Ask an Admin to fix the template.
+                    </div>
+                  )}
+
+                  <div className="modal-field" style={{ marginTop: 14 }}>
+                    <label>Letter Body (Doctor Editable)</label>
+                    <textarea
+                      className="cons-textarea"
+                      rows={12}
+                      value={letterBody}
+                      onChange={(e) => {
+                        setLetterBody(e.target.value);
+                        setLetterIssuedNotice(false);
+                      }}
+                      placeholder="Write the letter content here…"
+                    />
+                  </div>
+
+                  {letterError && (
+                    <div className="modal-error" style={{ marginTop: 12 }}>
+                      {letterError}
+                    </div>
+                  )}
+                  {letterIssuedNotice && (
+                    <div style={{ marginTop: 12, color: '#16a34a', fontWeight: 600, fontSize: 13 }}>
+                      ✓ Letter {patient.isTemporary ? 'printed.' : 'issued and saved to the patient\'s history.'}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
+                    <button className="cons-btn" disabled={letterBusy !== null} onClick={handlePreviewLetter}>
+                      <EyeIcon /> {letterBusy === 'preview' ? 'Opening…' : 'Preview Letter'}
+                    </button>
+                    <button className="cons-btn primary" disabled={letterBusy !== null || !letterBody.trim()} onClick={handleIssueLetter}>
+                      <PrintIcon /> {letterBusy === 'issue' ? 'Printing…' : 'Print / Issue Letter'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {tab === 'history' && (
             <>
               <div className="cons-box">
@@ -984,6 +1174,42 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
                   </div>
                 )}
               </div>
+
+              {!patient.isTemporary && (
+                <div className="cons-box" style={{ marginTop: 16 }}>
+                  <div className="cons-box-title">Letters</div>
+                  {issuedLetters === null && <div className="pat-empty">Loading…</div>}
+                  {issuedLetters !== null && issuedLetters.length === 0 && <div className="pat-empty">No letters have been issued for this patient.</div>}
+                  {issuedLetters !== null &&
+                    issuedLetters.map((l) => (
+                      <div className="cons-recent-row" key={l.issued_letter_id}>
+                        <div>
+                          <div className="cons-recent-diagnosis">{l.letter_type_name}</div>
+                          <span className="pat-muted" style={{ fontSize: 12 }}>
+                            Doctor: {l.doctor_name_snapshot}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                          <span className="cons-recent-date">{formatDate(l.issued_at)}</span>
+                          <button
+                            type="button"
+                            className="card-link"
+                            onClick={async () => window.open(await printIssuedLetterAgain(l.issued_letter_id), '_blank')}
+                          >
+                            <EyeIcon /> View
+                          </button>
+                          <button
+                            type="button"
+                            className="card-link"
+                            onClick={async () => window.open(await printIssuedLetterAgain(l.issued_letter_id), '_blank')}
+                          >
+                            <PrintIcon /> Print Again
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
 
               {isFinalized && (
                 <div className="cons-box" style={{ marginTop: 16 }}>

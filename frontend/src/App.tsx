@@ -26,6 +26,8 @@ import LabTestOrders from './pages/labTestOrders/LabTestOrders';
 import ComingSoon from './pages/ComingSoon';
 import QueueDashboard from './pages/QueueDashboard';
 import BookAppointment from './pages/BookAppointment';
+import LetterTemplates from './pages/letters/LetterTemplates';
+import LetterTemplateEditor from './pages/letters/LetterTemplateEditor';
 import { navSections } from './components/layout/navConfig';
 
 const unimplementedPaths = navSections
@@ -74,6 +76,9 @@ function App() {
           <Route path="/lab-test-orders" element={<LabTestOrders />} />
           <Route path="/queue" element={<QueueDashboard />} />
           <Route path="/book-appointment" element={<BookAppointment />} />
+          <Route path="/letter-templates" element={<LetterTemplates />} />
+          <Route path="/letter-templates/new" element={<LetterTemplateEditor />} />
+          <Route path="/letter-templates/:templateId" element={<LetterTemplateEditor />} />
           {unimplementedPaths.map((path) => (
             <Route key={path} path={path} element={<ComingSoon />} />
           ))}

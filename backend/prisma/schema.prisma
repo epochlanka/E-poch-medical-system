@@ -60,6 +60,7 @@ model Patient {
   duplicate_flags_as_matched PatientDuplicateFlag[]         @relation("MatchedPatientFlags")
   lab_test_orders            LabTestOrder[]
   external_medicines         ExternalPrescriptionMedicine[]
+  issued_letters             IssuedLetter[]
 
   @@index([full_name])
   @@index([phone])
@@ -121,18 +122,19 @@ model Appointment {
   // patient_id stays null for the life of the visit unless a receptionist later converts it via
   // convertToPatient (required before billing, since Invoice.patient_id is a hard FK). Minimal
   // capture only — no DOB/NIC/family, since the whole point is skipping full registration.
-  is_temporary      Boolean   @default(false)
+  is_temporary        Boolean @default(false)
   temp_patient_name   String?
   temp_patient_gender String?
   temp_patient_phone  String?
   temp_patient_age    Int?
 
   patient      Patient? @relation(fields: [patient_id], references: [patient_id])
-  doctor       User    @relation("DoctorAppointments", fields: [doctor_id], references: [user_id])
-  receptionist User    @relation("ReceptionistAppointments", fields: [created_by], references: [user_id])
+  doctor       User     @relation("DoctorAppointments", fields: [doctor_id], references: [user_id])
+  receptionist User     @relation("ReceptionistAppointments", fields: [created_by], references: [user_id])
 
-  consultation Consultation?
-  queue_logs   AppointmentQueueLog[]
+  consultation   Consultation?
+  queue_logs     AppointmentQueueLog[]
+  issued_letters IssuedLetter[]
 }
 
 // Append-only audit trail of Skip/Recall events (Skip / Recall Log page) — separate from the
@@ -177,6 +179,7 @@ model Consultation {
   invoices        Invoice[]
   documents       ConsultationDocument[]
   lab_test_orders LabTestOrder[]
+  issued_letters  IssuedLetter[]
 }
 
 model ConsultationDocument {
@@ -713,6 +716,10 @@ model User {
   lab_test_orders_completed     LabTestOrder[]                 @relation("LabTestOrderCompletedBy")
   lab_results_entered           LabResult[]                    @relation("LabResultEnteredBy")
   external_medicines_prescribed ExternalPrescriptionMedicine[]
+  letter_templates_created      LetterTemplate[]               @relation("LetterTemplateCreator")
+  letter_templates_updated      LetterTemplate[]               @relation("LetterTemplateUpdater")
+  letter_template_versions      LetterTemplateVersion[]        @relation("LetterTemplateVersionUploader")
+  issued_letters                IssuedLetter[]
 }
 
 model UserSession {
@@ -754,6 +761,100 @@ model ClinicSettings {
   updated_at                  DateTime @updatedAt
 
   updater User? @relation(fields: [updated_by], references: [user_id])
+}
+
+// ---- Doctor Letter Management (DOCX-based) ---------------------------------------------
+// Admin designs each letter in Microsoft Word and uploads the .docx (one upload = one
+// LetterTemplateVersion). The system fills {{PLACEHOLDER}} tokens by editing the DOCX XML
+// in place and renders to PDF with LibreOffice, so the admin's exact formatting — fonts,
+// colours, header/footer, logos, borders, tables, stamp areas, page size/orientation — is
+// preserved. The letterhead columns below feed the {{CLINIC_*}} / {{DOCTOR_*}} / {{PHONE}} /
+// {{REGISTRATION_NO}} placeholders and are the ONLY letter content code ever supplies;
+// everything else lives inside the .docx and is never generated or appended by the system.
+model LetterTemplate {
+  letter_template_id Int     @id @default(autoincrement())
+  name               String // e.g. "Medical Certificate" — shown to the doctor as-is
+  letter_type        String  @default("General") // free text; the UI offers common suggestions
+  is_active          Boolean @default(true)
+
+  // The version currently served to doctors. Older versions stay in `versions` and remain
+  // referenced by any letter already issued from them, so history stays reproducible.
+  current_version_id Int? @unique
+
+  // Letterhead values substituted into placeholders. All optional — an admin may instead
+  // hard-code them directly in the Word document and simply not use the placeholder.
+  clinic_name         String?
+  clinic_address      String?
+  phone_number        String?
+  doctor_name         String?
+  doctor_qualification String?
+  doctor_department   String?
+  registration_number String?
+
+  created_by Int
+  created_at DateTime @default(now())
+  updated_by Int?
+  updated_at DateTime @updatedAt
+
+  creator         User                   @relation("LetterTemplateCreator", fields: [created_by], references: [user_id])
+  updater         User?                  @relation("LetterTemplateUpdater", fields: [updated_by], references: [user_id])
+  current_version LetterTemplateVersion? @relation("CurrentVersion", fields: [current_version_id], references: [version_id])
+  versions        LetterTemplateVersion[] @relation("TemplateVersions")
+  issued_letters  IssuedLetter[]
+}
+
+// One uploaded .docx. "Replace template" creates a new row with an incremented
+// version_number and repoints LetterTemplate.current_version_id — it never mutates or
+// deletes an existing version, so letters issued from an older version stay reproducible.
+model LetterTemplateVersion {
+  version_id              Int      @id @default(autoincrement())
+  letter_template_id      Int
+  version_number          Int
+  docx_filename           String // stored under uploads/letter-templates/
+  original_filename       String // the admin's own filename, e.g. "Medical Certificate.docx"
+  placeholder_report_json String // { found: string[], unknown: string[], missingBody: boolean } captured at upload
+  uploaded_by             Int
+  uploaded_at             DateTime @default(now())
+
+  template       LetterTemplate  @relation("TemplateVersions", fields: [letter_template_id], references: [letter_template_id], onDelete: Cascade)
+  current_for    LetterTemplate? @relation("CurrentVersion")
+  uploader       User            @relation("LetterTemplateVersionUploader", fields: [uploaded_by], references: [user_id])
+  issued_letters IssuedLetter[]
+
+  @@unique([letter_template_id, version_number])
+}
+
+// A fully frozen record of one issued letter: the filled .docx and its rendered PDF are
+// written to disk once, at issue time, and served back verbatim forever after. A later
+// template edit, replace, or delete therefore cannot alter a letter a patient already
+// received. Only created for a registered patient (real patient_id, not is_temporary) — a
+// temporary walk-in's letter is generated and streamed but never persisted here.
+model IssuedLetter {
+  issued_letter_id    Int    @id @default(autoincrement())
+  letter_template_id  Int?
+  template_version_id Int?
+  patient_id          String
+  appointment_id      Int?
+  consultation_id     Int?
+
+  letter_type_name      String
+  doctor_id             Int
+  doctor_name_snapshot  String
+  letter_body           String // the doctor-entered {{LETTER_BODY}} text
+  placeholder_data_json String // every value substituted into the document, snapshotted
+  docx_filename         String // frozen filled .docx, uploads/issued-letters/
+  pdf_filename          String // frozen rendered PDF,  uploads/issued-letters/
+
+  issued_at DateTime @default(now())
+
+  template     LetterTemplate?        @relation(fields: [letter_template_id], references: [letter_template_id], onDelete: SetNull)
+  version      LetterTemplateVersion? @relation(fields: [template_version_id], references: [version_id], onDelete: SetNull)
+  patient      Patient                @relation(fields: [patient_id], references: [patient_id])
+  appointment  Appointment?           @relation(fields: [appointment_id], references: [appointment_id])
+  consultation Consultation?          @relation(fields: [consultation_id], references: [consultation_id])
+  doctor       User                   @relation(fields: [doctor_id], references: [user_id])
+
+  @@index([patient_id])
 }
 
 model MasterDataItem {

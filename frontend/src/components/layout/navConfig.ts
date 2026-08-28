@@ -17,6 +17,7 @@ import {
   UsersIcon,
   SettingsIcon,
   ClipboardIcon,
+  FileIcon,
 } from './Icons';
 
 export interface NavItem {
@@ -71,6 +72,7 @@ export const navSections: NavSection[] = [
     label: 'System',
     items: [
       { label: 'Users & Roles', path: '/users', icon: UsersIcon, implemented: true },
+      { label: 'Letter Templates', path: '/letter-templates', icon: FileIcon, implemented: true },
       { label: 'Settings', path: '/settings', icon: SettingsIcon, implemented: true },
     ],
   },

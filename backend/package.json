@@ -8,7 +8,8 @@
     "build": "tsc",
     "test": "jest",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev"
+    "prisma:migrate": "prisma migrate dev",
+    "build:blank-template": "node scripts/build-blank-template.mjs"
   },
   "keywords": [],
   "author": "",
@@ -21,6 +22,7 @@
     "@prisma/client": "^5.22.0",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
+    "docxtemplater": "^3.69.3",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-rate-limit": "^8.6.1",
@@ -33,6 +35,7 @@
     "pdfkit": "^0.19.1",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
+    "pizzip": "^3.2.0",
     "prisma": "^5.22.0",
     "socket.io": "^4.8.3",
     "zod": "^4.4.3"
