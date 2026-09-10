@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { TOTP, Secret } from 'otpauth';
 import { PrismaClient } from '@prisma/client';
 import app from '../../app';
+import { JWT_ALGORITHM, JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET } from '../../config/auth';
 
 const prisma = new PrismaClient();
 const runId = Date.now();
@@ -10,6 +11,14 @@ const runId = Date.now();
 const currentTotpCode = (secretBase32: string) => new TOTP({ secret: Secret.fromBase32(secretBase32), digits: 6, period: 30 }).generate();
 
 describe('Auth API', () => {
+  const signTestToken = (payload: Record<string, unknown>, secret = JWT_SECRET) =>
+    jwt.sign(payload, secret, {
+      algorithm: JWT_ALGORITHM,
+      expiresIn: '10m',
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
+    });
+
   it('should fail login with invalid credentials', async () => {
     const res = await request(app).post('/api/v1/auth/login').send({ username: 'admin', password: 'wrongpassword' });
 
@@ -31,6 +40,33 @@ describe('Auth API', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('Validation failed');
+  });
+
+  describe('JWT session binding', () => {
+    it('rejects a token signed with the removed public fallback key', async () => {
+      const token = signTestToken({ sub: 1 }, 'super-secret-jwt-key-replace-in-production');
+      const res = await request(app).get('/api/v1/settings').set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(401);
+    });
+
+    it('rejects a correctly signed token that has no server-side session id', async () => {
+      const token = signTestToken({ sub: 1 });
+      const res = await request(app).get('/api/v1/settings').set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(401);
+    });
+
+    it('rejects a valid session id when it belongs to a different user', async () => {
+      const loginRes = await request(app).post('/api/v1/auth/login').send({ username: 'admin', password: 'admin123' });
+      expect(loginRes.status).toBe(200);
+      const adminClaims = jwt.decode(loginRes.body.token) as { sid: number };
+      const doctor = await prisma.user.findUniqueOrThrow({ where: { username: 'doctor' } });
+      const token = signTestToken({ sub: doctor.user_id, sid: adminClaims.sid });
+
+      const res = await request(app).get('/api/v1/settings').set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(401);
+    });
   });
 
   // Every test below acts on throwaway, per-run users created through the Security API rather

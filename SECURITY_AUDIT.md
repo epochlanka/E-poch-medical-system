@@ -2,7 +2,12 @@
 
 Audit date: 2026-09-09  
 Audited revision: `d881ee0ae85a935dc0acd56baee580604a5282ef` (`error-handling`)  
-Audit branch: `codex/security-audit`
+Audit branch: `Ravindu/security-audit`
+
+> Remediation update: CRITICAL-01 is fixed on the renamed `Ravindu/security-audit`
+> branch. The evidence below describes the audited base revision and is retained as the
+> security record. The fix removes the fallback key, fails closed on missing/unsafe secrets,
+> binds every token to its owning live session, and pins algorithm, issuer, and audience.
 
 ## Executive summary
 
@@ -194,4 +199,3 @@ Use encrypted storage and encrypted backups with keys held outside the applicati
 - Moderate: 4
 - Production npm advisories: 3 packages (2 high, 1 moderate)
 - Frontend production npm advisories: 0 across all four frontends
-

@@ -2,12 +2,16 @@ import passport from 'passport';
 import { Strategy as JwtStrategy, ExtractJwt } from 'passport-jwt';
 import { Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { JWT_ALGORITHM, JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET } from '../config/auth';
 
 const prisma = new PrismaClient();
 
 const opts = {
   jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-  secretOrKey: process.env.JWT_SECRET || 'super-secret-jwt-key-replace-in-production',
+  secretOrKey: JWT_SECRET,
+  algorithms: [JWT_ALGORITHM],
+  issuer: JWT_ISSUER,
+  audience: JWT_AUDIENCE,
 };
 
 // Passport JWT strategy — also enforces session-based idle timeout (FR-007) and revocation.
@@ -16,28 +20,35 @@ const opts = {
 passport.use(
   new JwtStrategy(opts, async (jwt_payload, done) => {
     try {
-      const user = await prisma.user.findUnique({
-        where: { user_id: jwt_payload.sub },
+      const userId = Number(jwt_payload.sub);
+      const sessionId = Number(jwt_payload.sid);
+
+      // Every access token must be backed by a live server-side session. In particular, do not
+      // treat a missing sid as permission to skip revocation and idle-timeout enforcement.
+      if (!Number.isInteger(userId) || userId <= 0 || !Number.isInteger(sessionId) || sessionId <= 0) {
+        return done(null, false);
+      }
+
+      const session = await prisma.userSession.findUnique({
+        where: { session_id: sessionId },
+        include: { user: true },
       });
 
-      if (!user || !user.is_active) return done(null, false);
-
-      if (jwt_payload.sid) {
-        const session = await prisma.userSession.findUnique({ where: { session_id: jwt_payload.sid } });
-        if (!session || session.revoked_at) return done(null, false);
-
-        const settings = await prisma.clinicSettings.findUnique({ where: { id: 1 } });
-        const timeoutMinutes = settings?.session_timeout_minutes ?? 15;
-        const idleMs = Date.now() - session.last_activity_at.getTime();
-
-        if (idleMs > timeoutMinutes * 60_000) {
-          await prisma.userSession.update({ where: { session_id: session.session_id }, data: { revoked_at: new Date() } });
-          return done(null, false);
-        }
-
-        await prisma.userSession.update({ where: { session_id: session.session_id }, data: { last_activity_at: new Date() } });
-        (user as any).sessionId = session.session_id;
+      if (!session || session.revoked_at || session.user_id !== userId || !session.user.is_active) {
+        return done(null, false);
       }
+
+      const settings = await prisma.clinicSettings.findUnique({ where: { id: 1 } });
+      const timeoutMinutes = settings?.session_timeout_minutes ?? 15;
+      const idleMs = Date.now() - session.last_activity_at.getTime();
+
+      if (idleMs > timeoutMinutes * 60_000) {
+        await prisma.userSession.update({ where: { session_id: session.session_id }, data: { revoked_at: new Date() } });
+        return done(null, false);
+      }
+
+      await prisma.userSession.update({ where: { session_id: session.session_id }, data: { last_activity_at: new Date() } });
+      const user = { ...session.user, sessionId: session.session_id };
 
       return done(null, user);
     } catch (error) {

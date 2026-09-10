@@ -3,10 +3,9 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { AccountLockedError, InvalidCredentialsError, InvalidTotpError, TotpRequiredError, ValidationError } from './errors';
 import { buildOtpauthUrl, generateTotpSecret, verifyTotpToken } from './totp';
+import { JWT_ALGORITHM, JWT_AUDIENCE, JWT_EXPIRES_IN, JWT_ISSUER, JWT_SECRET } from '../../config/auth';
 
 const prisma = new PrismaClient();
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-replace-in-production';
-const JWT_EXPIRES_IN = '1d';
 const FAILED_ATTEMPTS_LIMIT = 5;
 
 interface Actor {
@@ -63,7 +62,12 @@ export const loginUser = async (username: string, password: string, totpToken: s
   await prisma.user.update({ where: { user_id: user.user_id }, data: { failed_login_attempts: 0, locked_until: null, last_login_at: new Date() } });
 
   const payload = { sub: user.user_id, role: user.role, username: user.username, sid: session.session_id };
-  const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  const token = jwt.sign(payload, JWT_SECRET, {
+    algorithm: JWT_ALGORITHM,
+    expiresIn: JWT_EXPIRES_IN,
+    issuer: JWT_ISSUER,
+    audience: JWT_AUDIENCE,
+  });
 
   return {
     token,
