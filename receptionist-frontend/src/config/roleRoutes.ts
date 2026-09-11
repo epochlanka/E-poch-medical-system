@@ -11,4 +11,6 @@ export const isUserRole = (role: string): role is UserRole => Object.hasOwn(PORT
 
 export const roleHomeUrl = (role: UserRole) => `${PORTAL_URLS[role].replace(/\/$/, '')}/dashboard`;
 
+export const commonLoginUrl = () => `${PORTAL_URLS.Admin.replace(/\/$/, '')}/login`;
+
 export const redirectToRoleHome = (role: UserRole) => window.location.replace(roleHomeUrl(role));

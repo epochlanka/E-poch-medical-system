@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import ProtectedRoute, { RoleRedirect } from './components/ProtectedRoute';
 import AppLayout from './components/layout/AppLayout';
 import Login from './pages/Login';
+import LoginConfirmation from './pages/LoginConfirmation';
 import Dashboard from './pages/dashboard/Dashboard';
 import Patients from './pages/patients/Patients';
 import Families from './pages/families/Families';
@@ -54,6 +55,7 @@ function App() {
       <Routes>
         <Route path="/" element={<RootRedirect />} />
         <Route path="/login" element={<LoginEntry />} />
+        <Route path="/login/confirm" element={<LoginConfirmation />} />
 
         <Route
           element={

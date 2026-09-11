@@ -1,8 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import ProtectedRoute, { RoleRedirect } from './components/ProtectedRoute';
+import ProtectedRoute, { CommonLoginRedirect, RoleRedirect } from './components/ProtectedRoute';
 import AppLayout from './components/layout/AppLayout';
-import Login from './pages/Login';
 import Dashboard from './pages/dashboard/Dashboard';
 import LiveQueue from './pages/queue/LiveQueue';
 import CallNext from './pages/queue/CallNext';
@@ -34,7 +33,7 @@ const RootRedirect = () => {
 const LoginEntry = () => {
   const { user, loading } = useAuth();
   if (loading) return null;
-  if (!user) return <Login />;
+  if (!user) return <CommonLoginRedirect />;
   return user.role === 'Doctor' ? <Navigate to="/dashboard" replace /> : <RoleRedirect role={user.role} />;
 };
 

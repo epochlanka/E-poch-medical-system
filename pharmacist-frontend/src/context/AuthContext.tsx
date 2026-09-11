@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { api } from '../lib/api';
-import type { UserRole } from '../config/roleRoutes';
+import { commonLoginUrl, type UserRole } from '../config/roleRoutes';
 
 export interface AuthUser {
   id: number;
@@ -43,6 +43,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       await api.post('/auth/logout');
     } finally {
       setUser(null);
+      window.location.replace(commonLoginUrl());
     }
   };
 

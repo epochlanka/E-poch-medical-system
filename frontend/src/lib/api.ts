@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { toFriendlyError, type FriendlyError } from './errorMessage';
+import { commonLoginUrl } from '../config/roleRoutes';
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -21,7 +22,7 @@ api.interceptors.response.use(
   (res) => res,
   (error) => {
     if (error.response?.status === 401 && !window.location.pathname.startsWith('/login')) {
-      window.location.href = '/login';
+      window.location.replace(commonLoginUrl());
       return Promise.reject(error);
     }
 

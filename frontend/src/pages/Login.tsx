@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
-import { isUserRole, redirectToRoleHome } from '../config/roleRoutes';
+import { isUserRole } from '../config/roleRoutes';
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState('');
@@ -15,7 +15,6 @@ const Login: React.FC = () => {
 
   const { login } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,13 +39,7 @@ const Login: React.FC = () => {
         return;
       }
       login(user);
-
-      if (user.role === 'Admin') {
-        const redirectTo = (location.state as { from?: string } | null)?.from || '/dashboard';
-        navigate(redirectTo, { replace: true });
-      } else {
-        redirectToRoleHome(user.role);
-      }
+      navigate('/login/confirm', { replace: true });
     } catch (err: any) {
       if (err.response?.data?.message) {
         setError(err.response.data.message);
