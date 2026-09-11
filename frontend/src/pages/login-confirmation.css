@@ -1,0 +1,316 @@
+.login-confirm-page {
+  --confirm-accent: #2563eb;
+  --confirm-accent-dark: #1d4ed8;
+  --confirm-accent-soft: #dbeafe;
+  position: relative;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 28px;
+  background:
+    radial-gradient(circle at 18% 16%, rgba(59, 130, 246, 0.16), transparent 31%),
+    radial-gradient(circle at 84% 82%, rgba(16, 185, 129, 0.14), transparent 30%),
+    linear-gradient(145deg, #eff6ff 0%, #f8fafc 47%, #ecfdf5 100%);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.login-confirm-page.theme-doctor {
+  --confirm-accent: #059669;
+  --confirm-accent-dark: #047857;
+  --confirm-accent-soft: #d1fae5;
+}
+
+.login-confirm-page.theme-receptionist {
+  --confirm-accent: #7c3aed;
+  --confirm-accent-dark: #6d28d9;
+  --confirm-accent-soft: #ede9fe;
+}
+
+.login-confirm-page.theme-pharmacist {
+  --confirm-accent: #d97706;
+  --confirm-accent-dark: #b45309;
+  --confirm-accent-soft: #fef3c7;
+}
+
+.login-confirm-orb {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(2px);
+  opacity: 0.52;
+  pointer-events: none;
+}
+
+.login-confirm-orb-one {
+  width: 280px;
+  height: 280px;
+  top: -110px;
+  right: -60px;
+  background: linear-gradient(145deg, var(--confirm-accent-soft), rgba(255, 255, 255, 0));
+}
+
+.login-confirm-orb-two {
+  width: 220px;
+  height: 220px;
+  bottom: -90px;
+  left: -45px;
+  background: linear-gradient(145deg, rgba(167, 243, 208, 0.9), rgba(255, 255, 255, 0));
+}
+
+.login-confirm-card {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 500px);
+  padding: 30px 36px 28px;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 28px 85px rgba(15, 23, 42, 0.16), 0 3px 12px rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(18px);
+  text-align: center;
+}
+
+.login-confirm-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin-bottom: 25px;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+}
+
+.login-confirm-brand-mark {
+  width: 29px;
+  height: 29px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: linear-gradient(145deg, #2563eb, #0ea5e9);
+  color: white;
+  font-size: 14px;
+}
+
+.login-confirm-success {
+  width: 74px;
+  height: 74px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 18px;
+  border: 8px solid color-mix(in srgb, var(--confirm-accent-soft) 70%, white);
+  border-radius: 50%;
+  background: var(--confirm-accent);
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--confirm-accent) 25%, transparent);
+  color: white;
+  font-size: 31px;
+  font-weight: 850;
+}
+
+.login-confirm-eyebrow {
+  margin: 0 0 7px;
+  color: var(--confirm-accent-dark);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.login-confirm-card h1 {
+  margin: 0;
+  color: #0f172a;
+  font-size: clamp(26px, 5vw, 32px);
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+}
+
+.login-confirm-intro {
+  margin: 9px 0 22px;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.login-confirm-identity,
+.login-confirm-route {
+  display: flex;
+  align-items: center;
+  text-align: left;
+  border-radius: 15px;
+}
+
+.login-confirm-identity {
+  gap: 13px;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.login-confirm-avatar {
+  flex: 0 0 auto;
+  width: 45px;
+  height: 45px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  background: var(--confirm-accent-soft);
+  color: var(--confirm-accent-dark);
+  font-size: 17px;
+  font-weight: 850;
+}
+
+.login-confirm-identity-copy {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.login-confirm-label,
+.login-confirm-route div span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.login-confirm-identity-copy strong,
+.login-confirm-route div strong {
+  overflow: hidden;
+  color: #172033;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.login-confirm-role {
+  flex: 0 0 auto;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: var(--confirm-accent-soft);
+  color: var(--confirm-accent-dark);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.login-confirm-route {
+  gap: 12px;
+  margin: 11px 0 23px;
+  padding: 12px 15px;
+  background: color-mix(in srgb, var(--confirm-accent-soft) 45%, white);
+}
+
+.login-confirm-route-dot {
+  width: 9px;
+  height: 9px;
+  border: 3px solid white;
+  border-radius: 50%;
+  background: var(--confirm-accent);
+  box-shadow: 0 0 0 2px var(--confirm-accent-soft);
+}
+
+.login-confirm-route div {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.login-confirm-arrow {
+  color: var(--confirm-accent-dark);
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.login-confirm-progress-copy {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.login-confirm-progress-copy span:last-child {
+  color: var(--confirm-accent-dark);
+  font-variant-numeric: tabular-nums;
+}
+
+.login-confirm-progress-track {
+  height: 7px;
+  overflow: hidden;
+  margin-bottom: 22px;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.login-confirm-progress-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--confirm-accent), #22c55e);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--confirm-accent) 35%, transparent);
+  transition: width 50ms linear;
+}
+
+.login-confirm-primary,
+.login-confirm-secondary {
+  width: 100%;
+  border-radius: 12px;
+  font-family: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.login-confirm-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 13px 18px;
+  border: 0;
+  background: linear-gradient(135deg, var(--confirm-accent), var(--confirm-accent-dark));
+  box-shadow: 0 9px 22px color-mix(in srgb, var(--confirm-accent) 25%, transparent);
+  color: white;
+  font-size: 14px;
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.login-confirm-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--confirm-accent) 32%, transparent);
+}
+
+.login-confirm-secondary {
+  margin-top: 7px;
+  padding: 10px 18px;
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.login-confirm-primary:disabled,
+.login-confirm-secondary:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.login-confirm-security-note {
+  margin: 16px 0 0;
+  color: #94a3b8;
+  font-size: 10px;
+}
+
+.login-confirm-security-note span {
+  margin-right: 5px;
+  color: #10b981;
+}
+
+@media (max-width: 540px) {
+  .login-confirm-page { padding: 16px; }
+  .login-confirm-card { padding: 25px 20px 23px; border-radius: 21px; }
+  .login-confirm-role { max-width: 118px; overflow: hidden; text-overflow: ellipsis; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-confirm-progress-bar,
+  .login-confirm-primary { transition: none; }
+}
