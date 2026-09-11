@@ -32,3 +32,6 @@ export const JWT_ALGORITHM = 'HS256' as const;
 export const JWT_ISSUER = 'epoch-medical-system';
 export const JWT_AUDIENCE = 'epoch-medical-portals';
 export const JWT_EXPIRES_IN = '1d';
+
+export const AUTH_COOKIE_NAME = 'epoch_session';
+export const AUTH_COOKIE_MAX_AGE_MS = 24 * 60 * 60 * 1000;

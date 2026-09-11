@@ -2,12 +2,34 @@ import passport from 'passport';
 import { Strategy as JwtStrategy, ExtractJwt } from 'passport-jwt';
 import { Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { JWT_ALGORITHM, JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET } from '../config/auth';
+import { AUTH_COOKIE_NAME, JWT_ALGORITHM, JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET } from '../config/auth';
 
 const prisma = new PrismaClient();
 
+const fromAuthCookie = (req: Request): string | null => {
+  const rawCookies = req.headers.cookie;
+  if (!rawCookies) return null;
+
+  for (const cookie of rawCookies.split(';')) {
+    const [name, ...valueParts] = cookie.trim().split('=');
+    if (name === AUTH_COOKIE_NAME) {
+      const value = valueParts.join('=');
+      if (!value) return null;
+      try {
+        return decodeURIComponent(value);
+      } catch {
+        return null;
+      }
+    }
+  }
+
+  return null;
+};
+
 const opts = {
-  jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+  // Bearer tokens remain supported for non-browser clients while the browser portals use an
+  // HttpOnly cookie that cannot be read by injected JavaScript.
+  jwtFromRequest: ExtractJwt.fromExtractors([ExtractJwt.fromAuthHeaderAsBearerToken(), fromAuthCookie]),
   secretOrKey: JWT_SECRET,
   algorithms: [JWT_ALGORITHM],
   issuer: JWT_ISSUER,

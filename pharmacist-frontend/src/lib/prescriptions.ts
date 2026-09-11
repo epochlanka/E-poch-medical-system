@@ -120,9 +120,8 @@ export const displayDetailPatient = (detail: Pick<PrescriptionDetail, 'consultat
   };
 };
 
-// The PDF route only accepts a Bearer Authorization header (no query-param token support in
-// requireAuth), so a plain <a href>/window.open() can't carry auth — fetch it as a blob through
-// the authenticated axios instance instead and trigger the download client-side.
+// A plain <a href>/window.open() cannot reliably surface API errors, so fetch through the
+// credentialed API client and trigger the download client-side.
 export const downloadPrescriptionPdf = async (prescriptionId: number, code: string) => {
   const res = await api.get(`/prescriptions/${prescriptionId}/pdf`, { responseType: 'blob' });
   const blob = new Blob([res.data], { type: 'application/pdf' });

@@ -38,8 +38,25 @@ const app = express();
 // Security HTTP headers
 app.use(helmet());
 
-// CORS
-app.use(cors());
+// Browser portals share this API and authenticate with a credentialed HttpOnly cookie. Keep
+// development ports explicit and require deployments to list their actual portal origins.
+const developmentOrigins = process.env.NODE_ENV === 'production'
+  ? ''
+  : 'http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176';
+const allowedOrigins = `${process.env.FRONTEND_URLS || developmentOrigins},${process.env.FRONTEND_URL || ''}`
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    credentials: true,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error('Origin is not allowed by CORS'));
+    },
+  })
+);
 
 // Parse JSON request body
 app.use(express.json());

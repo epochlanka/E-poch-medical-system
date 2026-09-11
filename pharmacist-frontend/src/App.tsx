@@ -1,6 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import ProtectedRoute from './components/ProtectedRoute';
+import ProtectedRoute, { RoleRedirect } from './components/ProtectedRoute';
 import AppLayout from './components/layout/AppLayout';
 import Login from './pages/Login';
 import Dashboard from './pages/dashboard/Dashboard';
@@ -19,8 +19,16 @@ const unimplementedPaths = navSections
   .map((item) => item.path);
 
 const RootRedirect = () => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, loading } = useAuth();
+  if (loading) return null;
   return <Navigate to={isAuthenticated ? '/dashboard' : '/login'} replace />;
+};
+
+const LoginEntry = () => {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  if (!user) return <Login />;
+  return user.role === 'Pharmacist' ? <Navigate to="/dashboard" replace /> : <RoleRedirect role={user.role} />;
 };
 
 function App() {
@@ -28,11 +36,11 @@ function App() {
     <AuthProvider>
       <Routes>
         <Route path="/" element={<RootRedirect />} />
-        <Route path="/login" element={<Login />} />
+        <Route path="/login" element={<LoginEntry />} />
 
         <Route
           element={
-            <ProtectedRoute>
+            <ProtectedRoute requiredRole="Pharmacist">
               <AppLayout />
             </ProtectedRoute>
           }

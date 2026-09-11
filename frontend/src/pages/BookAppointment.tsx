@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
 import NewPatientModal from './dashboard/NewPatientModal';
+import { api } from '../lib/api';
 
 const BookAppointment: React.FC = () => {
   const [patientId, setPatientId] = useState('');
@@ -52,10 +52,7 @@ const BookAppointment: React.FC = () => {
 
     const delayDebounceFn = setTimeout(async () => {
       try {
-        const token = localStorage.getItem('epoch_token');
-        const res = await axios.get(`http://localhost:3000/api/v1/patients?search=${encodeURIComponent(searchQuery)}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const res = await api.get(`/patients?search=${encodeURIComponent(searchQuery)}`);
         setSearchResults(res.data.data || []);
         setIsDropdownOpen(true);
       } catch (err) {
@@ -77,10 +74,7 @@ const BookAppointment: React.FC = () => {
 
     const delayDebounceFn = setTimeout(async () => {
       try {
-        const token = localStorage.getItem('epoch_token');
-        const res = await axios.get(`http://localhost:3000/api/v1/appointments/doctors?search=${encodeURIComponent(doctorSearchQuery)}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const res = await api.get(`/appointments/doctors?search=${encodeURIComponent(doctorSearchQuery)}`);
         setDoctorSearchResults(res.data.data || []);
         setIsDoctorDropdownOpen(true);
       } catch (err) {
@@ -118,15 +112,12 @@ const BookAppointment: React.FC = () => {
 
     setLoading(true);
     try {
-      const token = localStorage.getItem('epoch_token');
       const isoDate = new Date(`${date}T${time}`).toISOString();
       
-      await axios.post('http://localhost:3000/api/v1/appointments', {
+      await api.post('/appointments', {
         patient_id: patientId,
         doctor_id: parseInt(doctorId, 10),
         scheduled_at: isoDate
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
       });
       
       setMessage('Appointment successfully booked!');
@@ -334,10 +325,7 @@ const BookAppointment: React.FC = () => {
                 else {
                   // Fetch all doctors when focused and empty
                   const fetchDoctors = async () => {
-                    const token = localStorage.getItem('epoch_token');
-                    const res = await axios.get(`http://localhost:3000/api/v1/appointments/doctors`, {
-                      headers: { Authorization: `Bearer ${token}` }
-                    });
+                    const res = await api.get('/appointments/doctors');
                     setDoctorSearchResults(res.data.data || []);
                     setIsDoctorDropdownOpen(true);
                   };
@@ -409,10 +397,7 @@ const BookAppointment: React.FC = () => {
           onSuccess={(newId) => {
             const fetchNewPatient = async () => {
               try {
-                const token = localStorage.getItem('epoch_token');
-                const res = await axios.get(`http://localhost:3000/api/v1/patients/${newId}`, {
-                  headers: { Authorization: `Bearer ${token}` }
-                });
+                const res = await api.get(`/patients/${newId}`);
                 setPatientId(res.data.patient_id);
                 setSelectedPatientName(res.data.full_name);
                 setSearchQuery(res.data.full_name);

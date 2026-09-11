@@ -15,6 +15,7 @@ const loginSchema = z.object({
 });
 
 router.post('/login', validate(loginSchema), controller.login);
+router.get('/me', requireAuth, controller.me);
 router.post('/logout', requireAuth, controller.logout);
 
 const changePasswordSchema = z.object({

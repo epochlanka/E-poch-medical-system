@@ -2,8 +2,16 @@ import { Request, Response } from 'express';
 import * as service from './service';
 import { AccountLockedError, InvalidCredentialsError, InvalidTotpError, TotpRequiredError, ValidationError } from './errors';
 import { respondWithServerError } from '../../errors';
+import { AUTH_COOKIE_MAX_AGE_MS, AUTH_COOKIE_NAME } from '../../config/auth';
 
 const actor = (req: Request) => req.user as any as { user_id: number; role: string; username: string; sessionId?: number };
+
+const authCookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  path: '/',
+};
 
 export const login = async (req: Request, res: Response) => {
   try {
@@ -12,6 +20,7 @@ export const login = async (req: Request, res: Response) => {
       userAgent: req.headers['user-agent'],
       ipAddress: req.ip,
     });
+    res.cookie(AUTH_COOKIE_NAME, result.token, { ...authCookieOptions, maxAge: AUTH_COOKIE_MAX_AGE_MS });
     res.status(200).json(result);
   } catch (error: any) {
     req.log.warn(`Login failed for username: ${req.body?.username} - ${error.message}`);
@@ -25,8 +34,16 @@ export const login = async (req: Request, res: Response) => {
   }
 };
 
+export const me = async (req: Request, res: Response) => {
+  const user = actor(req);
+  res.status(200).json({
+    user: { id: user.user_id, username: user.username, role: user.role },
+  });
+};
+
 export const logout = async (req: Request, res: Response) => {
   await service.logoutUser(actor(req).sessionId);
+  res.clearCookie(AUTH_COOKIE_NAME, authCookieOptions);
   res.status(200).json({ message: 'Logged out successfully' });
 };
 

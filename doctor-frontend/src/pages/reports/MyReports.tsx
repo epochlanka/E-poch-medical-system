@@ -30,6 +30,7 @@ const ROW_ICON: Record<ReportKind, { icon: React.ReactNode; bg: string; color: s
   'top-medicines': { icon: <PillIcon />, bg: '#dcfce7', color: '#16a34a' },
   'follow-ups-due': { icon: <ClockIcon />, bg: '#fef3c7', color: '#b45309' },
   appointments: { icon: <CalendarIcon />, bg: '#eaf1fe', color: '#2563eb' },
+  'clinical-statistics': { icon: <StethoscopeIcon />, bg: '#e0f2fe', color: '#0369a1' },
 };
 
 const TYPE_BADGE: Record<string, string> = { Summary: 'badge-blue', Analytics: 'badge-green', Operational: 'badge-purple' };

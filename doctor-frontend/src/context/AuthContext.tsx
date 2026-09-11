@@ -1,53 +1,54 @@
-import { createContext, useContext, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { api } from '../lib/api';
+import type { UserRole } from '../config/roleRoutes';
 
 export interface AuthUser {
   id: number;
   username: string;
-  role: string;
+  role: UserRole;
 }
 
 interface AuthContextValue {
   user: AuthUser | null;
-  token: string | null;
   isAuthenticated: boolean;
-  login: (token: string, user: AuthUser) => void;
-  logout: () => void;
+  loading: boolean;
+  login: (user: AuthUser) => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-const readStoredUser = (): AuthUser | null => {
-  const raw = localStorage.getItem('epoch_doctor_user');
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as AuthUser;
-  } catch {
-    return null;
-  }
-};
-
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<AuthUser | null>(readStoredUser);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('epoch_doctor_token'));
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const login = (nextToken: string, nextUser: AuthUser) => {
-    localStorage.setItem('epoch_doctor_token', nextToken);
-    localStorage.setItem('epoch_doctor_user', JSON.stringify(nextUser));
-    setToken(nextToken);
-    setUser(nextUser);
-  };
-
-  const logout = () => {
+  useEffect(() => {
+    let active = true;
     localStorage.removeItem('epoch_doctor_token');
     localStorage.removeItem('epoch_doctor_user');
-    setToken(null);
-    setUser(null);
+
+    api.get<{ user: AuthUser }>('/auth/me')
+      .then(({ data }) => active && setUser(data.user))
+      .catch(() => active && setUser(null))
+      .finally(() => active && setLoading(false));
+
+    return () => { active = false; };
+  }, []);
+
+  const login = (nextUser: AuthUser) => setUser(nextUser);
+
+  const logout = async () => {
+    try {
+      await api.post('/auth/logout');
+    } finally {
+      setUser(null);
+    }
   };
 
   const value = useMemo(
-    () => ({ user, token, isAuthenticated: !!token, login, logout }),
-    [user, token]
+    () => ({ user, isAuthenticated: !!user, loading, login, logout }),
+    [user, loading]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

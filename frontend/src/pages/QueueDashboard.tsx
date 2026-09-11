@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { api } from '../lib/api';
 
 interface Appointment {
   appointment_id: number;
@@ -36,10 +36,7 @@ const QueueDashboard: React.FC = () => {
   const fetchQueue = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('epoch_token');
-      const res = await axios.get('http://localhost:3000/api/v1/appointments/queue', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await api.get('/appointments/queue');
       setQueue(res.data);
       setError('');
     } catch (err: any) {
@@ -62,10 +59,7 @@ const QueueDashboard: React.FC = () => {
     }
     
     try {
-      const token = localStorage.getItem('epoch_token');
-      await axios.patch(`http://localhost:3000/api/v1/appointments/${id}/status`, { status }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.patch(`/appointments/${id}/status`, { status });
       fetchQueue();
     } catch (err) {
       alert('Failed to update status');
@@ -88,11 +82,7 @@ const QueueDashboard: React.FC = () => {
       const [hours, minutes] = editTimeValue.split(':').map(Number);
       d.setHours(hours, minutes, 0, 0);
 
-      const token = localStorage.getItem('epoch_token');
-      await axios.patch(`http://localhost:3000/api/v1/appointments/${app.appointment_id}/time`, 
-        { scheduled_at: d.toISOString() }, 
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await api.patch(`/appointments/${app.appointment_id}/time`, { scheduled_at: d.toISOString() });
       fetchQueue();
     } catch (err) {
       alert('Failed to update time');

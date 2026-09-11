@@ -27,12 +27,36 @@ describe('Auth API', () => {
   });
 
   it('should succeed login with valid credentials', async () => {
-    const res = await request(app).post('/api/v1/auth/login').send({ username: 'admin', password: 'admin123' });
+    const res = await request(app)
+      .post('/api/v1/auth/login')
+      .set('Origin', 'http://localhost:5174')
+      .send({ username: 'admin', password: 'admin123' });
 
     expect(res.status).toBe(200);
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:5174');
+    expect(res.headers['access-control-allow-credentials']).toBe('true');
     expect(res.body).toHaveProperty('token');
     expect(res.body.user).toHaveProperty('username', 'admin');
     expect(res.body.user).toHaveProperty('role', 'Admin');
+    expect(res.headers['set-cookie']?.[0]).toContain('epoch_session=');
+    expect(res.headers['set-cookie']?.[0]).toContain('HttpOnly');
+  });
+
+  it('restores the authenticated user from the HttpOnly session cookie and clears it on logout', async () => {
+    const agent = request.agent(app);
+    const loginRes = await agent.post('/api/v1/auth/login').send({ username: 'admin', password: 'admin123' });
+    expect(loginRes.status).toBe(200);
+
+    const meRes = await agent.get('/api/v1/auth/me');
+    expect(meRes.status).toBe(200);
+    expect(meRes.body.user).toMatchObject({ username: 'admin', role: 'Admin' });
+
+    const logoutRes = await agent.post('/api/v1/auth/logout');
+    expect(logoutRes.status).toBe(200);
+    expect(logoutRes.headers['set-cookie']?.[0]).toContain('epoch_session=;');
+
+    const afterLogoutRes = await agent.get('/api/v1/auth/me');
+    expect(afterLogoutRes.status).toBe(401);
   });
 
   it('should return 400 for missing fields', async () => {

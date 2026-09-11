@@ -1,11 +1,20 @@
+import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { redirectToRoleHome, type UserRole } from '../config/roleRoutes';
 
-const ProtectedRoute = ({ children }: { children: ReactNode }) => {
-  const { isAuthenticated } = useAuth();
+export const RoleRedirect = ({ role }: { role: UserRole }) => {
+  useEffect(() => redirectToRoleHome(role), [role]);
+  return null;
+};
+
+const ProtectedRoute = ({ children, requiredRole }: { children: ReactNode; requiredRole: UserRole }) => {
+  const { user, isAuthenticated, loading } = useAuth();
   const location = useLocation();
+  if (loading) return null;
   if (!isAuthenticated) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (user && user.role !== requiredRole) return <RoleRedirect role={user.role} />;
   return <>{children}</>;
 };
 

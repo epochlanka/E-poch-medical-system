@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import axios from 'axios';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { API_BASE_URL } from '../lib/api';
+import { api } from '../lib/api';
+import { isUserRole, redirectToRoleHome } from '../config/roleRoutes';
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState('');
@@ -28,17 +28,21 @@ const Login: React.FC = () => {
     setLoading(true);
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/v1/auth/login`, { username, password });
-      const { token, user } = response.data;
+      const response = await api.post('/auth/login', { username, password });
+      const { user } = response.data;
 
-      if (user.role !== 'Pharmacist') {
-        setError('This portal is for pharmacists only. Use the main system for other roles.');
+      if (!isUserRole(user.role)) {
+        setError('Your account has an unsupported role. Contact an administrator.');
         return;
       }
 
-      login(token, user);
-      const redirectTo = (location.state as { from?: string } | null)?.from || '/dashboard';
-      navigate(redirectTo, { replace: true });
+      login(user);
+      if (user.role === 'Pharmacist') {
+        const redirectTo = (location.state as { from?: string } | null)?.from || '/dashboard';
+        navigate(redirectTo, { replace: true });
+      } else {
+        redirectToRoleHome(user.role);
+      }
     } catch (err: any) {
       if (err.response?.data?.message) {
         setError(err.response.data.message);

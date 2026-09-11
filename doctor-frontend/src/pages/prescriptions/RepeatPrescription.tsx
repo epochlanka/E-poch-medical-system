@@ -304,7 +304,6 @@ const RepeatPanel = ({ prescriptionId, onClose }: { prescriptionId: number; onCl
   const drafts = draftResult?.data ?? [];
   const [targetConsultationId, setTargetConsultationId] = useState<number | null>(null);
   const effectiveTargetId = targetConsultationId ?? (drafts.length === 1 ? drafts[0].consultationId : null);
-  const targetConsultation = drafts.find((d) => d.consultationId === effectiveTargetId);
 
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
