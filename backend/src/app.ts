@@ -38,22 +38,37 @@ const app = express();
 // Security HTTP headers
 app.use(helmet());
 
-// Browser portals share this API and authenticate with a credentialed HttpOnly cookie. Keep
-// development ports explicit and require deployments to list their actual portal origins.
+// Browser portals share this API and authenticate with a credentialed HttpOnly cookie.
+// Production stays allow-list only. In development, accept loopback on any port because Vite
+// selects the next available port when its preferred one is already occupied.
 const developmentOrigins = process.env.NODE_ENV === 'production'
   ? ''
   : 'http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176';
-const allowedOrigins = `${process.env.FRONTEND_URLS || developmentOrigins},${process.env.FRONTEND_URL || ''}`
+const allowedOrigins = new Set(`${process.env.FRONTEND_URLS || developmentOrigins},${process.env.FRONTEND_URL || ''}`
   .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+  .map((origin) => origin.trim().replace(/\/$/, ''))
+  .filter(Boolean));
+
+const isAllowedDevelopmentOrigin = (origin: string) => {
+  if (process.env.NODE_ENV === 'production') return false;
+  try {
+    const url = new URL(origin);
+    return url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  } catch {
+    return false;
+  }
+};
 
 app.use(
   cors({
     credentials: true,
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-      return callback(new Error('Origin is not allowed by CORS'));
+      if (!origin || allowedOrigins.has(origin.replace(/\/$/, '')) || isAllowedDevelopmentOrigin(origin)) {
+        return callback(null, true);
+      }
+      // Omitting CORS headers lets the browser reject the request without turning a routine
+      // policy denial into a server exception, error alert, or misleading HTTP 500.
+      return callback(null, false);
     },
   })
 );

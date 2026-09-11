@@ -220,34 +220,67 @@
   font-weight: 800;
 }
 
-.login-confirm-progress-copy {
+.login-confirm-steps {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr auto;
+  align-items: start;
+  margin: 2px 6px 18px;
+}
+
+.login-confirm-step {
   display: flex;
-  justify-content: space-between;
-  margin-bottom: 8px;
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 700;
+  align-items: center;
+  flex-direction: column;
+  gap: 6px;
+  color: #94a3b8;
 }
 
-.login-confirm-progress-copy span:last-child {
+.login-confirm-step > span {
+  width: 27px;
+  height: 27px;
+  display: grid;
+  place-items: center;
+  border: 2px solid #cbd5e1;
+  border-radius: 50%;
+  background: white;
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.login-confirm-step small {
+  font-size: 9px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.login-confirm-step.complete > span,
+.login-confirm-step.active > span {
+  border-color: var(--confirm-accent);
+  background: var(--confirm-accent);
+  box-shadow: 0 5px 12px color-mix(in srgb, var(--confirm-accent) 25%, transparent);
+  color: white;
+}
+
+.login-confirm-step.complete small,
+.login-confirm-step.active small {
   color: var(--confirm-accent-dark);
-  font-variant-numeric: tabular-nums;
 }
 
-.login-confirm-progress-track {
-  height: 7px;
-  overflow: hidden;
-  margin-bottom: 22px;
-  border-radius: 999px;
-  background: #e2e8f0;
+.login-confirm-step-line {
+  height: 2px;
+  margin-top: 13px;
+  background: #dbe3ee;
 }
 
-.login-confirm-progress-bar {
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--confirm-accent), #22c55e);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--confirm-accent) 35%, transparent);
-  transition: width 50ms linear;
+.login-confirm-step-line.complete {
+  background: var(--confirm-accent);
+}
+
+.login-confirm-prompt {
+  margin: 0 0 18px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .login-confirm-primary,
@@ -311,6 +344,5 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .login-confirm-progress-bar,
   .login-confirm-primary { transition: none; }
 }

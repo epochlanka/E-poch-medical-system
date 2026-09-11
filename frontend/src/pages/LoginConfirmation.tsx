@@ -1,11 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { roleHomeUrl, type UserRole } from '../config/roleRoutes';
 import './login-confirmation.css';
-
-const DISPLAY_MS = 5_000;
-const TICK_MS = 50;
 
 const ROLE_COPY: Record<UserRole, { label: string; destination: string; icon: string; theme: string }> = {
   Admin: { label: 'Administrator', destination: 'Administration portal', icon: 'A', theme: 'admin' },
@@ -16,33 +13,7 @@ const ROLE_COPY: Record<UserRole, { label: string; destination: string; icon: st
 
 const LoginConfirmation = () => {
   const { user, loading, logout } = useAuth();
-  const [remainingMs, setRemainingMs] = useState(DISPLAY_MS);
   const [leaving, setLeaving] = useState(false);
-
-  useEffect(() => {
-    if (!user || leaving) return;
-
-    // Anchor the countdown when this screen is actually painted. A single monotonic clock avoids
-    // shortened redirects caused by queued timers, rerenders, or development Strict Mode.
-    const deadline = performance.now() + DISPLAY_MS;
-    let redirected = false;
-
-    const tick = () => {
-      const remaining = Math.max(0, deadline - performance.now());
-      setRemainingMs(remaining);
-
-      if (remaining === 0 && !redirected) {
-        redirected = true;
-        window.location.replace(roleHomeUrl(user.role));
-      }
-    };
-
-    tick();
-    const interval = window.setInterval(tick, TICK_MS);
-    return () => window.clearInterval(interval);
-  }, [user, leaving]);
-
-  const progress = useMemo(() => Math.min(100, Math.max(0, ((DISPLAY_MS - remainingMs) / DISPLAY_MS) * 100)), [remainingMs]);
 
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
@@ -93,23 +64,27 @@ const LoginConfirmation = () => {
           <span className="login-confirm-arrow" aria-hidden="true">→</span>
         </div>
 
-        <div className="login-confirm-progress-copy">
-          <span>Preparing your workspace</span>
-          <span>{(remainingMs / 1000).toFixed(1)}s</span>
-        </div>
-        <div
-          className="login-confirm-progress-track"
-          role="progressbar"
-          aria-label="Time until portal redirect"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.round(progress)}
-        >
-          <div className="login-confirm-progress-bar" style={{ width: `${progress}%` }} />
+        <div className="login-confirm-steps" aria-label="Sign-in progress">
+          <div className="login-confirm-step complete">
+            <span>✓</span>
+            <small>Authenticated</small>
+          </div>
+          <div className="login-confirm-step-line complete" />
+          <div className="login-confirm-step active">
+            <span>2</span>
+            <small>Confirm</small>
+          </div>
+          <div className="login-confirm-step-line" />
+          <div className="login-confirm-step">
+            <span>3</span>
+            <small>Enter portal</small>
+          </div>
         </div>
 
+        <p className="login-confirm-prompt">Confirm that this is your account before entering the portal.</p>
+
         <button className="login-confirm-primary" onClick={continueNow} disabled={leaving}>
-          Continue to {role.destination}
+          Confirm and continue
           <span aria-hidden="true">→</span>
         </button>
         <button className="login-confirm-secondary" onClick={() => void signOut()} disabled={leaving}>

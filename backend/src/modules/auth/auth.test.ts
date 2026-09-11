@@ -66,6 +66,27 @@ describe('Auth API', () => {
     expect(res.body.error).toBe('Validation failed');
   });
 
+  it('allows credentialed CORS preflights from a loopback development port selected by Vite', async () => {
+    const res = await request(app)
+      .options('/api/v1/auth/login')
+      .set('Origin', 'http://localhost:5199')
+      .set('Access-Control-Request-Method', 'POST');
+
+    expect(res.status).toBe(204);
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:5199');
+    expect(res.headers['access-control-allow-credentials']).toBe('true');
+  });
+
+  it('denies an unlisted CORS origin without raising an internal server error', async () => {
+    const res = await request(app)
+      .options('/api/v1/auth/login')
+      .set('Origin', 'https://untrusted.example')
+      .set('Access-Control-Request-Method', 'POST');
+
+    expect(res.status).toBeLessThan(500);
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
   describe('JWT session binding', () => {
     it('rejects a token signed with the removed public fallback key', async () => {
       const token = signTestToken({ sub: 1 }, 'super-secret-jwt-key-replace-in-production');
