@@ -2,7 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useApiData } from '../../hooks/useApiData';
 import { getAlerts } from '../../lib/dashboard';
+import { getPharmacyQueue } from '../../lib/pharmacy';
+import type { QueueItem } from '../../lib/pharmacy';
+import { Link } from 'react-router-dom';
 import { MenuIcon, SearchIcon, BellIcon, ChevronDownIcon, LogOutIcon } from './Icons';
+import './pharmacy-inbox.css';
 
 const useClickOutside = (onOutside: () => void) => {
   const ref = useRef<HTMLDivElement>(null);
@@ -34,6 +38,48 @@ const Topbar = ({ title, onMenuClick }: TopbarProps) => {
   const [openMenu, setOpenMenu] = useState<'alerts' | 'user' | null>(null);
 
   const alerts = useApiData(getAlerts);
+  const [waitingCount, setWaitingCount] = useState<number | null>(null);
+  const [newPrescription, setNewPrescription] = useState<QueueItem | null>(null);
+  const [queueUnavailable, setQueueUnavailable] = useState(false);
+  const knownPendingIds = useRef<Set<number> | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    let inFlight = false;
+    const updateWaiting = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const board = await getPharmacyQueue();
+        if (!active) return;
+        const pending = board.Pending;
+        if (knownPendingIds.current) {
+          const arrived = pending.filter(rx => !knownPendingIds.current?.has(rx.prescriptionId));
+          if (arrived.length) setNewPrescription(arrived[arrived.length - 1]);
+          pending.forEach(rx => knownPendingIds.current?.add(rx.prescriptionId));
+        } else {
+          // Existing work is counted, but only prescriptions arriving after this tab
+          // opens receive a "new prescription" announcement.
+          knownPendingIds.current = new Set(pending.map(rx => rx.prescriptionId));
+        }
+        setWaitingCount(pending.length + board.Preparing.length);
+        setQueueUnavailable(false);
+      } catch {
+        if (active) setQueueUnavailable(true);
+      } finally { inFlight = false; }
+    };
+    void updateWaiting();
+    const timer = window.setInterval(() => { void updateWaiting(); }, 15_000);
+    const onVisible = () => { if (!document.hidden) void updateWaiting(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { active = false; window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
+  }, []);
+
+  useEffect(() => {
+    const original = document.title;
+    document.title = waitingCount && !queueUnavailable ? `(${waitingCount} waiting) E-POCH Pharmacist Portal` : 'E-POCH Pharmacist Portal';
+    return () => { document.title = original; };
+  }, [waitingCount, queueUnavailable]);
 
   const alertsRef = useClickOutside(() => setOpenMenu((m) => (m === 'alerts' ? null : m)));
   const userRef = useClickOutside(() => setOpenMenu((m) => (m === 'user' ? null : m)));
@@ -55,6 +101,10 @@ const Topbar = ({ title, onMenuClick }: TopbarProps) => {
       <div className="shell-topbar-spacer" />
 
       <div className="shell-topbar-right">
+        <Link className="ph-inbox-link" to="/pharmacy/queue" aria-label={queueUnavailable ? 'Pharmacy queue unavailable' : `${waitingCount ?? 0} prescriptions waiting in pharmacy`}>
+          <span className="ph-inbox-label">Waiting prescriptions</span>
+          <span className="ph-inbox-count">{queueUnavailable ? '!' : waitingCount ?? '…'}</span>
+        </Link>
         <div className="shell-dropdown-wrap" ref={alertsRef} style={{ position: 'relative' }}>
           <button className="shell-icon-btn" onClick={() => toggle('alerts')} aria-label="Alerts">
             <BellIcon />
@@ -99,6 +149,7 @@ const Topbar = ({ title, onMenuClick }: TopbarProps) => {
           )}
         </div>
       </div>
+      {newPrescription && <div className="ph-new-rx" role="status"><div><strong>New prescription received</strong><span>{newPrescription.patientName} · {newPrescription.code}</span></div><Link to={`/pharmacy/dispensing/${newPrescription.prescriptionId}`} onClick={() => setNewPrescription(null)}>Open</Link><button type="button" aria-label="Dismiss new prescription notice" onClick={() => setNewPrescription(null)}>×</button></div>}
     </header>
   );
 };
