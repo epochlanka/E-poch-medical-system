@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { PrismaClient } from '@prisma/client';
 import app from '../../app';
+import { getPrescriptionForLabel } from './service';
 
 const prisma = new PrismaClient();
 const runId = Date.now();
@@ -141,6 +142,16 @@ describe('Pharmacy API', () => {
     expect(overrideRes.body.items[0].fefo_override_reason).toBe('Earlier batch was damaged on inspection');
   });
 
+  it('uses the earliest batch that can supply the requested quantity', async () => {
+    const medicine = await prisma.medicine.create({ data: { name: `FEFO Available Drug ${runId}`, unit: 'tablet', is_active: true } });
+    await prisma.batch.create({ data: { medicine_id: medicine.medicine_id, batch_no: `SMALL-EARLY-${runId}`, expiry_date: new Date(Date.now() + 10 * 86400000), qty_on_hand: 2 } });
+    const enough = await prisma.batch.create({ data: { medicine_id: medicine.medicine_id, batch_no: `ENOUGH-LATER-${runId}`, expiry_date: new Date(Date.now() + 20 * 86400000), qty_on_hand: 10 } });
+    const rx = await makePrescription(doctorToken, doctorId, [{ medicine_id: medicine.medicine_id, dosage: '1 tab', qty: 5 }]);
+    const result = await request(app).post(`/api/v1/pharmacy/prescriptions/${rx.prescription_id}/dispense`).set('Authorization', `Bearer ${pharmacistToken}`).send({ items: [{ rx_item_id: rx.items[0].rx_item_id, batch_id: enough.batch_id, qty: 5 }] });
+    expect(result.status).toBe(200);
+    expect(result.body.items[0].fefo_override_reason).toBeNull();
+  });
+
   it('re-validates stock at confirm-time and rejects an over-quantity batch', async () => {
     const smallMedicine = await prisma.medicine.create({ data: { name: `Small Stock Drug ${runId}`, unit: 'tablet', is_active: true } });
     const smallBatch = await prisma.batch.create({
@@ -268,6 +279,13 @@ describe('Pharmacy API', () => {
     expect(res.headers['content-type']).toBe('application/pdf');
   });
 
+  it('does not print a medicine label before any clinic medicine was given', async () => {
+    const rx = await makePrescription(doctorToken, doctorId, [{ medicine_id: medicineId, dosage: '1 tab', qty: 2 }]);
+    const result = await request(app).get(`/api/v1/pharmacy/prescriptions/${rx.prescription_id}/label`).set('Authorization', `Bearer ${pharmacistToken}`);
+    expect(result.status).toBe(400);
+    expect(result.body.message).toMatch(/No clinic medicine/);
+  });
+
   it('rejects dispensing with an unconfigured substitution', async () => {
     const unrelated = await prisma.medicine.create({ data: { name: `Unrelated Drug ${runId}`, unit: 'tablet', is_active: true } });
     const rx = await makePrescription(doctorToken, doctorId, [{ medicine_id: medicineId, dosage: '1 tab', qty: 1 }]);
@@ -305,6 +323,8 @@ describe('Pharmacy API', () => {
 
     expect(dispenseRes.status).toBe(200);
     expect(dispenseRes.body.items[0].substituted_medicine_id).toBe(altMedicine.medicine_id);
+    const labelSource = await getPrescriptionForLabel(rx.prescription_id);
+    expect(labelSource?.items[0].dispenses[0].batch.medicine.name).toBe(altMedicine.name);
   });
 
   it('rejects creating a duplicate substitution pair, supports priority/type, and can update/deactivate a rule', async () => {

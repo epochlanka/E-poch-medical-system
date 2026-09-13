@@ -63,6 +63,9 @@ export const label = async (req: Request, res: Response) => {
   try {
     const prescription = await service.getPrescriptionForLabel(prescriptionIdParam(req));
     if (!prescription) return res.status(404).json({ message: 'Prescription not found' });
+    if (!prescription.items.some((item) => item.dispenses.length > 0)) {
+      return res.status(400).json({ message: 'No clinic medicine has been dispensed yet. There is no label to print.' });
+    }
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="RX${String(prescription.prescription_id).padStart(6, '0')}-label.pdf"`);

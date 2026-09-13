@@ -169,7 +169,7 @@ export const getPrescriptionById = async (id: number) => {
   const prescription = await prisma.prescription.findUnique({
     where: { prescription_id: id },
     include: {
-      items: { include: { medicine: true, batch: true, substituted_medicine: true } },
+      items: { include: { medicine: true, batch: true, substituted_medicine: true, dispenses: { include: { batch: { include: { medicine: true } } }, orderBy: { dispensed_at: 'asc' } } } },
       consultation: { include: { appointment: { include: { patient: true, doctor: { select: { user_id: true, username: true, registration_number: true } } } } } },
       refill_of: { select: { prescription_id: true, issued_at: true } },
     },

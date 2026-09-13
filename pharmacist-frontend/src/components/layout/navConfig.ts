@@ -4,7 +4,6 @@ import {
   PrescriptionIcon,
   PharmacyIcon,
   PillIcon,
-  SendIcon,
   RefreshIcon,
   MedicineIcon,
   ClipboardIcon,
@@ -47,7 +46,6 @@ export const navSections: NavSection[] = [
     items: [
       { label: 'Waiting prescriptions', path: '/pharmacy/queue', icon: PharmacyIcon, implemented: true },
       { label: 'Give medicine', path: '/pharmacy/dispensing', icon: PillIcon, implemented: true },
-      { label: 'Give part of medicine', path: '/pharmacy/partial-dispense', icon: SendIcon, implemented: true },
       { label: 'Substitution Rules', path: '/pharmacy/substitution-rules', icon: RefreshIcon, implemented: true },
     ],
   },

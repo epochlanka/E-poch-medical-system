@@ -183,7 +183,9 @@ export const dispense = async (prescriptionId: number, items: DispenseItemInput[
       }
 
       const earliestValidBatch = await tx.batch.findFirst({
-        where: { medicine_id: effectiveMedicineId, qty_on_hand: { gt: 0 }, expiry_date: { gt: new Date() } },
+        // FEFO applies to batches that can supply this draw. An earlier batch with only
+        // two tablets cannot be the required choice for a five-tablet draw.
+        where: { medicine_id: effectiveMedicineId, qty_on_hand: { gte: requestedQty }, expiry_date: { gt: new Date() } },
         orderBy: { expiry_date: 'asc' },
       });
       const isFefoChoice = earliestValidBatch?.batch_id === batch.batch_id;
@@ -363,7 +365,7 @@ export const getPrescriptionForLabel = (prescriptionId: number) =>
   prisma.prescription.findUnique({
     where: { prescription_id: prescriptionId },
     include: {
-      items: { include: { medicine: true } },
+      items: { include: { medicine: true, dispenses: { include: { batch: { include: { medicine: true } } }, orderBy: { dispensed_at: 'asc' } } } },
       consultation: { include: { appointment: { include: { patient: true } } } },
     },
   });

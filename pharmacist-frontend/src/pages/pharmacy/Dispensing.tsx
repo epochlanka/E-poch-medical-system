@@ -1,638 +1,183 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams, Link } from 'react-router-dom';
-import { useApiData } from '../../hooks/useApiData';
-import { useAuth } from '../../context/AuthContext';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { getPrescription, downloadPrescriptionPdf, displayDetailPatient } from '../../lib/prescriptions';
 import type { PrescriptionDetail, PrescriptionItemDetail } from '../../lib/prescriptions';
 import { getBatchSuggestions, dispensePrescription, downloadDispenseLabel, getPharmacyQueue } from '../../lib/pharmacy';
 import type { BatchSuggestion, DispenseItemInput } from '../../lib/pharmacy';
-import {
-  ClipboardIcon,
-  PatientsIcon,
-  PrintIcon,
-  ChevronLeftIcon,
-  SendIcon,
-  SaveIcon,
-  RefreshIcon,
-  XCircleIcon,
-  UsersIcon,
-  SearchIcon,
-} from '../../components/layout/Icons';
-import { initials, calculateAge, formatDateTime } from '../prescriptions/patientUtils';
-import '../../styles/shared.css';
-import '../dashboard/dashboard.css';
-import '../prescriptions/prescriptions.css';
-import './dispensing.css';
+import { formatDateTime } from '../prescriptions/patientUtils';
+import './guidedDispensing.css';
 
-const isExternal = (item: PrescriptionItemDetail) => item.external_qty >= item.qty;
-
-type ItemStatus = 'Dispensed' | 'External' | 'Insufficient' | 'Ready' | 'Pending';
-
-const STATUS_STYLE: Record<ItemStatus, string> = {
-  Dispensed: 'badge-green',
-  External: 'badge-purple',
-  Insufficient: 'badge-red',
-  Ready: 'badge-green',
-  Pending: 'badge-amber',
+type Selection = { batchId: number; qty: string; reason: string };
+const remaining = (item: PrescriptionItemDetail) => Math.max(0, item.qty - item.external_qty - item.dispensed_qty);
+const externalOnly = (item: PrescriptionItemDetail) => item.external_qty >= item.qty;
+const code = (id: number) => `RX${String(id).padStart(6, '0')}`;
+const date = (value: string) => new Date(value).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+const message = (error: unknown) => {
+  const value = error as { response?: { data?: { message?: string } }; message?: string };
+  return value.response?.data?.message || value.message || 'Something went wrong. Please try again.';
 };
 
-interface Staged {
-  batchId: number;
-  overrideReason: string;
+function DispensingPicker() {
+  const [board, setBoard] = useState<Awaited<ReturnType<typeof getPharmacyQueue>> | null>(null);
+  const [search, setSearch] = useState('');
+  const [error, setError] = useState('');
+  useEffect(() => { getPharmacyQueue().then(setBoard).catch(e => setError(message(e))); }, []);
+  const waiting = [...(board?.Preparing ?? []), ...(board?.Pending ?? [])]
+    .filter(rx => rx.pendingItemCount > 0)
+    .filter(rx => `${rx.code} ${rx.patientName} ${rx.doctorName}`.toLowerCase().includes(search.toLowerCase()));
+  return <main className="gd-page">
+    <div className="gd-heading"><div><span className="gd-eyebrow">PHARMACY</span><h1>Give medicine</h1><p>Choose a waiting prescription. Full and partial quantities are handled on the same screen.</p></div><Link className="gd-button secondary" to="/pharmacy/queue">View queue</Link></div>
+    {error && <div className="gd-alert danger" role="alert">{error}</div>}
+    <section className="gd-panel"><h2>Waiting prescriptions</h2><input className="gd-input gd-search" aria-label="Search prescriptions" placeholder="Search patient or prescription number" value={search} onChange={e => setSearch(e.target.value)} />
+      {!board && !error ? <p>Loading prescriptions…</p> : waiting.length ? <div className="gd-picker-list">{waiting.map(rx => <Link key={rx.prescriptionId} to={`/pharmacy/dispensing/${rx.prescriptionId}`} className="gd-picker-row"><span><strong>{rx.patientName}</strong><small>{rx.code} · Dr. {rx.doctorName}</small></span><span>{rx.pendingItemCount} medicine{rx.pendingItemCount === 1 ? '' : 's'} waiting</span><b>Open →</b></Link>)}</div> : <p className="gd-muted">No matching prescriptions are waiting.</p>}
+    </section>
+  </main>;
 }
 
-const DispensingPicker = () => {
-  const { data: board, loading } = useApiData(() => getPharmacyQueue(), []);
-  const [search, setSearch] = useState('');
-  const inProgress = [...(board?.Preparing ?? []), ...(board?.Pending ?? [])];
-  const filtered = inProgress.filter((rx) => {
-    if (!search.trim()) return true;
-    const s = search.toLowerCase();
-    return `${rx.code} ${rx.patientName} ${rx.doctorName}`.toLowerCase().includes(s);
-  });
-
-  return (
-    <div>
-      <div className="pat-header">
-        <div>
-          <h1>
-            <span style={{ marginRight: 8, color: '#16a34a', verticalAlign: -2, display: 'inline-flex' }}>
-              <UsersIcon />
-            </span>
-            Dispensing
-          </h1>
-          <p>Choose a prescription to dispense medicines against, using FEFO (First Expiry First Out).</p>
-        </div>
-      </div>
-      <div className="pat-search" style={{ maxWidth: 320, marginBottom: 14 }}>
-        <SearchIcon />
-        <input placeholder="Search prescription, patient…" value={search} onChange={(e) => setSearch(e.target.value)} />
-      </div>
-      <div className="pat-table-card">
-        <div className="pat-table-scroll">
-          <table className="pat-table">
-            <thead>
-              <tr>
-                <th>Rx No.</th>
-                <th>Patient</th>
-                <th>Doctor</th>
-                <th>Status</th>
-                <th>Items</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {!loading && filtered.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="pat-empty">
-                    Nothing waiting to be dispensed right now.
-                  </td>
-                </tr>
-              )}
-              {filtered.map((rx) => (
-                <tr key={rx.prescriptionId}>
-                  <td>
-                    <Link className="pat-id-link" to={`/pharmacy/dispensing/${rx.prescriptionId}`}>
-                      {rx.code}
-                    </Link>
-                  </td>
-                  <td>{rx.patientName}</td>
-                  <td>Dr. {rx.doctorName}</td>
-                  <td>
-                    <span className={`badge ${rx.status === 'Preparing' ? 'badge-blue' : 'badge-amber'}`}>{rx.status}</span>
-                  </td>
-                  <td>{rx.itemCount}</td>
-                  <td>
-                    <Link className="pat-btn" to={`/pharmacy/dispensing/${rx.prescriptionId}`}>
-                      Dispense
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const DispensingWorkspace = ({ prescriptionId }: { prescriptionId: number }) => {
+function DispensingWorkspace({ prescriptionId }: { prescriptionId: number }) {
   const navigate = useNavigate();
-  const { user } = useAuth();
-
   const [detail, setDetail] = useState<PrescriptionDetail | null>(null);
   const [suggestions, setSuggestions] = useState<BatchSuggestion[]>([]);
+  const [selected, setSelected] = useState<Record<number, Selection>>({});
+  const [externalSelected, setExternalSelected] = useState<number[]>([]);
+  const [patientChecked, setPatientChecked] = useState(false);
+  const [review, setReview] = useState<DispenseItemInput[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  const [selectedRxItemId, setSelectedRxItemId] = useState<number | null>(null);
-  const [staged, setStaged] = useState<Record<number, Staged>>({});
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState<'all' | 'partial' | null>(null);
-  const [review, setReview] = useState<{ mode: 'all' | 'partial'; payload: DispenseItemInput[] } | null>(null);
+  const [busy, setBusy] = useState(false);
   const [printing, setPrinting] = useState(false);
-  const [printingLabel, setPrintingLabel] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [needsReload, setNeedsReload] = useState(false);
 
   const load = async () => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const [d, s] = await Promise.all([getPrescription(prescriptionId), getBatchSuggestions(prescriptionId)]);
-      setDetail(d);
-      setSuggestions(s);
-    } catch (err: any) {
-      setLoadError(err.response?.data?.message || 'Failed to load this prescription.');
-    } finally {
-      setLoading(false);
-    }
+    const [rx, batchOptions] = await Promise.all([getPrescription(prescriptionId), getBatchSuggestions(prescriptionId)]);
+    setDetail(rx); setSuggestions(batchOptions);
   };
-
   useEffect(() => {
-    load();
-    setStaged({});
-    setSelectedRxItemId(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let active = true;
+    Promise.all([getPrescription(prescriptionId), getBatchSuggestions(prescriptionId)])
+      .then(([rx, options]) => { if (active) { setDetail(rx); setSuggestions(options); } })
+      .catch(e => { if (active) setError(message(e)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
   }, [prescriptionId]);
 
-  const suggestionByItemId = useMemo(() => new Map(suggestions.map((s) => [s.rxItemId, s])), [suggestions]);
+  const optionsByItem = useMemo(() => new Map(suggestions.map(s => [s.rxItemId, s])), [suggestions]);
+  const patient = detail ? displayDetailPatient(detail) : null;
+  const finished = detail?.status === 'Dispensed' || detail?.status === 'Collected';
+  const pending = detail?.items.filter(item => !item.dispensed_at) ?? [];
+  const recorded = detail?.items.flatMap(item => item.dispenses.map(event => ({ ...event, instructions: [item.dosage, item.frequency, item.duration, item.route, item.instructions].filter(Boolean).join(' · ') }))) ?? [];
+  const selectedCount = Object.keys(selected).length + externalSelected.length;
 
-  const itemStatus = (item: PrescriptionItemDetail): ItemStatus => {
-    if (item.dispensed_at) return 'Dispensed';
-    if (isExternal(item)) return 'External';
-    const sugg = suggestionByItemId.get(item.rx_item_id);
-    const hasSufficientBatch = sugg?.batches.some((b) => b.qtyOnHand >= Math.max(0, item.qty - item.external_qty - item.dispensed_qty)) ?? false;
-    if (!sugg || !hasSufficientBatch) return 'Insufficient';
-    return staged[item.rx_item_id] ? 'Ready' : 'Pending';
+  const chooseBatch = (item: PrescriptionItemDetail, batchId: number) => {
+    const batch = optionsByItem.get(item.rx_item_id)?.batches.find(b => b.batchId === batchId);
+    if (!batch) return;
+    setSelected(old => ({ ...old, [item.rx_item_id]: { batchId, qty: String(Math.min(remaining(item), batch.qtyOnHand)), reason: old[item.rx_item_id]?.reason ?? '' } }));
+    setError('');
   };
-
-  const isReadyForSubmit = (item: PrescriptionItemDetail) => isExternal(item) || !!staged[item.rx_item_id];
-
-  const pendingItems = useMemo(() => (detail ? detail.items.filter((i) => !i.dispensed_at) : []), [detail]);
-  const allReady = pendingItems.length > 0 && pendingItems.every(isReadyForSubmit);
-  const anyReady = pendingItems.some(isReadyForSubmit);
-
-  const selectedItem = detail?.items.find((i) => i.rx_item_id === selectedRxItemId) ?? null;
-  const selectedSuggestion = selectedItem ? suggestionByItemId.get(selectedItem.rx_item_id) ?? null : null;
-  const fefoBatchId = selectedSuggestion?.batches[0]?.batchId ?? null;
-
-  const handleSelectRow = (item: PrescriptionItemDetail) => {
-    const status = itemStatus(item);
-    if (status === 'Dispensed' || status === 'External') return;
-    setSelectedRxItemId(item.rx_item_id);
-  };
-
-  const handlePickBatch = (rxItemId: number, batchId: number) => {
-    setStaged((prev) => ({ ...prev, [rxItemId]: { batchId, overrideReason: prev[rxItemId]?.overrideReason ?? '' } }));
-  };
-
-  const handleNotesChange = (rxItemId: number, text: string) => {
-    setStaged((prev) => ({ ...prev, [rxItemId]: { batchId: prev[rxItemId]?.batchId ?? 0, overrideReason: text } }));
-  };
-
-  const buildPayload = (items: PrescriptionItemDetail[]): DispenseItemInput[] | null => {
-    const payload: DispenseItemInput[] = [];
-    for (const item of items) {
-      if (isExternal(item)) {
-        payload.push({ rx_item_id: item.rx_item_id });
-        continue;
-      }
-      const s = staged[item.rx_item_id];
-      if (!s) return null;
-      const sugg = suggestionByItemId.get(item.rx_item_id);
-      const isFefo = sugg?.batches[0]?.batchId === s.batchId;
-      if (!isFefo && !s.overrideReason.trim()) {
-        setError(`"${item.medicine.name}" uses a non-earliest-expiry batch — an override reason is required before dispensing.`);
-        return null;
-      }
-      payload.push({ rx_item_id: item.rx_item_id, batch_id: s.batchId, override_reason: s.overrideReason.trim() || undefined });
-    }
-    return payload;
-  };
-
-  const submit = (mode: 'all' | 'partial') => {
-    if (!detail) return;
-    setError(null);
-    const items = mode === 'all' ? pendingItems : pendingItems.filter(isReadyForSubmit);
-    if (items.length === 0) return;
-    const payload = buildPayload(items);
-    if (!payload) return;
-
-    setReview({ mode, payload });
-  };
-
-  const confirmDispense = async () => {
-    if (!detail || !review) return;
-    setSubmitting(review.mode);
-    try {
-      await dispensePrescription(detail.prescription_id, review.payload);
-      await load();
-      setStaged({});
-      setSelectedRxItemId(null);
-      setReview(null);
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Dispensing failed.');
-    } finally {
-      setSubmitting(null);
-    }
-  };
-
-  const handleCancel = () => {
-    if (Object.keys(staged).length > 0 && !window.confirm('Discard your unsaved batch selections?')) return;
+  const updateSelection = (id: number, field: 'qty' | 'reason', value: string) =>
+    setSelected(old => old[id] ? { ...old, [id]: { ...old[id], [field]: value } } : old);
+  const leave = () => {
+    if (selectedCount && !window.confirm('Leave without saving these medicine selections? No stock has changed yet.')) return;
     navigate('/pharmacy/queue');
   };
-
-  const handlePrint = async () => {
-    if (!detail) return;
-    setPrinting(true);
-    try {
-      await downloadPrescriptionPdf(detail.prescription_id, `RX${String(detail.prescription_id).padStart(6, '0')}`);
-    } catch {
-      setError('Failed to download the prescription PDF.');
-    } finally {
-      setPrinting(false);
+  const prepareReview = () => {
+    if (!detail || !patientChecked) { setError('First confirm that you checked the patient and prescription.'); return; }
+    const payload: DispenseItemInput[] = [];
+    for (const item of pending) {
+      if (externalOnly(item)) {
+        if (externalSelected.includes(item.rx_item_id)) payload.push({ rx_item_id: item.rx_item_id });
+        continue;
+      }
+      const choice = selected[item.rx_item_id];
+      if (!choice) continue;
+      const qty = Number(choice.qty);
+      const batchOptions = optionsByItem.get(item.rx_item_id)?.batches ?? [];
+      const batch = batchOptions.find(b => b.batchId === choice.batchId);
+      if (!batch || !Number.isInteger(qty) || qty < 1 || qty > remaining(item) || qty > batch.qtyOnHand) {
+        setError(`Check the quantity and batch for ${item.medicine.name}. Enter a whole number no larger than the needed or available quantity.`); return;
+      }
+      const firstUsable = batchOptions.find(b => b.qtyOnHand >= qty);
+      if (firstUsable?.batchId !== batch.batchId && !choice.reason.trim()) {
+        setError(`Explain why you are not using the earliest usable batch for ${item.medicine.name}.`); return;
+      }
+      payload.push({ rx_item_id: item.rx_item_id, batch_id: batch.batchId, qty, override_reason: choice.reason.trim() || undefined });
     }
+    if (!payload.length) { setError('Choose a batch and quantity for at least one medicine, or mark an external item as handled.'); return; }
+    setError(''); setReview(payload);
+  };
+  const confirm = async () => {
+    if (!detail || !review) return;
+    setBusy(true); setError('');
+    try {
+      await dispensePrescription(detail.prescription_id, review);
+      setSelected({}); setExternalSelected([]); setPatientChecked(false); setReview(null);
+      setSuccess('Medicine recorded. Refreshing the prescription…');
+      try {
+        await load();
+        setSuccess('Medicine recorded. Check the updated status before handing it to the patient.');
+      } catch (refreshError) {
+        setNeedsReload(true);
+        setError(`Medicine was recorded, but this page could not refresh: ${message(refreshError)}. Reload before taking another action.`);
+      }
+    } catch (e) { setError(message(e)); setReview(null); }
+    finally { setBusy(false); }
+  };
+  const print = async (kind: 'label' | 'prescription') => {
+    if (!detail) return;
+    setPrinting(true); setError('');
+    try {
+      if (kind === 'label') await downloadDispenseLabel(detail.prescription_id, code(detail.prescription_id));
+      else await downloadPrescriptionPdf(detail.prescription_id, code(detail.prescription_id));
+    } catch (e) { setError(message(e)); }
+    finally { setPrinting(false); }
   };
 
-  const handlePrintLabel = async () => {
-    if (!detail) return;
-    setPrintingLabel(true);
-    try {
-      await downloadDispenseLabel(detail.prescription_id, `RX${String(detail.prescription_id).padStart(6, '0')}`);
-    } catch {
-      setError('Failed to download the dispensing label.');
-    } finally {
-      setPrintingLabel(false);
-    }
-  };
+  if (loading) return <main className="gd-page gd-loading">Loading prescription…</main>;
+  if (!detail || !patient) return <main className="gd-page"><div className="gd-alert danger" role="alert">{error || 'Prescription not found.'}</div><Link to="/pharmacy/queue">Return to queue</Link></main>;
 
-  if (loading && !detail) {
-    return <div className="disp-empty-state">Loading prescription…</div>;
-  }
-  if (loadError || !detail) {
-    return <div className="disp-empty-state">{loadError || 'Prescription not found.'}</div>;
-  }
+  return <main className="gd-page">
+    <div className="gd-heading"><div><span className="gd-eyebrow">{code(detail.prescription_id)} · {detail.status}</span><h1>{finished ? 'Medicine record' : `Give medicine to ${patient.fullName}`}</h1><p>{finished ? 'This prescription is complete. The details below are read-only.' : 'Check the patient, choose what you are giving now, then review before stock changes.'}</p></div><button className="gd-button secondary" onClick={leave}>← Back to queue</button></div>
+    {error && <div className="gd-alert danger" role="alert">{error}</div>}{success && <div className="gd-alert success" role="status">{success}</div>}
 
-  const totalPrescribed = detail.items.reduce((sum, i) => sum + i.qty, 0);
-  const totalDispensed = detail.items.reduce((sum, i) => sum + i.dispensed_qty, 0);
-  const totalExternal = detail.items.reduce((sum, i) => sum + i.external_qty, 0);
-  const totalPending = Math.max(0, totalPrescribed - totalDispensed - totalExternal);
-  const summaryStatus = detail.status === 'Dispensed' ? 'Completed' : allReady ? 'Ready to Complete' : 'In Progress';
-  const summaryStatusCls = detail.status === 'Dispensed' || allReady ? 'badge-green' : 'badge-amber';
+    <section className="gd-panel gd-patient"><div><span className="gd-eyebrow">PATIENT & PRESCRIPTION</span><h2>{patient.fullName}</h2><p>{patient.patientId || 'Temporary patient'} · {patient.phone || 'No phone'} · Dr. {detail.consultation.appointment.doctor.username}</p><p>Issued {formatDateTime(detail.issued_at)}</p></div><div className="gd-patient-side"><div className={`gd-alert ${patient.allergies ? 'danger' : 'neutral'}`}><strong>Allergies</strong><br />{patient.allergies || 'None recorded — ask the patient to confirm.'}</div>{detail.notes && <div className="gd-alert neutral"><strong>Doctor’s note</strong><br />{detail.notes}</div>}</div></section>
 
-  const patient = displayDetailPatient(detail);
-  const doctor = detail.consultation.appointment.doctor;
+    {needsReload ? <div className="gd-panel"><h2>Reload before continuing</h2><p>The medicine was recorded, but the latest prescription details could not be loaded. Do not record it again from this page.</p><button className="gd-button primary" onClick={() => window.location.reload()}>Reload prescription</button></div> : finished ? <>
+      <div className="gd-alert success"><strong>{detail.status === 'Collected' ? 'Collected by patient' : 'Dispensing recorded'}</strong><br />No more medicine can be recorded on this prescription. {detail.status === 'Dispensed' ? 'Use the queue to mark it collected when it is handed over.' : ''}</div>
+      <section className="gd-panel"><h2>Medicines on this prescription</h2><div className="gd-list">{detail.items.map(item => <div className="gd-record" key={item.rx_item_id}><div><strong>{item.medicine.name}</strong><small>Prescribed {item.qty} {item.medicine.unit} · Clinic {item.dispensed_qty} · External {item.external_qty}</small></div><span className="gd-pill">Complete</span></div>)}</div></section>
+    </> : <>
+      <nav className="gd-steps" aria-label="Steps to record medicine"><span className={patientChecked ? 'done' : 'current'}>1 <b>Check patient</b></span><span className={patientChecked ? 'current' : ''}>2 <b>Choose medicine & quantity</b></span><span className={review ? 'current' : ''}>3 <b>Review & record</b></span></nav>
+      <label className="gd-check-row"><input type="checkbox" checked={patientChecked} onChange={e => setPatientChecked(e.target.checked)} /><span>I checked the patient’s identity, allergies, and this prescription.</span></label>
+      <section className="gd-panel"><div className="gd-section-heading"><div><h2>Medicines to check</h2><p>Choose only medicines you are giving now. Leave the others unselected; they will stay waiting.</p></div><span className="gd-pill">{pending.length} still open</span></div>
+        <div className="gd-list">{detail.items.map(item => {
+          const balance = remaining(item); const choice = selected[item.rx_item_id];
+          const batches = optionsByItem.get(item.rx_item_id)?.batches ?? [];
+          const pickedBatch = batches.find(b => b.batchId === choice?.batchId);
+          const firstUsable = batches.find(b => b.qtyOnHand >= Number(choice?.qty || balance));
+          return <article className={`gd-medicine ${choice ? 'chosen' : ''}`} key={item.rx_item_id}>
+            <div className="gd-medicine-top"><div><h3>{item.medicine.name}</h3><p>{[item.dosage, item.frequency, item.duration, item.route, item.instructions].filter(Boolean).join(' · ') || 'No instructions recorded'}</p></div><span className="gd-pill">{item.dispensed_at ? 'Complete' : item.dispensed_qty > 0 ? 'Partly given' : externalOnly(item) ? 'External' : 'Waiting'}</span></div>
+            <div className="gd-quantities"><span>Prescribed <strong>{item.qty} {item.medicine.unit}</strong></span><span>Already from clinic <strong>{item.dispensed_qty}</strong></span><span>External <strong>{item.external_qty}</strong></span><span>Still needed here <strong>{balance} {item.medicine.unit}</strong></span></div>
+            {item.dispensed_at ? <p className="gd-muted">This medicine is complete. No further selection is needed.</p> : externalOnly(item) ? <label className="gd-check-row compact"><input type="checkbox" checked={externalSelected.includes(item.rx_item_id)} onChange={e => setExternalSelected(old => e.target.checked ? [...old, item.rx_item_id] : old.filter(id => id !== item.rx_item_id))} />I confirmed the patient obtained this medicine outside the clinic (no clinic stock used)</label> : <>
+              {!batches.length ? <div className="gd-alert danger">No usable clinic batch is available. Leave this medicine waiting and arrange stock or an external purchase.</div> : <><div className="gd-batch-heading"><strong>Choose a batch</strong><span>Earliest expiry first. Need {balance} {item.medicine.unit}; you may give less now.</span></div><div className="gd-batches">{batches.map((batch, index) => <label className={`gd-batch ${choice?.batchId === batch.batchId ? 'active' : ''}`} key={batch.batchId}><input type="radio" name={`batch-${item.rx_item_id}`} checked={choice?.batchId === batch.batchId} onChange={() => chooseBatch(item, batch.batchId)} /><span><strong>{batch.batchNo}</strong><small>Expires {date(batch.expiryDate)} · {batch.qtyOnHand} {item.medicine.unit} available</small></span>{index === 0 && <em>Earliest expiry</em>}</label>)}</div></>}
+              {choice && pickedBatch && <div className="gd-quantity-entry"><label>Quantity giving now <input className="gd-input" type="number" min="1" max={Math.min(balance, pickedBatch.qtyOnHand)} step="1" value={choice.qty} onChange={e => updateSelection(item.rx_item_id, 'qty', e.target.value)} /></label><span>After this: <strong>{Math.max(0, balance - (Number(choice.qty) || 0))} {item.medicine.unit}</strong> still waiting</span><button className="gd-link" onClick={() => setSelected(old => { const next = { ...old }; delete next[item.rx_item_id]; return next; })}>Do not give this medicine now</button></div>}
+              {choice && pickedBatch && firstUsable?.batchId !== pickedBatch.batchId && <label className="gd-reason">Reason for using a later batch <span>(required)</span><textarea className="gd-input" rows={2} maxLength={200} placeholder="For example: earlier batch is damaged" value={choice.reason} onChange={e => updateSelection(item.rx_item_id, 'reason', e.target.value)} /></label>}
+            </>}
+          </article>;
+        })}</div>
+      </section>
+      <div className="gd-bottom"><span>{selectedCount ? `${selectedCount} medicine${selectedCount === 1 ? '' : 's'} selected` : 'No medicines selected yet'}</span><button className="gd-button primary" onClick={prepareReview} disabled={!patientChecked || !selectedCount}>Review medicines →</button></div>
+    </>}
 
-  return (
-    <div>
-      <div className="pat-header">
-        <div>
-          <h1>
-            <span style={{ marginRight: 8, color: '#16a34a', verticalAlign: -2, display: 'inline-flex' }}>
-              <UsersIcon />
-            </span>
-            Dispensing
-          </h1>
-          <p>Dispense medicines against the prescription using FEFO (First Expiry First Out).</p>
-        </div>
-        <div className="pat-header-actions">
-          <button className="pat-btn" onClick={() => navigate('/pharmacy/queue')}>
-            <ChevronLeftIcon /> Back to Queue
-          </button>
-          <button className="pat-btn" onClick={handlePrintLabel} disabled={printingLabel}>
-            <PrintIcon /> {printingLabel ? 'Preparing…' : 'Print Label'}
-          </button>
-        </div>
-      </div>
+    {!needsReload && <section className="gd-panel"><div className="gd-section-heading"><div><h2>What has already been given</h2><p>Each recorded clinic batch is shown separately, including earlier partial quantities.</p></div></div>{recorded.length ? <div className="gd-list">{recorded.map(event => <div className="gd-record" key={event.dispense_id}><div><strong>{event.batch.medicine.name} · {event.qty} {event.batch.medicine.unit}</strong><small>Batch {event.batch.batch_no} · Expires {date(event.batch.expiry_date)} · Given {date(event.dispensed_at)}</small>{event.instructions && <small>{event.instructions}</small>}</div></div>)}</div> : <p className="gd-muted">No clinic medicine recorded yet.</p>}
+      <div className="gd-actions"><button className="gd-button secondary" disabled={printing} onClick={() => void print('prescription')}>Print prescription</button>{recorded.length > 0 && <button className="gd-button secondary" disabled={printing} onClick={() => void print('label')}>Print medicine label</button>}</div>
+    </section>}
 
-      {error && <div className="dash-error-banner">{error}</div>}
-      <div className="disp-clarity-note">Check the patient, medicine, batch, expiry date, and quantity. The final button will show one more review before stock changes.</div>
-      {patient.allergies && <div className="disp-allergy-alert" role="alert"><strong>Known allergies:</strong> {patient.allergies}. Check before giving medicine.</div>}
-      {detail.notes && <div className="disp-clarity-note"><strong>Doctor's note:</strong> {detail.notes}</div>}
+    {review && <div className="gd-modal-backdrop" role="presentation" onClick={() => !busy && setReview(null)}><div className="gd-modal" role="dialog" aria-modal="true" aria-labelledby="gd-review-title" onClick={e => e.stopPropagation()}><span className="gd-eyebrow">FINAL CHECK</span><h2 id="gd-review-title">Check before recording</h2><p>Patient: <strong>{patient.fullName}</strong> · {code(detail.prescription_id)}</p>{patient.allergies && <div className="gd-alert danger"><strong>Allergies: {patient.allergies}</strong></div>}<div className="gd-review-list">{review.map(line => { const item = detail.items.find(i => i.rx_item_id === line.rx_item_id); const batch = optionsByItem.get(line.rx_item_id)?.batches.find(b => b.batchId === line.batch_id); const after = item ? remaining(item) - (line.qty || 0) : 0; return <div key={line.rx_item_id}><strong>{item?.medicine.name}</strong><span>{line.batch_id ? `${line.qty} ${item?.medicine.unit} · Batch ${batch?.batchNo} · Expires ${batch ? date(batch.expiryDate) : '—'}` : 'External purchase — no clinic stock used'}</span><small>{line.batch_id ? after > 0 ? `${after} ${item?.medicine.unit} will remain waiting` : 'This medicine will be complete' : 'External item will be marked handled'}</small></div>; })}</div><div className="gd-alert neutral">Recording reduces clinic stock immediately. Confirm only after checking the physical medicine and quantity.</div><div className="gd-actions"><button className="gd-button secondary" disabled={busy} onClick={() => setReview(null)}>Go back and correct</button><button className="gd-button primary" disabled={busy} onClick={() => void confirm()}>{busy ? 'Recording…' : 'Confirm and record'}</button></div></div></div>}
+  </main>;
+}
 
-      <div className="disp-topbar">
-        <div className="disp-topbar-field">
-          <span className="disp-topbar-label">Prescription No.</span>
-          <span className="disp-topbar-value">RX{String(detail.prescription_id).padStart(6, '0')}</span>
-        </div>
-        <div className="disp-topbar-field">
-          <span className="disp-topbar-label">Doctor</span>
-          <span className="disp-topbar-value">Dr. {doctor.username}</span>
-        </div>
-        <div className="disp-topbar-field">
-          <span className="disp-topbar-label">Date &amp; Time</span>
-          <span className="disp-topbar-value">{formatDateTime(detail.issued_at)}</span>
-        </div>
-        <div className="disp-topbar-field">
-          <span className="disp-topbar-label">Status</span>
-          <span className={`badge ${detail.status === 'Dispensed' ? 'badge-green' : detail.status === 'Preparing' ? 'badge-blue' : 'badge-amber'}`}>
-            {detail.status}
-          </span>
-        </div>
-      </div>
-
-      <div className="disp-layout">
-        <div className="pat-table-card disp-col-items">
-          <div className="card-header">
-            <h3 className="card-title">
-              <ClipboardIcon /> Prescription Items
-            </h3>
-          </div>
-          <div className="pat-table-scroll">
-            <table className="pat-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Medicine &amp; Instructions</th>
-                  <th>Qty Prescribed</th>
-                  <th>Qty to Dispense</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {detail.items.map((item, i) => {
-                  const status = itemStatus(item);
-                  const clickable = status !== 'Dispensed' && status !== 'External';
-                  return (
-                    <tr
-                      key={item.rx_item_id}
-                      className={`disp-item-row${!clickable ? ' disabled' : ''}${selectedRxItemId === item.rx_item_id ? ' active' : ''}`}
-                      onClick={() => clickable && handleSelectRow(item)}
-                    >
-                      <td>{i + 1}</td>
-                      <td>
-                        <div className="disp-item-med">{item.substituted_medicine?.name ?? item.medicine.name}</div>
-                        <div className="disp-item-instr">
-                          {[item.dosage, item.frequency, item.duration, item.route].filter(Boolean).join(', ')}
-                        </div>
-                      </td>
-                      <td>
-                        <div className="disp-qty-box">
-                          <span className="num">{item.qty}</span>
-                          <span className="unit">{item.medicine.unit}</span>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="disp-qty-box">
-                          <span className="num">{Math.max(0, item.qty - item.external_qty - item.dispensed_qty)}</span>
-                          <span className="unit">{item.medicine.unit}</span>
-                        </div>
-                      </td>
-                      <td>
-                        <span className={`badge ${STATUS_STYLE[status]}`}>{status === 'Insufficient' ? 'Insufficient Stock' : status}</span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <div className="disp-table-footer">
-            <span>Total Items: {detail.items.length}</span>
-            <span>Clinic quantity still needed: {totalPending}</span>
-          </div>
-        </div>
-
-        <div className="pat-table-card disp-col-batch" style={{ padding: 16 }}>
-          {!selectedItem && <div className="disp-batch-empty">Select a Pending item from the list to choose a batch.</div>}
-          {selectedItem && (
-            <>
-              <div className="disp-batch-header">
-                <button className="disp-batch-back" onClick={() => setSelectedRxItemId(null)}>
-                  <ChevronLeftIcon />
-                </button>
-                Selected Item: {selectedItem.substituted_medicine?.name ?? selectedItem.medicine.name}
-              </div>
-
-              {itemStatus(selectedItem) === 'Insufficient' && (
-                <div className="disp-batch-empty">
-                  <XCircleIcon /> No batch currently holds enough stock ({Math.max(0, selectedItem.qty - selectedItem.external_qty - selectedItem.dispensed_qty)} {selectedItem.medicine.unit} needed). Use the partial page if only some stock is available.
-                </div>
-              )}
-
-              {itemStatus(selectedItem) !== 'Insufficient' && selectedSuggestion && (
-                <>
-                  <div className="disp-batch-required">Choose a batch — use the earliest expiry first. Need: {Math.max(0, selectedItem.qty - selectedItem.external_qty - selectedItem.dispensed_qty)} {selectedItem.medicine.unit}</div>
-                  <table className="disp-batch-table">
-                    <thead>
-                      <tr>
-                        <th></th>
-                        <th>Batch No.</th>
-                        <th>Expiry Date</th>
-                        <th>Available</th>
-                        <th>Qty</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedSuggestion.batches.map((b) => {
-                        const insufficient = b.qtyOnHand < selectedItem.qty - selectedItem.external_qty - selectedItem.dispensed_qty;
-                        const checked = staged[selectedItem.rx_item_id]?.batchId === b.batchId;
-                        return (
-                          <tr key={b.batchId} className={`disp-batch-row${insufficient ? ' insufficient' : ''}`}>
-                            <td>
-                              <input
-                                type="radio"
-                                name={`batch-${selectedItem.rx_item_id}`}
-                                disabled={insufficient}
-                                checked={checked}
-                                onChange={() => handlePickBatch(selectedItem.rx_item_id, b.batchId)}
-                              />
-                            </td>
-                            <td>{b.batchNo}</td>
-                            <td>{formatDateTime(b.expiryDate).split(',')[0]}</td>
-                            <td>{b.qtyOnHand}</td>
-                            <td>{insufficient ? <span className="disp-batch-insufficient-tag">Not enough</span> : checked ? selectedItem.qty - selectedItem.external_qty - selectedItem.dispensed_qty : '—'}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-
-                  <div className="disp-total-line">
-                    <span>Total to dispense for this item:</span>
-                    <span>
-                      {staged[selectedItem.rx_item_id] ? selectedItem.qty - selectedItem.external_qty - selectedItem.dispensed_qty : 0} {selectedItem.medicine.unit}
-                    </span>
-                  </div>
-
-                  <div>
-                    <label className="disp-notes-label">
-                      Dispensing Notes {staged[selectedItem.rx_item_id] && staged[selectedItem.rx_item_id].batchId !== fefoBatchId ? (
-                        <span className="required">(Required — not the earliest-expiry batch)</span>
-                      ) : (
-                        '(Optional)'
-                      )}
-                    </label>
-                    <div className="disp-notes">
-                      <textarea
-                        rows={3}
-                        maxLength={200}
-                        placeholder="Add notes about substitution, instructions given to patient, etc."
-                        value={staged[selectedItem.rx_item_id]?.overrideReason ?? ''}
-                        onChange={(e) => handleNotesChange(selectedItem.rx_item_id, e.target.value)}
-                      />
-                      <div className="disp-notes-count">{(staged[selectedItem.rx_item_id]?.overrideReason ?? '').length} / 200</div>
-                    </div>
-                  </div>
-                </>
-              )}
-            </>
-          )}
-        </div>
-
-        <div className="disp-col-sidebar">
-          <div className="card">
-            <div className="card-header">
-              <h3 className="card-title">
-                <PatientsIcon /> Patient Information
-              </h3>
-            </div>
-            <div className="disp-summary-grid">
-              <div className="disp-summary-row">
-                <span>Name</span>
-                <span className="value">
-                  {patient.fullName} {patient.isTemporary && <span className="badge badge-amber">Temporary</span>}
-                </span>
-              </div>
-              <div className="disp-summary-row">
-                <span>PID</span>
-                <span className="value">{patient.patientId ?? 'Temporary'}</span>
-              </div>
-              <div className="disp-summary-row">
-                <span>Age / Gender</span>
-                <span className="value">
-                  {patient.dob ? calculateAge(patient.dob) : patient.approxAge ? `~${patient.approxAge}` : '—'} / {patient.gender ?? '—'}
-                </span>
-              </div>
-              <div className="disp-summary-row">
-                <span>Phone</span>
-                <span className="value">{patient.phone || '—'}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card-header">
-              <h3 className="card-title">Prescription Summary</h3>
-            </div>
-            <div className="disp-summary-grid">
-              <div className="disp-summary-row">
-                <span>Items</span>
-                <span className="value">{detail.items.length}</span>
-              </div>
-              <div className="disp-summary-row">
-                <span>Total Prescribed</span>
-                <span className="value">{totalPrescribed}</span>
-              </div>
-              <div className="disp-summary-row">
-                <span>Dispensed</span>
-                <span className="value">{totalDispensed} from clinic · {totalExternal} external</span>
-              </div>
-              <div className="disp-summary-row">
-                <span>Pending</span>
-                <span className={`value${totalPending > 0 ? ' warn' : ''}`}>{totalPending}</span>
-              </div>
-              <div className="disp-summary-status">
-                <span className={`badge ${summaryStatusCls}`}>{summaryStatus}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card-header">
-              <h3 className="card-title">Dispensing Pharmacist</h3>
-            </div>
-            <div className="disp-pharmacist-row">
-              <div className="pat-avatar">{initials(user?.username ?? '?')}</div>
-              <div>{user?.username}</div>
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card-header">
-              <h3 className="card-title">Actions</h3>
-            </div>
-            <div className="disp-actions">
-              <button className="pat-btn primary" disabled={!allReady || submitting !== null} onClick={() => submit('all')}>
-                <SendIcon /> {submitting === 'all' ? 'Saving…' : 'Review all medicines'}
-              </button>
-              <button className="pat-btn" disabled={!anyReady || allReady || submitting !== null} onClick={() => submit('partial')}>
-                <SaveIcon /> {submitting === 'partial' ? 'Saving…' : 'Review selected medicines'}
-              </button>
-              <button className="pat-btn" onClick={() => navigate('/pharmacy/queue')}>
-                <RefreshIcon /> Hold / Return to Queue
-              </button>
-              <button className="pat-btn" onClick={handleCancel}>
-                <XCircleIcon /> Cancel
-              </button>
-              <button className="pat-btn" onClick={handlePrint} disabled={printing} style={{ marginTop: 4 }}>
-                <PrintIcon /> {printing ? 'Preparing…' : 'Print Prescription'}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="pat-table-card disp-col-history">
-          <div className="card-header">
-            <h3 className="card-title">Dispensed Items (This Prescription)</h3>
-          </div>
-          <div className="pat-table-scroll">
-            <table className="pat-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Medicine</th>
-                  <th>Batch No.</th>
-                  <th>Expiry Date</th>
-                  <th>Qty Dispensed</th>
-                  <th>Unit</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {detail.items.filter((i) => i.dispensed_at).length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="pat-empty">
-                      Nothing dispensed yet for this prescription.
-                    </td>
-                  </tr>
-                )}
-                {detail.items
-                  .filter((i) => i.dispensed_at)
-                  .map((item, i) => (
-                    <tr key={item.rx_item_id}>
-                      <td>{i + 1}</td>
-                      <td>{item.substituted_medicine?.name ?? item.medicine.name}</td>
-                      <td>{item.batch?.batch_no ?? (isExternal(item) ? 'External Purchase' : '—')}</td>
-                      <td>{item.batch ? formatDateTime(item.batch.expiry_date).split(',')[0] : '—'}</td>
-                      <td>{item.dispensed_qty}</td>
-                      <td>{item.medicine.unit}</td>
-                      <td>
-                        <span className="badge badge-green">{isExternal(item) ? 'External' : 'Dispensed'}</span>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-          {detail.items.length > 0 && (
-            <div className="disp-table-footer">
-              <span>Total Dispensed: {totalDispensed}</span>
-              <span>{detail.status === 'Dispensed' ? 'All items dispensed ✓' : `${totalPending} qty remaining`}</span>
-            </div>
-          )}
-        </div>
-      </div>
-      {review && <div className="modal-backdrop" onClick={() => !submitting && setReview(null)}><div className="modal-card disp-review-card" role="dialog" aria-modal="true" aria-label="Review medicines before dispensing" onClick={e => e.stopPropagation()}><h2>Check before giving medicine</h2><p><strong>Patient:</strong> {patient.fullName} · <strong>Prescription:</strong> RX{String(detail.prescription_id).padStart(6, '0')}</p>{patient.allergies && <div className="disp-allergy-alert"><strong>Known allergies:</strong> {patient.allergies}</div>}<div className="disp-review-list">{review.payload.map(line => { const item = detail.items.find(i => i.rx_item_id === line.rx_item_id); const batch = suggestionByItemId.get(line.rx_item_id)?.batches.find(b => b.batchId === line.batch_id); return <div key={line.rx_item_id}><strong>{item?.medicine.name || 'Medicine'}</strong><span>{line.batch_id ? `${line.qty ?? (item ? item.qty - item.external_qty - item.dispensed_qty : 0)} ${item?.medicine.unit ?? 'units'} · Batch ${batch?.batchNo || line.batch_id} · Expires ${batch ? formatDateTime(batch.expiryDate).split(',')[0] : '—'}` : 'External purchase — no clinic stock used'}</span></div>; })}</div><p className="disp-review-warning">After confirmation, clinic stock is reduced immediately. If anything is wrong, go back and correct it.</p><div className="disp-review-actions"><button className="pat-btn" onClick={() => setReview(null)} disabled={!!submitting}>Go back</button><button className="pat-btn primary" onClick={() => void confirmDispense()} disabled={!!submitting}>{submitting ? 'Saving…' : 'Confirm and record dispense'}</button></div></div></div>}
-    </div>
-  );
-};
-
-const Dispensing = () => {
+export default function Dispensing() {
   const { prescriptionId } = useParams<{ prescriptionId: string }>();
-  const id = prescriptionId ? Number(prescriptionId) : null;
-  if (!id) return <DispensingPicker />;
-  return <DispensingWorkspace key={id} prescriptionId={id} />;
-};
-
-export default Dispensing;
+  const id = Number(prescriptionId);
+  return prescriptionId ? Number.isInteger(id) && id > 0 ? <DispensingWorkspace key={id} prescriptionId={id} /> : <main className="gd-page">Invalid prescription number.</main> : <DispensingPicker />;
+}

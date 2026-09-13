@@ -72,6 +72,7 @@ export interface PrescriptionItemDetail {
   medicine: { name: string; unit: string };
   substituted_medicine: { name: string } | null;
   batch: { batch_no: string; expiry_date: string } | null;
+  dispenses: { dispense_id: number; qty: number; dispensed_at: string; batch: { batch_no: string; expiry_date: string; medicine: { name: string; unit: string } } }[];
 }
 
 export interface PrescriptionDetail {
