@@ -9,13 +9,9 @@ import Dispensing from './pages/pharmacy/Dispensing';
 import PartialDispense from './pages/pharmacy/PartialDispense';
 import SubstitutionRules from './pages/pharmacy/SubstitutionRules';
 import MedicineCatalog from './pages/inventory/MedicineCatalog';
-import ComingSoon from './pages/ComingSoon';
-import { navSections } from './components/layout/navConfig';
-
-const unimplementedPaths = navSections
-  .flatMap((section) => section.items)
-  .filter((item) => !item.implemented)
-  .map((item) => item.path);
+import InventoryOperations from './pages/operations/InventoryOperations';
+import PurchasingOperations from './pages/operations/PurchasingOperations';
+import BillingReports from './pages/operations/BillingReports';
 
 const RootRedirect = () => {
   const { isAuthenticated, loading } = useAuth();
@@ -53,9 +49,18 @@ function App() {
           <Route path="/pharmacy/partial-dispense/:prescriptionId" element={<PartialDispense />} />
           <Route path="/pharmacy/substitution-rules" element={<SubstitutionRules />} />
           <Route path="/inventory/medicines" element={<MedicineCatalog />} />
-          {unimplementedPaths.map((path) => (
-            <Route key={path} path={path} element={<ComingSoon />} />
-          ))}
+          <Route path="/inventory/batches" element={<InventoryOperations mode="batches" />} />
+          <Route path="/inventory/stock-ledger" element={<InventoryOperations mode="stock-ledger" />} />
+          <Route path="/inventory/low-stock" element={<InventoryOperations mode="low-stock" />} />
+          <Route path="/inventory/expiry-alerts" element={<InventoryOperations mode="expiry-alerts" />} />
+          <Route path="/inventory/stock-take" element={<InventoryOperations mode="stock-take" />} />
+          <Route path="/inventory/adjustment" element={<InventoryOperations mode="adjustment" />} />
+          <Route path="/suppliers" element={<PurchasingOperations mode="suppliers" />} />
+          <Route path="/purchase-orders" element={<PurchasingOperations mode="purchase-orders" />} />
+          <Route path="/goods-received" element={<PurchasingOperations mode="goods-received" />} />
+          <Route path="/grn-review" element={<PurchasingOperations mode="grn-review" />} />
+          <Route path="/billing" element={<BillingReports mode="billing" />} />
+          <Route path="/reports" element={<BillingReports mode="reports" />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

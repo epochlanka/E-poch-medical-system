@@ -169,6 +169,29 @@ describe('Inventory API', () => {
     expect(batchAfter?.qty_on_hand).toBe(98);
   });
 
+  it('refuses to apply a count when stock moved after counting', async () => {
+    const batch = await prisma.batch.create({
+      data: { medicine_id: 1, batch_no: `COUNT-STALE-${runId}`, expiry_date: new Date(Date.now() + 60 * 86400000), qty_on_hand: 100 },
+    });
+    const createRes = await request(app)
+      .post('/api/v1/inventory/stock-counts')
+      .set('Authorization', `Bearer ${pharmacistToken}`)
+      .send({ items: [{ batch_id: batch.batch_id, counted_qty: 98 }] });
+    expect(createRes.status).toBe(201);
+
+    await request(app)
+      .post(`/api/v1/inventory/batches/${batch.batch_id}/adjust`)
+      .set('Authorization', `Bearer ${pharmacistToken}`)
+      .send({ delta: 5, reason: 'New stock found after count' });
+
+    const postRes = await request(app)
+      .post(`/api/v1/inventory/stock-counts/${createRes.body.stock_count_id}/post`)
+      .set('Authorization', `Bearer ${pharmacistToken}`);
+    expect(postRes.status).toBe(400);
+    expect(postRes.body.message).toMatch(/count this batch again/i);
+    expect((await prisma.batch.findUniqueOrThrow({ where: { batch_id: batch.batch_id } })).qty_on_hand).toBe(105);
+  });
+
   it('flags a large variance for review and blocks a non-Admin from posting it', async () => {
     const batch = await prisma.batch.create({
       data: { medicine_id: 1, batch_no: `COUNT-BIG-${runId}`, expiry_date: new Date(Date.now() + 60 * 86400000), qty_on_hand: 100 },

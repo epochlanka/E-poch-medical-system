@@ -130,6 +130,7 @@ const DispensingWorkspace = ({ prescriptionId }: { prescriptionId: number }) => 
   const [staged, setStaged] = useState<Record<number, Staged>>({});
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<'all' | 'partial' | null>(null);
+  const [review, setReview] = useState<{ mode: 'all' | 'partial'; payload: DispenseItemInput[] } | null>(null);
   const [printing, setPrinting] = useState(false);
   const [printingLabel, setPrintingLabel] = useState(false);
 
@@ -160,7 +161,7 @@ const DispensingWorkspace = ({ prescriptionId }: { prescriptionId: number }) => 
     if (item.dispensed_at) return 'Dispensed';
     if (isExternal(item)) return 'External';
     const sugg = suggestionByItemId.get(item.rx_item_id);
-    const hasSufficientBatch = sugg?.batches.some((b) => b.qtyOnHand >= item.qty) ?? false;
+    const hasSufficientBatch = sugg?.batches.some((b) => b.qtyOnHand >= Math.max(0, item.qty - item.external_qty - item.dispensed_qty)) ?? false;
     if (!sugg || !hasSufficientBatch) return 'Insufficient';
     return staged[item.rx_item_id] ? 'Ready' : 'Pending';
   };
@@ -209,7 +210,7 @@ const DispensingWorkspace = ({ prescriptionId }: { prescriptionId: number }) => 
     return payload;
   };
 
-  const submit = async (mode: 'all' | 'partial') => {
+  const submit = (mode: 'all' | 'partial') => {
     if (!detail) return;
     setError(null);
     const items = mode === 'all' ? pendingItems : pendingItems.filter(isReadyForSubmit);
@@ -217,12 +218,18 @@ const DispensingWorkspace = ({ prescriptionId }: { prescriptionId: number }) => 
     const payload = buildPayload(items);
     if (!payload) return;
 
-    setSubmitting(mode);
+    setReview({ mode, payload });
+  };
+
+  const confirmDispense = async () => {
+    if (!detail || !review) return;
+    setSubmitting(review.mode);
     try {
-      await dispensePrescription(detail.prescription_id, payload);
+      await dispensePrescription(detail.prescription_id, review.payload);
       await load();
       setStaged({});
       setSelectedRxItemId(null);
+      setReview(null);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Dispensing failed.');
     } finally {
@@ -267,8 +274,9 @@ const DispensingWorkspace = ({ prescriptionId }: { prescriptionId: number }) => 
   }
 
   const totalPrescribed = detail.items.reduce((sum, i) => sum + i.qty, 0);
-  const totalDispensed = detail.items.filter((i) => i.dispensed_at).reduce((sum, i) => sum + i.qty, 0);
-  const totalPending = totalPrescribed - totalDispensed;
+  const totalDispensed = detail.items.reduce((sum, i) => sum + i.dispensed_qty, 0);
+  const totalExternal = detail.items.reduce((sum, i) => sum + i.external_qty, 0);
+  const totalPending = Math.max(0, totalPrescribed - totalDispensed - totalExternal);
   const summaryStatus = detail.status === 'Dispensed' ? 'Completed' : allReady ? 'Ready to Complete' : 'In Progress';
   const summaryStatusCls = detail.status === 'Dispensed' || allReady ? 'badge-green' : 'badge-amber';
 
@@ -298,6 +306,9 @@ const DispensingWorkspace = ({ prescriptionId }: { prescriptionId: number }) => 
       </div>
 
       {error && <div className="dash-error-banner">{error}</div>}
+      <div className="disp-clarity-note">Check the patient, medicine, batch, expiry date, and quantity. The final button will show one more review before stock changes.</div>
+      {patient.allergies && <div className="disp-allergy-alert" role="alert"><strong>Known allergies:</strong> {patient.allergies}. Check before giving medicine.</div>}
+      {detail.notes && <div className="disp-clarity-note"><strong>Doctor's note:</strong> {detail.notes}</div>}
 
       <div className="disp-topbar">
         <div className="disp-topbar-field">
@@ -363,7 +374,7 @@ const DispensingWorkspace = ({ prescriptionId }: { prescriptionId: number }) => 
                       </td>
                       <td>
                         <div className="disp-qty-box">
-                          <span className="num">{isExternal(item) ? 0 : item.qty}</span>
+                          <span className="num">{Math.max(0, item.qty - item.external_qty - item.dispensed_qty)}</span>
                           <span className="unit">{item.medicine.unit}</span>
                         </div>
                       </td>
@@ -378,7 +389,7 @@ const DispensingWorkspace = ({ prescriptionId }: { prescriptionId: number }) => 
           </div>
           <div className="disp-table-footer">
             <span>Total Items: {detail.items.length}</span>
-            <span>Total Qty to Dispense: {detail.items.reduce((sum, i) => sum + (isExternal(i) ? 0 : i.qty), 0)}</span>
+            <span>Clinic quantity still needed: {totalPending}</span>
           </div>
         </div>
 
@@ -395,13 +406,13 @@ const DispensingWorkspace = ({ prescriptionId }: { prescriptionId: number }) => 
 
               {itemStatus(selectedItem) === 'Insufficient' && (
                 <div className="disp-batch-empty">
-                  <XCircleIcon /> No batch currently holds enough stock ({selectedItem.qty} {selectedItem.medicine.unit} needed).
+                  <XCircleIcon /> No batch currently holds enough stock ({Math.max(0, selectedItem.qty - selectedItem.external_qty - selectedItem.dispensed_qty)} {selectedItem.medicine.unit} needed). Use the partial page if only some stock is available.
                 </div>
               )}
 
               {itemStatus(selectedItem) !== 'Insufficient' && selectedSuggestion && (
                 <>
-                  <div className="disp-batch-required">Select Batch (FEFO) — Required Qty: {selectedItem.qty} {selectedItem.medicine.unit}</div>
+                  <div className="disp-batch-required">Choose a batch — use the earliest expiry first. Need: {Math.max(0, selectedItem.qty - selectedItem.external_qty - selectedItem.dispensed_qty)} {selectedItem.medicine.unit}</div>
                   <table className="disp-batch-table">
                     <thead>
                       <tr>
@@ -414,7 +425,7 @@ const DispensingWorkspace = ({ prescriptionId }: { prescriptionId: number }) => 
                     </thead>
                     <tbody>
                       {selectedSuggestion.batches.map((b) => {
-                        const insufficient = b.qtyOnHand < selectedItem.qty;
+                        const insufficient = b.qtyOnHand < selectedItem.qty - selectedItem.external_qty - selectedItem.dispensed_qty;
                         const checked = staged[selectedItem.rx_item_id]?.batchId === b.batchId;
                         return (
                           <tr key={b.batchId} className={`disp-batch-row${insufficient ? ' insufficient' : ''}`}>
@@ -430,7 +441,7 @@ const DispensingWorkspace = ({ prescriptionId }: { prescriptionId: number }) => 
                             <td>{b.batchNo}</td>
                             <td>{formatDateTime(b.expiryDate).split(',')[0]}</td>
                             <td>{b.qtyOnHand}</td>
-                            <td>{insufficient ? <span className="disp-batch-insufficient-tag">Insufficient</span> : checked ? selectedItem.qty : '—'}</td>
+                            <td>{insufficient ? <span className="disp-batch-insufficient-tag">Not enough</span> : checked ? selectedItem.qty - selectedItem.external_qty - selectedItem.dispensed_qty : '—'}</td>
                           </tr>
                         );
                       })}
@@ -440,7 +451,7 @@ const DispensingWorkspace = ({ prescriptionId }: { prescriptionId: number }) => 
                   <div className="disp-total-line">
                     <span>Total to dispense for this item:</span>
                     <span>
-                      {staged[selectedItem.rx_item_id] ? selectedItem.qty : 0} {selectedItem.medicine.unit}
+                      {staged[selectedItem.rx_item_id] ? selectedItem.qty - selectedItem.external_qty - selectedItem.dispensed_qty : 0} {selectedItem.medicine.unit}
                     </span>
                   </div>
 
@@ -515,7 +526,7 @@ const DispensingWorkspace = ({ prescriptionId }: { prescriptionId: number }) => 
               </div>
               <div className="disp-summary-row">
                 <span>Dispensed</span>
-                <span className="value">{totalDispensed}</span>
+                <span className="value">{totalDispensed} from clinic · {totalExternal} external</span>
               </div>
               <div className="disp-summary-row">
                 <span>Pending</span>
@@ -543,10 +554,10 @@ const DispensingWorkspace = ({ prescriptionId }: { prescriptionId: number }) => 
             </div>
             <div className="disp-actions">
               <button className="pat-btn primary" disabled={!allReady || submitting !== null} onClick={() => submit('all')}>
-                <SendIcon /> {submitting === 'all' ? 'Dispensing…' : 'Dispense All Items'}
+                <SendIcon /> {submitting === 'all' ? 'Saving…' : 'Review all medicines'}
               </button>
               <button className="pat-btn" disabled={!anyReady || allReady || submitting !== null} onClick={() => submit('partial')}>
-                <SaveIcon /> {submitting === 'partial' ? 'Saving…' : 'Save as Partial'}
+                <SaveIcon /> {submitting === 'partial' ? 'Saving…' : 'Review selected medicines'}
               </button>
               <button className="pat-btn" onClick={() => navigate('/pharmacy/queue')}>
                 <RefreshIcon /> Hold / Return to Queue
@@ -594,7 +605,7 @@ const DispensingWorkspace = ({ prescriptionId }: { prescriptionId: number }) => 
                       <td>{item.substituted_medicine?.name ?? item.medicine.name}</td>
                       <td>{item.batch?.batch_no ?? (isExternal(item) ? 'External Purchase' : '—')}</td>
                       <td>{item.batch ? formatDateTime(item.batch.expiry_date).split(',')[0] : '—'}</td>
-                      <td>{item.qty}</td>
+                      <td>{item.dispensed_qty}</td>
                       <td>{item.medicine.unit}</td>
                       <td>
                         <span className="badge badge-green">{isExternal(item) ? 'External' : 'Dispensed'}</span>
@@ -612,6 +623,7 @@ const DispensingWorkspace = ({ prescriptionId }: { prescriptionId: number }) => 
           )}
         </div>
       </div>
+      {review && <div className="modal-backdrop" onClick={() => !submitting && setReview(null)}><div className="modal-card disp-review-card" role="dialog" aria-modal="true" aria-label="Review medicines before dispensing" onClick={e => e.stopPropagation()}><h2>Check before giving medicine</h2><p><strong>Patient:</strong> {patient.fullName} · <strong>Prescription:</strong> RX{String(detail.prescription_id).padStart(6, '0')}</p>{patient.allergies && <div className="disp-allergy-alert"><strong>Known allergies:</strong> {patient.allergies}</div>}<div className="disp-review-list">{review.payload.map(line => { const item = detail.items.find(i => i.rx_item_id === line.rx_item_id); const batch = suggestionByItemId.get(line.rx_item_id)?.batches.find(b => b.batchId === line.batch_id); return <div key={line.rx_item_id}><strong>{item?.medicine.name || 'Medicine'}</strong><span>{line.batch_id ? `${line.qty ?? (item ? item.qty - item.external_qty - item.dispensed_qty : 0)} ${item?.medicine.unit ?? 'units'} · Batch ${batch?.batchNo || line.batch_id} · Expires ${batch ? formatDateTime(batch.expiryDate).split(',')[0] : '—'}` : 'External purchase — no clinic stock used'}</span></div>; })}</div><p className="disp-review-warning">After confirmation, clinic stock is reduced immediately. If anything is wrong, go back and correct it.</p><div className="disp-review-actions"><button className="pat-btn" onClick={() => setReview(null)} disabled={!!submitting}>Go back</button><button className="pat-btn primary" onClick={() => void confirmDispense()} disabled={!!submitting}>{submitting ? 'Saving…' : 'Confirm and record dispense'}</button></div></div></div>}
     </div>
   );
 };

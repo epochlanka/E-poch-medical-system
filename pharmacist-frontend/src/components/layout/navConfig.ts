@@ -36,18 +36,18 @@ export interface NavSection {
 // Mirrors pharmacist-Epoch_Medical_System_SRS.md Section 3 (Sidebar / Menu — Pharmacist View).
 export const navSections: NavSection[] = [
   {
-    label: 'Pharmacy',
+    label: 'Start here',
     items: [
       { label: 'Dashboard', path: '/dashboard', icon: DashboardIcon, implemented: true },
       { label: 'Prescriptions', path: '/prescriptions', icon: PrescriptionIcon, implemented: true },
     ],
   },
   {
-    label: 'Pharmacy',
+    label: 'Give medicine',
     items: [
-      { label: 'Pharmacy Queue', path: '/pharmacy/queue', icon: PharmacyIcon, implemented: true },
-      { label: 'Dispensing', path: '/pharmacy/dispensing', icon: PillIcon, implemented: true },
-      { label: 'Partial Dispense', path: '/pharmacy/partial-dispense', icon: SendIcon, implemented: true },
+      { label: 'Waiting prescriptions', path: '/pharmacy/queue', icon: PharmacyIcon, implemented: true },
+      { label: 'Give medicine', path: '/pharmacy/dispensing', icon: PillIcon, implemented: true },
+      { label: 'Give part of medicine', path: '/pharmacy/partial-dispense', icon: SendIcon, implemented: true },
       { label: 'Substitution Rules', path: '/pharmacy/substitution-rules', icon: RefreshIcon, implemented: true },
     ],
   },
@@ -55,30 +55,30 @@ export const navSections: NavSection[] = [
     label: 'Inventory',
     items: [
       { label: 'Medicine Catalog', path: '/inventory/medicines', icon: MedicineIcon, implemented: true },
-      { label: 'Batch & Expiry', path: '/inventory/batches', icon: ClipboardIcon },
-      { label: 'Stock Ledger', path: '/inventory/stock-ledger', icon: StockIcon },
-      { label: 'Low Stock Alerts', path: '/inventory/low-stock', icon: AlertIcon },
-      { label: 'Expiry Alerts', path: '/inventory/expiry-alerts', icon: ExpiryIcon },
-      { label: 'Stock Take', path: '/inventory/stock-take', icon: CheckCircleIcon },
-      { label: 'Manual Adjustment', path: '/inventory/adjustment', icon: AdjustIcon },
+      { label: 'Batches & expiry', path: '/inventory/batches', icon: ClipboardIcon, implemented: true },
+      { label: 'Stock history', path: '/inventory/stock-ledger', icon: StockIcon, implemented: true },
+      { label: 'Low stock', path: '/inventory/low-stock', icon: AlertIcon, implemented: true },
+      { label: 'Expiry alerts', path: '/inventory/expiry-alerts', icon: ExpiryIcon, implemented: true },
+      { label: 'Count stock', path: '/inventory/stock-take', icon: CheckCircleIcon, implemented: true },
+      { label: 'Correct stock', path: '/inventory/adjustment', icon: AdjustIcon, implemented: true },
     ],
   },
   {
-    label: 'Suppliers & Purchases',
+    label: 'Order & receive',
     items: [
-      { label: 'Suppliers', path: '/suppliers', icon: SupplierIcon },
-      { label: 'Purchase Orders', path: '/purchase-orders', icon: PurchaseOrderIcon },
-      { label: 'Goods Received', path: '/goods-received', icon: TruckIcon },
-      { label: 'GRN Review', path: '/grn-review', icon: FileIcon },
+      { label: 'Suppliers', path: '/suppliers', icon: SupplierIcon, implemented: true },
+      { label: 'Purchase Orders', path: '/purchase-orders', icon: PurchaseOrderIcon, implemented: true },
+      { label: 'Receive delivery', path: '/goods-received', icon: TruckIcon, implemented: true },
+      { label: 'Delivery differences', path: '/grn-review', icon: FileIcon, implemented: true },
     ],
   },
   {
     label: 'Billing',
-    items: [{ label: 'Pharmacy Billing', path: '/billing', icon: InvoiceIcon }],
+    items: [{ label: 'Pharmacy charges', path: '/billing', icon: InvoiceIcon, implemented: true }],
   },
   {
     label: 'Reports',
-    items: [{ label: 'Reports & Analytics', path: '/reports', icon: ReportsIcon }],
+    items: [{ label: 'Pharmacy reports', path: '/reports', icon: ReportsIcon, implemented: true }],
   },
 ];
 

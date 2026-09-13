@@ -303,3 +303,6 @@
   color: #94a3b8;
   font-size: 13px;
 }
+.disp-clarity-note{padding:13px 16px;border:1px solid #bfdfca;background:#f0faf3;border-radius:12px;margin-bottom:14px;color:#24543a;font-size:13px;line-height:1.5}
+.disp-allergy-alert{padding:13px 16px;border:1px solid #edb5a2;background:#fff0ea;border-radius:12px;margin-bottom:14px;color:#9b2f22;font-size:13px;line-height:1.5}
+.disp-review-card{max-width:560px!important;max-height:88vh;overflow:auto;padding:24px!important}.disp-review-card h2{font-size:21px;color:#173047;margin:0 0 8px}.disp-review-card p{font-size:13px;color:#526474;line-height:1.55}.disp-review-list{border:1px solid #e4ece7;border-radius:12px;overflow:hidden;margin:14px 0}.disp-review-list>div{padding:12px 14px;border-bottom:1px solid #e4ece7;display:flex;flex-direction:column;gap:4px}.disp-review-list>div:last-child{border-bottom:0}.disp-review-list strong{font-size:13px;color:#183044}.disp-review-list span{font-size:12px;color:#526474}.disp-review-warning{background:#fff7e8;border-radius:10px;padding:11px}.disp-review-actions{display:flex;justify-content:flex-end;gap:9px;flex-wrap:wrap;margin-top:18px}

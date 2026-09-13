@@ -152,13 +152,17 @@ const Column = ({
 };
 
 const PharmacyQueue = () => {
-  const { data: boardData, loading, reload } = useApiData(() => getPharmacyQueue(), []);
+  const { data: boardData, loading, error: queueError, reload } = useApiData(() => getPharmacyQueue(), []);
   const board = boardData ?? EMPTY_BOARD;
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   useEffect(() => {
     if (boardData) setLastUpdated(new Date());
   }, [boardData]);
+  useEffect(() => {
+    const timer = window.setInterval(() => { if (!document.hidden) reload(); }, 30_000);
+    return () => window.clearInterval(timer);
+  }, [reload]);
 
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
@@ -213,9 +217,12 @@ const PharmacyQueue = () => {
       return;
     }
     setDetailLoading(true);
+    let active = true;
     getPrescription(selectedId)
-      .then(setDetail)
-      .finally(() => setDetailLoading(false));
+      .then(value => { if (active) setDetail(value); })
+      .catch(() => { if (active) setActionError('Could not open this prescription. Please try again.'); })
+      .finally(() => { if (active) setDetailLoading(false); });
+    return () => { active = false; };
   }, [selectedId]);
 
   const runAction = async (id: number, fn: () => Promise<unknown>) => {
@@ -233,6 +240,12 @@ const PharmacyQueue = () => {
     } finally {
       setBusyId(null);
     }
+  };
+
+  const confirmCollection = (id: number) => {
+    const item = [...board.Dispensed].find(rx => rx.prescriptionId === id);
+    if (!window.confirm(`Have you handed all medicines to ${item?.patientName || 'the patient'}? Mark as collected only after handover.`)) return;
+    void runAction(id, () => collectPrescription(id));
   };
 
   const handlePrint = async () => {
@@ -328,7 +341,7 @@ const PharmacyQueue = () => {
         </div>
       </div>
 
-      {actionError && <div className="dash-error-banner">{actionError}</div>}
+      {(actionError || queueError) && <div className="dash-error-banner" role="alert">{actionError || queueError} <button className="pat-btn" onClick={reload}>Try again</button></div>}
 
       <div className="pq-stat-row">
         <div className="pq-stat">
@@ -385,13 +398,13 @@ const PharmacyQueue = () => {
       <div className="pq-board">
         <Column status="Pending" items={filteredBoard.Pending} onOpen={setSelectedId} onAction={(id) => runAction(id, () => setPrescriptionPreparing(id))} busyId={busyId} />
         <Column status="Preparing" items={filteredBoard.Preparing} onOpen={setSelectedId} busyId={busyId} />
-        <Column status="Dispensed" items={filteredBoard.Dispensed} onOpen={setSelectedId} onAction={(id) => runAction(id, () => collectPrescription(id))} busyId={busyId} />
+        <Column status="Dispensed" items={filteredBoard.Dispensed} onOpen={setSelectedId} onAction={confirmCollection} busyId={busyId} />
         <Column status="Collected" items={filteredBoard.Collected} onOpen={setSelectedId} busyId={busyId} />
       </div>
 
       <div className="pq-footer">
         <span className="pq-footer-note">
-          <InfoIcon /> Queue is ordered by prescription submission time (oldest first).
+          <InfoIcon /> Oldest prescriptions first. Updates every 30 seconds while this page is open.
         </span>
         <span className="pq-footer-updated">
           <RefreshIcon /> Last updated: {lastUpdated ? formatDateTime(lastUpdated.toISOString()) : '—'}
@@ -460,7 +473,7 @@ const PharmacyQueue = () => {
                       </div>
                       <div className="rx-med-qty">
                         Qty: {item.qty}
-                        <div className="sub">{item.batch_id ? 'Dispensed' : 'Pending'}</div>
+                        <div className="sub">{item.dispensed_at ? 'Done' : item.dispensed_qty > 0 ? 'Partly given' : item.external_qty >= item.qty ? 'External purchase' : 'Waiting'}</div>
                       </div>
                     </div>
                   ))}
@@ -485,7 +498,7 @@ const PharmacyQueue = () => {
                       className="pat-btn primary"
                       style={{ flex: 1, justifyContent: 'center' }}
                       disabled={busyId === detail.prescription_id}
-                      onClick={() => runAction(detail.prescription_id, () => collectPrescription(detail.prescription_id))}
+                      onClick={() => confirmCollection(detail.prescription_id)}
                     >
                       <CheckCircleIcon /> {busyId === detail.prescription_id ? 'Collecting…' : 'Mark Collected'}
                     </button>

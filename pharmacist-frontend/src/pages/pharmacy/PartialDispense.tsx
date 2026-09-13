@@ -240,6 +240,9 @@ const PartialDispenseWorkspace = ({ prescriptionId }: { prescriptionId: number }
     if (items.length === 0) return;
     const payload = buildPayload(items);
     if (!payload) return;
+    const patientName = displayDetailPatient(detail).fullName;
+    const quantity = payload.reduce((sum, line) => sum + (line.qty ?? 0), 0);
+    if (!window.confirm(`Check before saving: give ${quantity} clinic units to ${patientName} now? Stock will be reduced immediately. The rest stays waiting.`)) return;
 
     setSubmitting(true);
     try {
@@ -332,6 +335,9 @@ const PartialDispenseWorkspace = ({ prescriptionId }: { prescriptionId: number }
       </div>
 
       {error && <div className="dash-error-banner">{error}</div>}
+      <div className="disp-clarity-note">Give only the quantity available now. The remaining quantity stays on this prescription for a later visit.</div>
+      {patient.allergies && <div className="disp-allergy-alert" role="alert"><strong>Known allergies:</strong> {patient.allergies}. Check before giving medicine.</div>}
+      {detail.notes && <div className="disp-clarity-note"><strong>Doctor's note:</strong> {detail.notes}</div>}
 
       <div className="disp-topbar">
         <div className="disp-topbar-field">
@@ -614,7 +620,7 @@ const PartialDispenseWorkspace = ({ prescriptionId }: { prescriptionId: number }
             </div>
             <div className="disp-actions">
               <button className="pat-btn primary" disabled={!anyReady || submitting} onClick={submit}>
-                <SaveIcon /> {submitting ? 'Saving…' : 'Save Partial Dispense'}
+                <SaveIcon /> {submitting ? 'Saving…' : 'Check and save quantity given'}
               </button>
               <button className="pat-btn" onClick={() => navigate('/pharmacy/queue')}>
                 <RefreshIcon /> Hold / Return to Queue

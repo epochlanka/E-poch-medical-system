@@ -302,8 +302,18 @@ export const postStockCount = async (id: number, actor: Actor) => {
 
   return prisma.$transaction(async (tx) => {
     for (const item of stockCount.items) {
+      const currentBatch = await tx.batch.findUnique({ where: { batch_id: item.batch_id }, select: { qty_on_hand: true } });
+      if (!currentBatch || currentBatch.qty_on_hand !== item.expected_qty) {
+        throw new ValidationError(`Stock changed for batch ${item.batch_id} after it was counted. Count this batch again before applying the correction.`);
+      }
       if (item.variance === 0) continue;
-      await tx.batch.update({ where: { batch_id: item.batch_id }, data: { qty_on_hand: item.counted_qty } });
+      const changed = await tx.batch.updateMany({
+        where: { batch_id: item.batch_id, qty_on_hand: item.expected_qty },
+        data: { qty_on_hand: item.counted_qty },
+      });
+      if (changed.count !== 1) {
+        throw new ValidationError(`Stock changed for batch ${item.batch_id} while posting. Count it again before applying the correction.`);
+      }
       await tx.stockLedger.create({
         data: {
           batch_id: item.batch_id,
@@ -318,9 +328,13 @@ export const postStockCount = async (id: number, actor: Actor) => {
       });
     }
 
-    return tx.stockCount.update({
-      where: { stock_count_id: id },
+    const posted = await tx.stockCount.updateMany({
+      where: { stock_count_id: id, status: { not: 'Posted' } },
       data: { status: 'Posted', posted_at: new Date(), reviewed_by: needsReview ? actor.user_id : stockCount.reviewed_by },
+    });
+    if (posted.count !== 1) throw new ValidationError('This stock count has already been posted');
+    return tx.stockCount.findUniqueOrThrow({
+      where: { stock_count_id: id },
       include: { items: { include: { batch: { include: { medicine: true } } } } },
     });
   });
