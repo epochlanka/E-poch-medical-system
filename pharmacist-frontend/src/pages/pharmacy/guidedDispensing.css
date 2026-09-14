@@ -101,3 +101,15 @@
 .gd-handover span { margin-top: 4px; color: #47735d; font-size: 12px; }
 @media (max-width: 800px) { .gd-patient { grid-template-columns: 1fr; } .gd-heading { flex-direction: column; } .gd-steps { grid-template-columns: 1fr; } }
 @media (max-width: 550px) { .gd-panel { padding: 15px; } .gd-picker-row { flex-wrap: wrap; } .gd-picker-row > span:first-child { flex-basis: 100%; } .gd-bottom { bottom: 0; border-radius: 10px 10px 0 0; } .gd-handover { flex-direction: column; align-items: stretch; } }
+
+.gd-modal { border: 1px solid #d4e5db; color: #17263c; }
+.gd-modal::backdrop { background: #0f223aba; }
+.gd-history-summary { cursor: pointer; font-size: 15px; font-weight: 700; padding: 4px 0; }
+.gd-medicine-top p { font-size: 14px; color: #405b50; }
+.gd-medicine h3 { font-size: 20px; }
+.gd-pick-row small { font-size: 14px; }
+.gd-need-line { font-size: 15px; }
+.gd-page :focus-visible { outline: 3px solid #168567; outline-offset: 3px; }
+@media (max-width: 550px) { .gd-bottom { flex-direction: column; align-items: stretch; } .gd-button { white-space: normal; } .gd-medicine-top { flex-wrap: wrap; } }
+
+dialog.gd-modal { margin: auto; }

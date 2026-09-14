@@ -5,7 +5,7 @@ import { getAlerts } from '../../lib/dashboard';
 import { getPharmacyQueue } from '../../lib/pharmacy';
 import type { QueueItem } from '../../lib/pharmacy';
 import { Link } from 'react-router-dom';
-import { MenuIcon, SearchIcon, BellIcon, ChevronDownIcon, LogOutIcon } from './Icons';
+import { MenuIcon, BellIcon, ChevronDownIcon, LogOutIcon } from './Icons';
 import './pharmacy-inbox.css';
 
 const useClickOutside = (onOutside: () => void) => {
@@ -93,10 +93,7 @@ const Topbar = ({ title, onMenuClick }: TopbarProps) => {
         <MenuIcon />
       </button>
 
-      <div className="shell-search">
-        <SearchIcon />
-        <input placeholder={`Search ${title.toLowerCase()}...`} />
-      </div>
+      <span className="shell-page-title">{title}</span>
 
       <div className="shell-topbar-spacer" />
 

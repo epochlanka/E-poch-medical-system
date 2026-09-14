@@ -15,14 +15,14 @@ import BillingReports from './pages/operations/BillingReports';
 const RootRedirect = () => {
   const { isAuthenticated, loading } = useAuth();
   if (loading) return null;
-  return <Navigate to={isAuthenticated ? '/dashboard' : '/login'} replace />;
+  return <Navigate to={isAuthenticated ? '/pharmacy/queue' : '/login'} replace />;
 };
 
 const LoginEntry = () => {
   const { user, loading } = useAuth();
   if (loading) return null;
   if (!user) return <CommonLoginRedirect />;
-  return user.role === 'Pharmacist' ? <Navigate to="/dashboard" replace /> : <RoleRedirect role={user.role} />;
+  return user.role === 'Pharmacist' ? <Navigate to="/pharmacy/queue" replace /> : <RoleRedirect role={user.role} />;
 };
 
 const LegacyPartialRedirect = () => {
@@ -44,7 +44,8 @@ function App() {
             </ProtectedRoute>
           }
         >
-          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/dashboard" element={<Navigate to="/pharmacy/queue" replace />} />
+          <Route path="/overview" element={<Dashboard />} />
           <Route path="/prescriptions" element={<Prescriptions />} />
           <Route path="/pharmacy/queue" element={<PharmacyQueue />} />
           <Route path="/pharmacy/dispensing" element={<Dispensing />} />

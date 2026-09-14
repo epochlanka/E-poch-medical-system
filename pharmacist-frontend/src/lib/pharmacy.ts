@@ -129,3 +129,5 @@ export const downloadDispenseLabel = async (prescriptionId: number, code: string
   a.click();
   URL.revokeObjectURL(url);
 };
+
+export const statusLabel = (status: QueueStatus) => ({ Pending: 'To prepare', Preparing: 'In progress', Dispensed: 'Ready for handover', Collected: 'Handed over' })[status];

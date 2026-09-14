@@ -1,10 +1,11 @@
+import { Link } from 'react-router-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApiData } from '../../hooks/useApiData';
 import { getDoctors } from '../../lib/appointments';
 import type { Doctor } from '../../lib/appointments';
 import { listPrescriptions, getPrescriptionStats, getPrescription, downloadPrescriptionPdf, displayDetailPatient } from '../../lib/prescriptions';
 import type { ListPrescriptionsParams, PrescriptionDetail } from '../../lib/prescriptions';
-import { setPrescriptionPreparing } from '../../lib/pharmacy';
+import { statusLabel } from '../../lib/pharmacy';
 import {
   ClipboardIcon,
   ClockIcon,
@@ -56,11 +57,10 @@ const Prescriptions = () => {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<PrescriptionDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [starting, setStarting] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const { data: stats, reload: reloadStats } = useApiData(() => getPrescriptionStats(), []);
+  const { data: stats } = useApiData(() => getPrescriptionStats(), []);
 
   useEffect(() => {
     const t = setTimeout(() => setSearch(searchInput.trim()), 300);
@@ -104,7 +104,7 @@ const Prescriptions = () => {
     [dateFrom, dateTo, status, consultationType, doctorFilter?.user_id, search, page, limit]
   );
 
-  const { data: result, loading, reload: reloadList } = useApiData(() => listPrescriptions(params), [params]);
+  const { data: result, loading } = useApiData(() => listPrescriptions(params), [params]);
   const rows = result?.data ?? [];
   const pagination = result?.pagination;
 
@@ -130,11 +130,6 @@ const Prescriptions = () => {
       .finally(() => setDetailLoading(false));
   }, [selectedId]);
 
-  const reloadAll = () => {
-    reloadStats();
-    reloadList();
-  };
-
   const handleExport = async () => {
     const all = await listPrescriptions({ ...params, page: 1, limit: 1000 });
     const header = ['Rx No.', 'Date & Time', 'Patient', 'Patient ID', 'Doctor', 'Consultation', 'Status', 'Items'];
@@ -159,22 +154,6 @@ const Prescriptions = () => {
     URL.revokeObjectURL(url);
   };
 
-  const handleStartDispensing = async () => {
-    if (!detail) return;
-    setStarting(true);
-    setActionError(null);
-    try {
-      await setPrescriptionPreparing(detail.prescription_id);
-      const refreshed = await getPrescription(detail.prescription_id);
-      setDetail(refreshed);
-      reloadAll();
-    } catch (err: any) {
-      setActionError(err.response?.data?.message || 'Failed to start dispensing.');
-    } finally {
-      setStarting(false);
-    }
-  };
-
   const handlePrint = async () => {
     if (!detail) return;
     setPrinting(true);
@@ -195,7 +174,7 @@ const Prescriptions = () => {
             <span style={{ marginRight: 8, color: '#2563eb', verticalAlign: -2, display: 'inline-flex' }}>
               <ClipboardIcon />
             </span>
-            Prescriptions
+            Prescription records
           </h1>
           <p>View and manage all prescriptions sent for dispensing.</p>
         </div>
@@ -224,7 +203,7 @@ const Prescriptions = () => {
         <div className="kpi-card">
           <div className="kpi-card-top">
             <div>
-              <div className="kpi-label">Pending</div>
+              <div className="kpi-label">To prepare</div>
               <div className="kpi-value">{stats ? stats.pending : '—'}</div>
             </div>
             <div className="kpi-icon" style={{ background: '#fef3c7', color: '#b45309' }}>
@@ -236,7 +215,7 @@ const Prescriptions = () => {
         <div className="kpi-card">
           <div className="kpi-card-top">
             <div>
-              <div className="kpi-label">Preparing</div>
+              <div className="kpi-label">In progress</div>
               <div className="kpi-value">{stats ? stats.preparing : '—'}</div>
             </div>
             <div className="kpi-icon" style={{ background: '#dbeafe', color: '#1d4ed8' }}>
@@ -248,19 +227,19 @@ const Prescriptions = () => {
         <div className="kpi-card">
           <div className="kpi-card-top">
             <div>
-              <div className="kpi-label">Dispensed</div>
+              <div className="kpi-label">Ready for handover</div>
               <div className="kpi-value">{stats ? stats.dispensed : '—'}</div>
             </div>
             <div className="kpi-icon" style={{ background: '#dcfce7', color: '#16a34a' }}>
               <CheckCircleIcon />
             </div>
           </div>
-          <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>Completed</div>
+          <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>Awaiting handover</div>
         </div>
         <div className="kpi-card">
           <div className="kpi-card-top">
             <div>
-              <div className="kpi-label">Collected</div>
+              <div className="kpi-label">Handed over</div>
               <div className="kpi-value">{stats ? stats.collected : '—'}</div>
             </div>
             <div className="kpi-icon" style={{ background: '#ede9fe', color: '#6d28d9' }}>
@@ -287,10 +266,10 @@ const Prescriptions = () => {
             <label>Status</label>
             <select className="pat-select" value={status} onChange={(e) => setStatus(e.target.value)}>
               <option value="">All Statuses</option>
-              <option value="Pending">Pending</option>
-              <option value="Preparing">Preparing</option>
-              <option value="Dispensed">Dispensed</option>
-              <option value="Collected">Collected</option>
+              <option value="Pending">To prepare</option>
+              <option value="Preparing">In progress</option>
+              <option value="Dispensed">Ready for handover</option>
+              <option value="Collected">Handed over</option>
             </select>
           </div>
           <div className="modal-field">
@@ -410,7 +389,7 @@ const Prescriptions = () => {
                     <td>Dr. {rx.doctorName}</td>
                     <td>{rx.consultationType ?? '—'}</td>
                     <td>
-                      <span className={`badge ${STATUS_BADGE[rx.status]}`}>{rx.status}</span>
+                      <span className={`badge ${STATUS_BADGE[rx.status]}`}>{statusLabel(rx.status)}</span>
                     </td>
                     <td>{rx.items.length}</td>
                     <td>
@@ -458,7 +437,7 @@ const Prescriptions = () => {
             <div className="rx-detail-header">
               <div className="rx-detail-code">
                 {detail ? `RX${String(detail.prescription_id).padStart(6, '0')}` : '…'}
-                {detail && <span className={`badge ${STATUS_BADGE[detail.status]}`}>{detail.status}</span>}
+                {detail && <span className={`badge ${STATUS_BADGE[detail.status]}`}>{statusLabel(detail.status)}</span>}
               </div>
               <button className="rx-detail-close" onClick={() => setSelectedId(null)}>
                 <XIcon />
@@ -561,11 +540,9 @@ const Prescriptions = () => {
                   <button className="pat-btn" style={{ flex: 1, justifyContent: 'center' }} onClick={handlePrint} disabled={printing}>
                     <PrintIcon /> {printing ? 'Preparing…' : 'Print Prescription'}
                   </button>
-                  {detail.status === 'Pending' && (
-                    <button className="pat-btn primary" style={{ flex: 1, justifyContent: 'center' }} onClick={handleStartDispensing} disabled={starting}>
-                      <SendIcon /> {starting ? 'Starting…' : 'Start Dispensing'}
-                    </button>
-                  )}
+                  <Link className="pat-btn primary" style={{ flex: 1, justifyContent: 'center' }} to={`/pharmacy/dispensing/${detail.prescription_id}`}>
+                    <SendIcon /> {detail.status === 'Collected' ? 'View medicine record' : detail.status === 'Dispensed' ? 'Check handover' : 'Open medicine checklist'}
+                  </Link>
                 </div>
               </>
               );

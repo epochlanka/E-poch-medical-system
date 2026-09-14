@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { navSections } from './navConfig';
 
 const BrandMark = () => (
@@ -13,6 +13,13 @@ interface SidebarProps {
 }
 
 const Sidebar = ({ open, onNavigate }: SidebarProps) => {
+  const { pathname } = useLocation();
+  const links = (section: typeof navSections[number]) => section.items.map(item => (
+    <NavLink key={item.path} to={item.path} onClick={onNavigate}
+      className={({ isActive }) => `shell-nav-link${isActive || (item.path === '/pharmacy/queue' && pathname.startsWith('/pharmacy/dispensing')) ? ' active' : ''}`}>
+      <item.icon />{item.label}
+    </NavLink>
+  ));
   return (
     <aside className={`shell-sidebar${open ? ' open' : ''}`}>
       <div className="shell-brand">
@@ -26,21 +33,16 @@ const Sidebar = ({ open, onNavigate }: SidebarProps) => {
       </div>
 
       <nav className="shell-nav">
-        {navSections.map((section, sectionIndex) => (
-          <div className="shell-nav-section" key={`${section.label}-${sectionIndex}`}>
+        {navSections.map((section, index) => index === 0 ? (
+          <div className="shell-nav-section" key={section.label}>
             <div className="shell-nav-label">{section.label.toUpperCase()}</div>
-            {section.items.map((item) => (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                onClick={onNavigate}
-                className={({ isActive }) => `shell-nav-link${isActive ? ' active' : ''}`}
-              >
-                <item.icon />
-                {item.label}
-              </NavLink>
-            ))}
+            {links(section)}
           </div>
+        ) : (
+          <details className="shell-nav-section shell-nav-disclosure" key={`${section.label}-${pathname}`} open={section.items.some(item => pathname.startsWith(item.path))}>
+            <summary>{section.label}</summary>
+            {links(section)}
+          </details>
         ))}
       </nav>
     </aside>
