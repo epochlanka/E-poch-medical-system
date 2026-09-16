@@ -1,3 +1,4 @@
+import { hasRoleAccess } from '../config/roles';
 import passport from 'passport';
 import { Strategy as JwtStrategy, ExtractJwt } from 'passport-jwt';
 import { Request, Response, NextFunction } from 'express';
@@ -91,7 +92,7 @@ export const requireRole = (roles: string[]) => {
       return res.status(401).json({ message: 'Unauthorized' });
     }
 
-    if (!roles.includes(user.role)) {
+    if (!hasRoleAccess(user.role, roles)) {
       return res.status(403).json({ message: 'Forbidden: Insufficient privileges' });
     }
 

@@ -93,8 +93,14 @@ function DispensingWorkspace({ prescriptionId }: { prescriptionId: number }) {
     if (!dirty) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
     const leaveViaLink = (event: MouseEvent) => {
+      // The combined front desk keeps this workspace mounted when switching duties.
+      if ((event.target as Element).closest('[data-workspace-switch]')) return;
       const link = (event.target as Element).closest('a[href]');
       if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      const target = new URL((link as HTMLAnchorElement).href);
+      const inFrontDesk = !!document.querySelector('[data-workspace-switch]');
+      if (inFrontDesk && target.origin === window.location.origin &&
+          !/^\/(pharmacy|inventory|prescriptions|suppliers|purchase-orders|goods-received|grn-review|reports)(\/|$)/.test(target.pathname)) return;
       if (!window.confirm('Leave without saving these medicine selections? No stock has changed yet.')) {
         event.preventDefault(); event.stopPropagation();
       }

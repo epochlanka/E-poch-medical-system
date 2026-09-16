@@ -4,7 +4,7 @@ import { NotFoundError, ValidationError } from './errors';
 
 const prisma = new PrismaClient();
 
-export const ROLES = ['Admin', 'Receptionist', 'Doctor', 'Pharmacist'] as const;
+export const ROLES = ['Admin', 'Receptionist', 'Doctor', 'Pharmacist', 'FrontDesk'] as const;
 export type Role = (typeof ROLES)[number];
 
 interface Actor {

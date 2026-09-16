@@ -119,10 +119,10 @@ const Dashboard = () => {
   const quickActions = [
     { label: 'Register New Patient', icon: <UserPlusIcon />, bg: '#eaf1fe', color: '#2563eb', path: '/patients/register', implemented: true },
     { label: 'Book Appointment', icon: <CalendarIcon />, bg: '#dcfce7', color: '#16a34a', path: '/appointments/book', implemented: true },
-    { label: 'Add Walk-in', icon: <PlusIcon />, bg: '#f3e8ff', color: '#7c3aed', path: '/appointments/walk-in', implemented: false },
+    { label: 'Add Walk-in', icon: <PlusIcon />, bg: '#f3e8ff', color: '#7c3aed', path: '/appointments/walk-in', implemented: true },
     { label: 'Search Patient', icon: <SearchIcon />, bg: '#fef3c7', color: '#b45309', path: '/patients/all', implemented: true },
-    { label: 'Live Queue Board', icon: <ClockIcon />, bg: '#dbeafe', color: '#1d4ed8', path: '/queue/live', implemented: false },
-    { label: 'Create Invoice', icon: <InvoiceIcon />, bg: '#fee2e2', color: '#dc2626', path: '/billing/invoices', implemented: false },
+    { label: 'Live Queue Board', icon: <ClockIcon />, bg: '#dbeafe', color: '#1d4ed8', path: '/queue/live', implemented: true },
+    { label: 'Create Invoice', icon: <InvoiceIcon />, bg: '#fee2e2', color: '#dc2626', path: '/billing/invoices', implemented: true },
   ];
 
   return (

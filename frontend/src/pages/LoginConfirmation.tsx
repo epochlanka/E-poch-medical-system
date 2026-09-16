@@ -7,6 +7,7 @@ import './login-confirmation.css';
 const ROLE_COPY: Record<UserRole, { label: string; destination: string; icon: string; theme: string }> = {
   Admin: { label: 'Administrator', destination: 'Administration portal', icon: 'A', theme: 'admin' },
   Doctor: { label: 'Doctor', destination: 'Doctor portal', icon: '✚', theme: 'doctor' },
+  FrontDesk: { label: 'Front Desk', destination: 'Reception & Pharmacy', icon: 'Rx', theme: 'receptionist' },
   Receptionist: { label: 'Receptionist', destination: 'Reception portal', icon: 'R', theme: 'receptionist' },
   Pharmacist: { label: 'Pharmacist', destination: 'Pharmacy portal', icon: 'Rx', theme: 'pharmacist' },
 };

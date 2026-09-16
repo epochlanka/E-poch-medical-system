@@ -1,6 +1,6 @@
 import { api } from './api';
 
-export const ROLES = ['Admin', 'Receptionist', 'Doctor', 'Pharmacist'] as const;
+export const ROLES = ['Admin', 'Receptionist', 'Doctor', 'Pharmacist', 'FrontDesk'] as const;
 export type Role = (typeof ROLES)[number];
 
 export interface SecurityUser {

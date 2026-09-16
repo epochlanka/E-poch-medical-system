@@ -9,12 +9,14 @@ const ROLE_ICON: Record<Role, ComponentType> = {
   Doctor: StethoscopeIcon,
   Pharmacist: PharmacyIcon,
   Receptionist: CalendarIcon,
+  FrontDesk: UsersIcon,
 };
 const ROLE_ICON_COLOR: Record<Role, { bg: string; fg: string }> = {
   Admin: { bg: '#dbeafe', fg: '#1d4ed8' },
   Doctor: { bg: '#dcfce7', fg: '#16a34a' },
   Pharmacist: { bg: '#ede9fe', fg: '#6d28d9' },
   Receptionist: { bg: '#fef3c7', fg: '#b45309' },
+  FrontDesk: { bg: '#dcfce7', fg: '#166534' },
 };
 
 interface RolePermissionsPanelProps {

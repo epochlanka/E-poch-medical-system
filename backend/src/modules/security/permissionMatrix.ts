@@ -50,3 +50,7 @@ export const PERMISSION_MATRIX: PermissionMatrixEntry[] = [
   { module: 'Security', action: 'Users & Roles / Sessions / Permission Matrix', roles: ['Admin'] },
   { module: 'Security', action: 'Two-Factor Authentication', roles: ['Admin'] },
 ];
+
+for (const entry of PERMISSION_MATRIX) {
+  if (entry.roles.some(role => role === 'Receptionist' || role === 'Pharmacist')) entry.roles.push('FrontDesk');
+}

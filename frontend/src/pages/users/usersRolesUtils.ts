@@ -18,6 +18,7 @@ export const ROLE_BADGE: Record<Role, string> = {
   Doctor: 'badge-green',
   Pharmacist: 'badge-purple',
   Receptionist: 'badge-amber',
+  FrontDesk: 'badge-green',
 };
 
 export const ROLE_LABEL: Record<Role, string> = {
@@ -25,6 +26,7 @@ export const ROLE_LABEL: Record<Role, string> = {
   Doctor: 'Doctor',
   Pharmacist: 'Pharmacist',
   Receptionist: 'Receptionist',
+  FrontDesk: 'Front Desk (Reception & Pharmacy)',
 };
 
 export const isLocked = (user: Pick<SecurityUser, 'locked_until'>) => !!user.locked_until && new Date(user.locked_until) > new Date();

@@ -1,80 +1,39 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { useRef } from 'react';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import type { Location } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import ProtectedRoute, { CommonLoginRedirect, RoleRedirect } from './components/ProtectedRoute';
+import { CommonLoginRedirect, RoleRedirect } from './components/ProtectedRoute';
 import AppLayout from './components/layout/AppLayout';
-import Dashboard from './pages/dashboard/Dashboard';
-import Patients from './pages/patients/Patients';
-import RegisterPatient from './pages/patients/RegisterPatient';
-import DuplicateReview from './pages/patients/DuplicateReview';
-import FamilyDirectory from './pages/families/FamilyDirectory';
-import FamilyMemberRoster from './pages/families/FamilyMemberRoster';
-import HeadOfFamily from './pages/families/HeadOfFamily';
-import BookAppointment from './pages/appointments/BookAppointment';
-import WalkInQueue from './pages/appointments/WalkInQueue';
-import LiveQueueBoard from './pages/appointments/LiveQueueBoard';
-import SkipRecallLog from './pages/appointments/SkipRecallLog';
-import ConsolidatedInvoice from './pages/billing/ConsolidatedInvoice';
-import Payments from './pages/billing/Payments';
-import LabTestOrders from './pages/labTestOrders/LabTestOrders';
-import ComingSoon from './pages/ComingSoon';
-import { navSections } from './components/layout/navConfig';
+import ReceptionRoutes from './frontDesk/ReceptionRoutes';
+import PharmacyRoutes from './frontDesk/PharmacyRoutes';
+import { WorkspaceContext, isPharmacyPath } from './frontDesk/WorkspaceContext';
+import './frontDesk/frontDesk.css';
 
-const unimplementedPaths = navSections
-  .flatMap((section) => section.items)
-  .filter((item) => !item.implemented)
-  .map((item) => item.path);
-
-const RootRedirect = () => {
-  const { isAuthenticated, loading } = useAuth();
-  if (loading) return null;
-  return <Navigate to={isAuthenticated ? '/dashboard' : '/login'} replace />;
-};
-
-const LoginEntry = () => {
+const initialLocation = (pathname: string): Location => ({ pathname, search: '', hash: '', state: null, key: pathname });
+function FrontDeskPortal() {
   const { user, loading } = useAuth();
-  if (loading) return null;
+  const location = useLocation();
+  const pharmacy = isPharmacyPath(location.pathname);
+  const receptionLocation = useRef(initialLocation('/dashboard'));
+  const pharmacyLocation = useRef(initialLocation('/pharmacy/queue'));
+  const visited = useRef({ reception: false, pharmacy: false });
+  if (pharmacy) { pharmacyLocation.current = location; visited.current.pharmacy = true; }
+  else { receptionLocation.current = location; visited.current.reception = true; }
+  if (loading) return <p>Opening front desk…</p>;
   if (!user) return <CommonLoginRedirect />;
-  return user.role === 'Receptionist' ? <Navigate to="/dashboard" replace /> : <RoleRedirect role={user.role} />;
-};
-
-function App() {
-  return (
-    <AuthProvider>
-      <Routes>
-        <Route path="/" element={<RootRedirect />} />
-        <Route path="/login" element={<LoginEntry />} />
-
-        <Route
-          element={
-            <ProtectedRoute requiredRole="Receptionist">
-              <AppLayout />
-            </ProtectedRoute>
-          }
-        >
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/patients/all" element={<Patients />} />
-          <Route path="/patients/register" element={<RegisterPatient />} />
-          <Route path="/patients/duplicates" element={<DuplicateReview />} />
-          <Route path="/families/directory" element={<FamilyDirectory />} />
-          <Route path="/families/roster" element={<FamilyMemberRoster />} />
-          <Route path="/families/roster/:familyId" element={<FamilyMemberRoster />} />
-          <Route path="/families/head-of-family" element={<HeadOfFamily />} />
-          <Route path="/appointments/book" element={<BookAppointment />} />
-          <Route path="/appointments/walk-in" element={<WalkInQueue />} />
-          <Route path="/queue/live" element={<LiveQueueBoard />} />
-          <Route path="/queue/skip-recall" element={<SkipRecallLog />} />
-          <Route path="/billing/invoices" element={<ConsolidatedInvoice />} />
-          <Route path="/billing/payments" element={<Payments />} />
-          <Route path="/lab-tests/queue" element={<LabTestOrders />} />
-          {unimplementedPaths.map((path) => (
-            <Route key={path} path={path} element={<ComingSoon />} />
-          ))}
-        </Route>
-
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </AuthProvider>
-  );
+  const canReception = ['FrontDesk', 'Receptionist'].includes(user.role);
+  const canPharmacy = ['FrontDesk', 'Pharmacist'].includes(user.role);
+  if (!canReception && !canPharmacy) return <RoleRedirect role={user.role} />;
+  if (pharmacy && !canPharmacy) return <Navigate to="/dashboard" replace />;
+  if (!pharmacy && !canReception) return <Navigate to="/pharmacy/queue" replace />;
+  if (['/', '/login'].includes(location.pathname)) return <Navigate to={canReception ? '/dashboard' : '/pharmacy/queue'} replace />;
+  return <WorkspaceContext.Provider value={{ pharmacy, receptionLocation: receptionLocation.current, pharmacyLocation: pharmacyLocation.current, canReception, canPharmacy }}>
+    <AppLayout>
+      {canReception && visited.current.reception && <section hidden={pharmacy} aria-label="Reception workspace"><ReceptionRoutes location={receptionLocation.current} /></section>}
+      {canPharmacy && visited.current.pharmacy && <section hidden={!pharmacy} aria-label="Pharmacy workspace"><PharmacyRoutes location={pharmacyLocation.current} /></section>}
+    </AppLayout>
+  </WorkspaceContext.Provider>;
 }
-
-export default App;
+export default function App() {
+  return <AuthProvider><Routes><Route path="/*" element={<FrontDeskPortal />} /></Routes></AuthProvider>;
+}

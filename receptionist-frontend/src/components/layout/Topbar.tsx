@@ -1,106 +1,59 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { useApiData } from '../../hooks/useApiData';
-import { getAlerts } from '../../lib/dashboard';
-import { MenuIcon, SearchIcon, BellIcon, ChevronDownIcon, LogOutIcon } from './Icons';
+import { useWorkspace } from '../../frontDesk/WorkspaceContext';
+import { getPharmacyQueue } from '../../../../pharmacist-frontend/src/lib/pharmacy';
+import type { QueueItem } from '../../../../pharmacist-frontend/src/lib/pharmacy';
+import { MenuIcon } from './Icons';
 
-const useClickOutside = (onOutside: () => void) => {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onOutside();
-    };
-    document.addEventListener('click', handler);
-    return () => document.removeEventListener('click', handler);
-  }, [onOutside]);
-  return ref;
-};
-
-const initials = (name: string) =>
-  name
-    .split(/[\s._-]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase())
-    .join('') || 'U';
-
-interface TopbarProps {
-  title: string;
-  onMenuClick: () => void;
-}
-
-const Topbar = ({ title, onMenuClick }: TopbarProps) => {
+export default function Topbar({ onMenuClick }: { title: string; onMenuClick: () => void }) {
   const { user, logout } = useAuth();
-  const [openMenu, setOpenMenu] = useState<'alerts' | 'user' | null>(null);
-
-  const alerts = useApiData(getAlerts);
-
-  const alertsRef = useClickOutside(() => setOpenMenu((m) => (m === 'alerts' ? null : m)));
-  const userRef = useClickOutside(() => setOpenMenu((m) => (m === 'user' ? null : m)));
-
-  const toggle = (menu: 'alerts' | 'user') =>
-    setOpenMenu((current) => (current === menu ? null : menu));
-
-  return (
-    <header className="shell-topbar">
-      <button className="shell-menu-btn" onClick={onMenuClick} aria-label="Toggle menu">
-        <MenuIcon />
-      </button>
-
-      <div className="shell-search">
-        <SearchIcon />
-        <input placeholder={`Search ${title.toLowerCase()}...`} />
-      </div>
-
-      <div className="shell-topbar-spacer" />
-
-      <div className="shell-topbar-right">
-        <div className="shell-dropdown-wrap" ref={alertsRef} style={{ position: 'relative' }}>
-          <button className="shell-icon-btn" onClick={() => toggle('alerts')} aria-label="Alerts">
-            <BellIcon />
-            {!!alerts.data?.length && (
-              <span className={`shell-icon-badge${alerts.data.some((a) => a.severity === 'red') ? '' : ' amber'}`}>
-                {alerts.data.length > 9 ? '9+' : alerts.data.length}
-              </span>
-            )}
-          </button>
-          {openMenu === 'alerts' && (
-            <div className="shell-dropdown">
-              <div className="shell-dropdown-header">Alerts &amp; Notifications</div>
-              <div className="shell-dropdown-list">
-                {alerts.loading && <div className="shell-dropdown-empty">Loading…</div>}
-                {!alerts.loading && !alerts.data?.length && <div className="shell-dropdown-empty">No active alerts</div>}
-                {alerts.data?.slice(0, 8).map((a, i) => (
-                  <div className="shell-dropdown-item" key={i}>
-                    <span className={`shell-dropdown-dot ${a.severity}`} />
-                    <span>{a.message}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div ref={userRef} style={{ position: 'relative' }}>
-          <button className="shell-user" onClick={() => toggle('user')}>
-            <div className="shell-avatar">{initials(user?.username || 'U')}</div>
-            <div className="shell-user-text">
-              <span className="shell-user-name">{user?.username ?? 'Receptionist'}</span>
-              <span className="shell-user-role">Front Desk</span>
-            </div>
-            <ChevronDownIcon />
-          </button>
-          {openMenu === 'user' && (
-            <div className="shell-user-menu">
-              <button onClick={logout}>
-                <LogOutIcon /> Log out
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
+  const workspace = useWorkspace();
+  const [queue, setQueue] = useState<{ prepare: number; handover: number } | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+  const [arrived, setArrived] = useState<QueueItem | null>(null);
+  const known = useRef<Set<number> | null>(null);
+  useEffect(() => {
+    if (!workspace.canPharmacy) return;
+    let active = true, pending = false;
+    const refresh = async () => {
+      if (pending || document.hidden) return;
+      pending = true;
+      try {
+        const board = await getPharmacyQueue();
+        if (!active) return;
+        if (known.current) {
+          const incoming = board.Pending.filter(item => !known.current!.has(item.prescriptionId));
+          if (incoming.length) setArrived(incoming[incoming.length - 1]);
+        }
+        known.current = new Set([...board.Pending, ...board.Preparing, ...board.Dispensed, ...board.Collected].map(item => item.prescriptionId));
+        setQueue({ prepare: board.Pending.length + board.Preparing.length, handover: board.Dispensed.length });
+        setUnavailable(false);
+      } catch { if (active) setUnavailable(true); }
+      finally { pending = false; }
+    };
+    void refresh();
+    const timer = window.setInterval(refresh, 15_000);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { active = false; clearInterval(timer); document.removeEventListener('visibilitychange', refresh); };
+  }, [workspace.canPharmacy]);
+  useEffect(() => { document.title = `${queue?.prepare ? `(${queue.prepare} prescriptions) ` : ''}E-POCH Front Desk`; }, [queue]);
+  const path = (location: typeof workspace.receptionLocation) => location.pathname + location.search + location.hash;
+  return <>
+    <header className="shell-topbar fd-topbar">
+      <button className="shell-menu-btn" onClick={onMenuClick} aria-label="Toggle menu"><MenuIcon /></button>
+      <div className="fd-brand"><strong>Front Desk</strong><small>Reception & pharmacy</small></div>
+      <nav className="fd-switch" aria-label="Switch workspace">
+        {workspace.canReception && <Link data-workspace-switch to={path(workspace.receptionLocation)} aria-current={!workspace.pharmacy ? 'page' : undefined}>Reception</Link>}
+        {workspace.canPharmacy && <Link data-workspace-switch to={path(workspace.pharmacyLocation)} aria-current={workspace.pharmacy ? 'page' : undefined}>Pharmacy <span>{unavailable ? '!' : queue?.prepare ?? '…'}</span></Link>}
+      </nav>
+      <div className="fd-user"><strong>{user?.username}</strong><span>{user?.role === 'FrontDesk' ? 'Reception + Pharmacy' : user?.role}</span></div>
+      <button className="fd-signout" onClick={() => { if (window.confirm('Sign out? Finish or save your current work first.')) void logout(); }}>Sign out</button>
     </header>
-  );
-};
-
-export default Topbar;
+    <div className="fd-counter-bar">
+      <span>{workspace.pharmacy ? 'Pick medicines and complete patient handovers.' : 'Register patients, manage the doctor’s queue, and take payments.'}</span>
+      {workspace.canPharmacy && <Link to="/pharmacy/queue">{unavailable ? 'Prescription updates unavailable — open queue to retry' : `${queue?.prepare ?? '…'} to prepare · ${queue?.handover ?? '…'} ready for handover`} →</Link>}
+    </div>
+    {arrived && <div className="fd-arrival" role="status"><span><strong>New prescription from the doctor</strong> · {arrived.patientName} · {arrived.code}</span>{workspace.canPharmacy && <Link to={`/pharmacy/dispensing/${arrived.prescriptionId}`} onClick={() => setArrived(null)}>Open prescription →</Link>}<button aria-label="Dismiss prescription notice" onClick={() => setArrived(null)}>×</button></div>}
+  </>;
+}
