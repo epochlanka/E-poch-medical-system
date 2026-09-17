@@ -1,6 +1,9 @@
 .ph-layout {
   display: grid;
-  grid-template-columns: 1fr 320px;
+  /* minmax(0, 1fr), not bare 1fr — a grid track defaults to its content's min-content width, so
+     without this the wide inventory table refuses to shrink below its own intrinsic width and
+     blows out the whole layout instead of scrolling inside .pat-table-scroll as intended. */
+  grid-template-columns: minmax(0, 1fr) 320px;
   gap: 16px;
   align-items: start;
 }
@@ -155,6 +158,6 @@
 
 @media (max-width: 1180px) {
   .ph-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
