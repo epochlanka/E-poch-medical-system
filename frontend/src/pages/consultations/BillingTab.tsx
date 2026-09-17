@@ -2,9 +2,8 @@ import { useState } from 'react';
 import { InvoiceIcon, PlusIcon } from '../../components/layout/Icons';
 import type { ConsultationInvoice } from '../../lib/consultations';
 import { createInvoiceForConsultation } from '../../lib/billing';
+import { formatCurrency, invoiceCode } from '../invoices/invoiceUtils';
 import { formatDateTime } from './consultationUtils';
-
-const formatCurrency = (n: number) => n.toLocaleString(undefined, { style: 'currency', currency: 'USD' });
 
 const STATUS_BADGE: Record<string, string> = {
   Outstanding: 'badge-amber',
@@ -19,6 +18,10 @@ interface BillingTabProps {
   onCreated: () => void;
 }
 
+// Invoices normally appear on their own — the system bills consultation fee + dispensed
+// medicine automatically once the visit is fully finalized and dispensed (see billing service's
+// maybeAutoCreateInvoice). "Bill Now" is the manual fallback for a visit that needs billing
+// before that (e.g. the patient won't be returning to collect a pending prescription).
 const BillingTab = ({ consultationId, invoices, onCreated }: BillingTabProps) => {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,8 +45,8 @@ const BillingTab = ({ consultationId, invoices, onCreated }: BillingTabProps) =>
       <div className="card-header">
         <h3 className="card-title">Billing</h3>
         {consultationId && invoices.length === 0 && (
-          <button className="cons-btn primary" onClick={handleCreate} disabled={creating}>
-            <PlusIcon /> {creating ? 'Creating…' : 'Create Invoice'}
+          <button className="cons-btn" onClick={handleCreate} disabled={creating}>
+            <PlusIcon /> {creating ? 'Creating…' : 'Bill Now'}
           </button>
         )}
       </div>
@@ -51,7 +54,12 @@ const BillingTab = ({ consultationId, invoices, onCreated }: BillingTabProps) =>
       {error && <div className="dash-error-banner">{error}</div>}
 
       {!consultationId && <div className="card-empty">Save the consultation before creating an invoice.</div>}
-      {consultationId && invoices.length === 0 && !error && <div className="card-empty">No invoice yet for this consultation.</div>}
+      {consultationId && invoices.length === 0 && !error && (
+        <div className="card-empty">
+          No invoice yet — one is created automatically once the visit is finalized and any prescribed medicine is fully dispensed. Use Bill Now to invoice
+          early instead.
+        </div>
+      )}
 
       {invoices.map((inv) => (
         <div className="rx-row" key={inv.invoice_id}>
@@ -59,7 +67,7 @@ const BillingTab = ({ consultationId, invoices, onCreated }: BillingTabProps) =>
             <InvoiceIcon />
           </span>
           <div className="rx-info">
-            <div className="rx-code">INV{String(inv.invoice_id).padStart(6, '0')}</div>
+            <div className="rx-code">{invoiceCode(inv.invoice_id, inv.created_at)}</div>
             <div className="rx-name">{formatCurrency(inv.total_amount)}</div>
             <div className="rx-time">{formatDateTime(inv.created_at)}</div>
           </div>

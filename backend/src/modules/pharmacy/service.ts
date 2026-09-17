@@ -1,5 +1,7 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import { NotFoundError, ValidationError } from './errors';
+import { maybeAutoCreateInvoice } from '../billing/service';
+import { logger } from '../../errors';
 
 const prisma = new PrismaClient();
 
@@ -249,6 +251,17 @@ export const dispense = async (prescriptionId: number, items: DispenseItemInput[
       data: { status: newStatus },
       include: { items: { include: { medicine: true, batch: true } } },
     });
+  }).then(async (result) => {
+    // The common case: dispensing finishes after the doctor already finalized the consultation.
+    // Best-effort, same as the finalize-time trigger — must never fail the dispense action itself.
+    if (result.status === 'Dispensed') {
+      try {
+        await maybeAutoCreateInvoice(result.consultation_id, actor);
+      } catch (err) {
+        logger.warn({ err, prescriptionId, consultationId: result.consultation_id }, 'Auto-invoice creation failed after dispensing completed');
+      }
+    }
+    return result;
   });
 };
 

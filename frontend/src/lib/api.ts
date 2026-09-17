@@ -2,7 +2,9 @@ import axios from 'axios';
 import { toFriendlyError, type FriendlyError } from './errorMessage';
 import { commonLoginUrl } from '../config/roleRoutes';
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+// Keep the API on the same computer that served the UI. This makes the default work both on
+// localhost and when another clinic PC opens the app through this computer's LAN address.
+export const API_BASE_URL = import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
 export const api = axios.create({
   baseURL: `${API_BASE_URL}/api/v1`,

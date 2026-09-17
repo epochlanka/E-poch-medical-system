@@ -13,7 +13,9 @@ export interface Supplier { supplier_id: number; name: string; phone: string | n
 export interface OrderItem { po_item_id: number; qty_ordered: number; medicine: { name: string; unit: string }; grn_items: { qty_received: number }[] }
 export interface PurchaseOrder { po_id: number; status: string; order_date: string; expected_date: string | null; supplier: Supplier; items: OrderItem[]; orderedQty: number; receivedQty: number; totalAmount: number }
 export interface Grn { grn_id: number; po_id: number; received_at: string; has_discrepancy: boolean; discrepancy_reviewed_at: string | null; purchase_order: { supplier: Supplier }; receiver: { username: string }; items?: { grn_item_id: number; qty_received: number; batch: { batch_no: string; expiry_date: string }; po_item: { medicine: { name: string } } }[] }
-export interface Invoice { invoice_id: number; created_at: string; payment_status: string; total_amount: number; patient: { full_name: string; patient_id: string }; items: { invoice_item_id: number; item_type: string; description: string; qty: number; line_total: number }[] }
+// patient_id is null for an unregistered walk-in — full_name still resolves to the visit's
+// captured temp_patient_name (see backend billing/service.ts resolveDisplayPatient).
+export interface Invoice { invoice_id: number; created_at: string; payment_status: string; total_amount: number; patient: { full_name: string; patient_id: string | null }; items: { invoice_item_id: number; item_type: string; description: string; qty: number; line_total: number }[] }
 export interface Report { title: string; columns: { key: string; label: string }[]; rows: Record<string, string | number | boolean | null>[]; summary?: Record<string, string | number> }
 
 export const getBatches = (params?: Record<string, string | number | undefined>) => api.get<Page<Batch>>('/inventory/batches', { params }).then(r => r.data);

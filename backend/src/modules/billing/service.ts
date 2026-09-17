@@ -48,7 +48,9 @@ interface CreateInvoiceInput {
 // One invoice per visit — closes the "two separate bills" gap. Only fully-dispensed lines
 // (dispensed_at set) are billed — batch_id alone is no longer a safe "done" signal now that
 // partial dispensing can set it mid-way through a still-incomplete line (see pharmacy/service.ts).
-export const createInvoice = async (input: CreateInvoiceInput, actor: Actor) => {
+// `createdVia` distinguishes a system-generated invoice (fired when a visit completes, see
+// maybeAutoCreateInvoice below) from one reception created by hand — same math either way.
+export const createInvoice = async (input: CreateInvoiceInput, actor: Actor, createdVia: 'Manual' | 'Auto' = 'Manual') => {
   const consultation = await prisma.consultation.findUnique({
     where: { consultation_id: input.consultation_id },
     include: {
@@ -61,10 +63,11 @@ export const createInvoice = async (input: CreateInvoiceInput, actor: Actor) => 
   if (consultation.invoices.length > 0) {
     throw new ValidationError('An active invoice already exists for this consultation');
   }
+  // Unregistered walk-ins (Appointment.is_temporary, patient_id null) are billable too — the
+  // visit still has a real price, and there's no other way to collect payment from someone who
+  // chose not to register. patient_id stays null on the invoice; resolveDisplayPatient() below
+  // derives a name/phone from the appointment's temp_patient_* fields wherever this is read.
   const patientId = consultation.appointment.patient_id;
-  if (!patientId) {
-    throw new ValidationError('This patient is not registered yet — register them before creating an invoice for this visit');
-  }
 
   const clinicSettings = await prisma.clinicSettings.findUnique({ where: { id: 1 } });
   const fee = input.consultation_fee ?? clinicSettings?.default_consultation_fee ?? FALLBACK_CONSULTATION_FEE;
@@ -120,6 +123,7 @@ export const createInvoice = async (input: CreateInvoiceInput, actor: Actor) => 
         discount_total: discountTotal,
         total_amount: totalAmount,
         created_by: actor.user_id,
+        created_via: createdVia,
       },
     });
 
@@ -131,6 +135,30 @@ export const createInvoice = async (input: CreateInvoiceInput, actor: Actor) => 
   });
 
   return getInvoiceById(created.invoice_id);
+};
+
+// A visit is billable the moment its final cost is fully known: the consultation is Finalized,
+// and either no prescription was issued or every issued prescription is fully dispensed. Called
+// from both finalizeConsultation (covers no-prescription visits, and visits where dispensing
+// already finished before finalization) and pharmacy's dispense-completion path (covers the
+// common case where dispensing finishes after finalization) — whichever happens last is the one
+// that actually creates the invoice, using the exact same formula as a manual createInvoice call.
+// Best-effort by design: callers should not let a billing hiccup block a clinical/pharmacy action.
+export const maybeAutoCreateInvoice = async (consultationId: number, actor: Actor) => {
+  const consultation = await prisma.consultation.findUnique({
+    where: { consultation_id: consultationId },
+    include: {
+      invoices: { where: { payment_status: { not: 'Voided' } } },
+      prescriptions: { include: { items: true } },
+    },
+  });
+  if (!consultation || consultation.status !== 'Finalized') return null;
+  if (consultation.invoices.length > 0) return null; // already billed, manually or automatically
+
+  const fullyDispensed = consultation.prescriptions.every((rx) => rx.items.every((item) => !!item.dispensed_at));
+  if (!fullyDispensed) return null;
+
+  return createInvoice({ consultation_id: consultationId }, actor, 'Auto');
 };
 
 // Additive nested include used by both getInvoiceById and listInvoices — pulls the visit's
@@ -148,26 +176,45 @@ const visitContextInclude = {
           scheduled_at: true,
           is_walk_in: true,
           visit_type: true,
+          // Only populated for an unregistered walk-in (is_temporary) — read by
+          // resolveDisplayPatient() below so those invoices still show a name/phone.
+          temp_patient_name: true,
+          temp_patient_phone: true,
         },
       },
     },
   },
 } as const;
 
+// An unregistered walk-in has no Patient row, so `patient` comes back null from Prisma — but
+// every consumer of an invoice (frontend list/detail views, PDF, the payments ledger) expects to
+// always be able to read a name/phone. Resolve a display object from the temp_patient_* fields
+// captured on the visit's Appointment instead of ever returning null, so `patient_id` is the only
+// thing that's ever actually absent.
+const resolveDisplayPatient = (invoice: {
+  patient: { patient_id: string; full_name: string; phone?: string | null } | null;
+  consultation?: { appointment?: { temp_patient_name?: string | null; temp_patient_phone?: string | null } | null } | null;
+}) => ({
+  patient_id: invoice.patient?.patient_id ?? null,
+  full_name: invoice.patient?.full_name ?? invoice.consultation?.appointment?.temp_patient_name ?? 'Unregistered walk-in patient',
+  phone: invoice.patient?.phone ?? invoice.consultation?.appointment?.temp_patient_phone ?? null,
+});
+
 export const getInvoiceById = async (invoiceId: number) => {
   const invoice = await prisma.invoice.findUnique({
     where: { invoice_id: invoiceId },
     include: {
-      patient: { select: { patient_id: true, full_name: true } },
+      patient: { select: { patient_id: true, full_name: true, phone: true } },
       items: true,
       payments: { include: { receiver: { select: { username: true } } } },
+      refunds: { include: { issuer: { select: { username: true } } } },
       creator: { select: { username: true } },
       voided_by_user: { select: { username: true } },
       ...visitContextInclude,
     },
   });
   if (!invoice) throw new NotFoundError('Invoice not found');
-  return { ...invoice, type: invoiceType(invoice.items) };
+  return { ...invoice, patient: resolveDisplayPatient(invoice), type: invoiceType(invoice.items) };
 };
 
 interface ListInvoicesFilters {
@@ -210,6 +257,10 @@ export const listInvoices = async (filters: ListInvoicesFilters) => {
       { patient: { full_name: { contains: term } } },
       { patient: { phone: { contains: term } } },
       { patient_id: { contains: term } },
+      // An unregistered walk-in's invoice has no Patient row to match against above — search its
+      // visit's captured temp_patient_* fields instead, or it would never be findable at all.
+      { consultation: { appointment: { temp_patient_name: { contains: term } } } },
+      { consultation: { appointment: { temp_patient_phone: { contains: term } } } },
       ...(Number.isFinite(asId) && asId > 0 ? [{ invoice_id: asId }] : []),
     ];
   }
@@ -230,7 +281,9 @@ export const listInvoices = async (filters: ListInvoicesFilters) => {
   // (same "compute, don't cache" tradeoff medicines/service.ts makes for its stock-status filter).
   if (filters.type) {
     const all = await prisma.invoice.findMany({ where, orderBy: { created_at: 'desc' }, include });
-    const filtered = all.map((inv) => ({ ...inv, type: invoiceType(inv.items) })).filter((inv) => inv.type === filters.type);
+    const filtered = all
+      .map((inv) => ({ ...inv, patient: resolveDisplayPatient(inv), type: invoiceType(inv.items) }))
+      .filter((inv) => inv.type === filters.type);
     const total = filtered.length;
     const data = filtered.slice((page - 1) * limit, page * limit);
     return { data, pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) } };
@@ -241,7 +294,7 @@ export const listInvoices = async (filters: ListInvoicesFilters) => {
     prisma.invoice.findMany({ where, orderBy: { created_at: 'desc' }, skip: (page - 1) * limit, take: limit, include }),
   ]);
 
-  const data = invoices.map((inv) => ({ ...inv, type: invoiceType(inv.items) }));
+  const data = invoices.map((inv) => ({ ...inv, patient: resolveDisplayPatient(inv), type: invoiceType(inv.items) }));
 
   return { data, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
 };
@@ -268,9 +321,20 @@ export const getInvoiceStats = async () => {
 // ---- Payments (cash/card/mobile, split) --------------------------------------------------
 
 interface PaymentInput {
-  method: 'Cash' | 'Card' | 'Mobile';
+  method: string;
   amount: number;
+  idempotency_key?: string;
 }
+
+// Payment/refund methods are validated against the live PaymentMethod master-data list
+// (Settings > Payment Methods) rather than a hardcoded enum, so an admin adding or retiring a
+// method there actually takes effect — matches the equivalent list already backing Discount Types.
+const assertValidPaymentMethod = async (method: string) => {
+  const allowed = await prisma.masterDataItem.findFirst({ where: { type: 'PaymentMethod', value: method, is_active: true } });
+  if (!allowed) {
+    throw new ValidationError(`"${method}" is not an active payment method — add or enable it under Settings > Payment Methods first`);
+  }
+};
 
 export const recordPayments = async (invoiceId: number, payments: PaymentInput[], actor: Actor) => {
   if (payments.length === 0) throw new ValidationError('At least one payment is required');
@@ -280,6 +344,22 @@ export const recordPayments = async (invoiceId: number, payments: PaymentInput[]
   if (invoice.payment_status === 'Voided') throw new ValidationError('Cannot record a payment against a voided invoice');
   if (invoice.payment_status === 'Paid') throw new ValidationError('Invoice is already fully paid');
 
+  // A request replayed with the same idempotency key (double-click, network retry) returns the
+  // invoice unchanged instead of double-charging — checked before any validation so a retry of an
+  // already-accepted request never fails even if the invoice has since moved on (e.g. now Paid).
+  const keys = payments.map((p) => p.idempotency_key).filter((k): k is string => !!k);
+  if (keys.length > 0) {
+    const existing = await prisma.payment.findFirst({ where: { idempotency_key: { in: keys } } });
+    if (existing) {
+      return prisma.invoice.findUnique({
+        where: { invoice_id: invoiceId },
+        include: { items: true, payments: { include: { receiver: { select: { username: true } } } } },
+      });
+    }
+  }
+
+  for (const method of new Set(payments.map((p) => p.method))) await assertValidPaymentMethod(method);
+
   const totalNew = payments.reduce((sum, p) => sum + p.amount, 0);
   if (totalNew <= 0) throw new ValidationError('Payment amount must be positive');
   if (invoice.paid_amount + totalNew > invoice.total_amount + 0.01) {
@@ -288,7 +368,13 @@ export const recordPayments = async (invoiceId: number, payments: PaymentInput[]
 
   return prisma.$transaction(async (tx) => {
     await tx.payment.createMany({
-      data: payments.map((p) => ({ invoice_id: invoiceId, method: p.method, amount: p.amount, received_by: actor.user_id })),
+      data: payments.map((p) => ({
+        invoice_id: invoiceId,
+        method: p.method,
+        amount: p.amount,
+        received_by: actor.user_id,
+        idempotency_key: p.idempotency_key,
+      })),
     });
 
     const newPaidAmount = invoice.paid_amount + totalNew;
@@ -305,7 +391,16 @@ export const recordPayments = async (invoiceId: number, payments: PaymentInput[]
 
 // ---- Void / Refund (Admin-approved) --------------------------------------------------------
 
-export const voidInvoice = async (invoiceId: number, reason: string, actor: Actor) => {
+interface RefundInput {
+  method: string;
+  amount: number;
+}
+
+// Voiding an invoice that already collected money must say where that money went — refund lines
+// are required whenever paid_amount > 0, summing to at most what was actually paid (a void never
+// hands back more than was collected). Stock reversal stays out of scope: dispensedItemsNeedingReview
+// still just flags dispensed medicine for manual clinical/stock review, same as before.
+export const voidInvoice = async (invoiceId: number, reason: string, actor: Actor, refunds: RefundInput[] = []) => {
   if (!reason?.trim()) throw new ValidationError('A void reason is required');
 
   const invoice = await prisma.invoice.findUnique({
@@ -315,9 +410,28 @@ export const voidInvoice = async (invoiceId: number, reason: string, actor: Acto
   if (!invoice) throw new NotFoundError('Invoice not found');
   if (invoice.payment_status === 'Voided') throw new ValidationError('Invoice is already voided');
 
-  const updated = await prisma.invoice.update({
-    where: { invoice_id: invoiceId },
-    data: { payment_status: 'Voided', void_reason: reason, voided_by: actor.user_id, voided_at: new Date() },
+  if (invoice.paid_amount > 0) {
+    if (refunds.length === 0) {
+      throw new ValidationError('This invoice has payments recorded against it — specify how the paid amount is being refunded');
+    }
+    const totalRefund = refunds.reduce((sum, r) => sum + r.amount, 0);
+    if (refunds.some((r) => r.amount <= 0)) throw new ValidationError('Refund amounts must be positive');
+    if (totalRefund > invoice.paid_amount + 0.01) {
+      throw new ValidationError(`Refund total of ${totalRefund} exceeds the ${invoice.paid_amount} actually paid on this invoice`);
+    }
+    for (const method of new Set(refunds.map((r) => r.method))) await assertValidPaymentMethod(method);
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    if (refunds.length > 0) {
+      await tx.refund.createMany({
+        data: refunds.map((r) => ({ invoice_id: invoiceId, method: r.method, amount: r.amount, reason, issued_by: actor.user_id })),
+      });
+    }
+    return tx.invoice.update({
+      where: { invoice_id: invoiceId },
+      data: { payment_status: 'Voided', void_reason: reason, voided_by: actor.user_id, voided_at: new Date() },
+    });
   });
 
   return { ...updated, dispensedItemsNeedingReview: invoice.items.length > 0 };
@@ -356,6 +470,8 @@ export const listPayments = async (filters: ListPaymentsFilters) => {
       { invoice: { patient: { full_name: { contains: term } } } },
       { invoice: { patient: { phone: { contains: term } } } },
       { invoice: { patient_id: { contains: term } } },
+      { invoice: { consultation: { appointment: { temp_patient_name: { contains: term } } } } },
+      { invoice: { consultation: { appointment: { temp_patient_phone: { contains: term } } } } },
       ...(Number.isFinite(asId) && asId > 0 ? [{ payment_id: asId }, { invoice_id: asId }] : []),
     ];
   }
@@ -369,6 +485,7 @@ export const listPayments = async (filters: ListPaymentsFilters) => {
         subtotal: true,
         discount_total: true,
         patient: { select: { patient_id: true, full_name: true, phone: true } },
+        consultation: { select: { appointment: { select: { temp_patient_name: true, temp_patient_phone: true } } } },
       },
     },
     receiver: { select: { username: true } },
@@ -379,25 +496,28 @@ export const listPayments = async (filters: ListPaymentsFilters) => {
     prisma.payment.findMany({ where, orderBy: { received_at: 'desc' }, skip: (page - 1) * limit, take: limit, include }),
   ]);
 
-  const data = payments.map((p) => ({
-    paymentId: p.payment_id,
-    invoiceId: p.invoice_id,
-    invoiceStatus: p.invoice.payment_status,
-    invoiceCreatedAt: p.invoice.created_at,
-    // The invoice's own subtotal/discount, shown alongside this payment row so a receptionist
-    // can see what the visit was charged and discounted — NOT this specific payment's own
-    // amount (that's `amount` below); for a fully-paid, non-split invoice these will visually
-    // reconcile (subtotal - discount = amount), but they needn't for a split/partial payment.
-    invoiceSubtotal: p.invoice.subtotal,
-    invoiceDiscount: p.invoice.discount_total,
-    patientId: p.invoice.patient.patient_id,
-    patientName: p.invoice.patient.full_name,
-    patientPhone: p.invoice.patient.phone,
-    amount: p.amount,
-    method: p.method,
-    receivedAt: p.received_at,
-    receivedBy: p.receiver.username,
-  }));
+  const data = payments.map((p) => {
+    const displayPatient = resolveDisplayPatient(p.invoice);
+    return {
+      paymentId: p.payment_id,
+      invoiceId: p.invoice_id,
+      invoiceStatus: p.invoice.payment_status,
+      invoiceCreatedAt: p.invoice.created_at,
+      // The invoice's own subtotal/discount, shown alongside this payment row so a receptionist
+      // can see what the visit was charged and discounted — NOT this specific payment's own
+      // amount (that's `amount` below); for a fully-paid, non-split invoice these will visually
+      // reconcile (subtotal - discount = amount), but they needn't for a split/partial payment.
+      invoiceSubtotal: p.invoice.subtotal,
+      invoiceDiscount: p.invoice.discount_total,
+      patientId: displayPatient.patient_id,
+      patientName: displayPatient.full_name,
+      patientPhone: displayPatient.phone,
+      amount: p.amount,
+      method: p.method,
+      receivedAt: p.received_at,
+      receivedBy: p.receiver.username,
+    };
+  });
 
   return { data, pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) } };
 };
@@ -503,8 +623,9 @@ export const getReconciliation = async (date: Date) => {
   const dayStart = startOfDay(date);
   const dayEnd = endOfDay(date);
 
-  const [payments, invoicesCreated, voidedCount] = await Promise.all([
+  const [payments, refunds, invoicesCreated, voidedCount] = await Promise.all([
     prisma.payment.findMany({ where: { received_at: { gte: dayStart, lte: dayEnd } } }),
+    prisma.refund.findMany({ where: { issued_at: { gte: dayStart, lte: dayEnd } } }),
     prisma.invoice.count({ where: { created_at: { gte: dayStart, lte: dayEnd } } }),
     prisma.invoice.count({ where: { voided_at: { gte: dayStart, lte: dayEnd } } }),
   ]);
@@ -512,11 +633,17 @@ export const getReconciliation = async (date: Date) => {
   const byMethod: Record<string, number> = {};
   for (const p of payments) byMethod[p.method] = (byMethod[p.method] ?? 0) + p.amount;
 
+  const refundsByMethod: Record<string, number> = {};
+  for (const r of refunds) refundsByMethod[r.method] = (refundsByMethod[r.method] ?? 0) + r.amount;
+
   return {
     date: localDateKey(date),
     totalCollected: payments.reduce((sum, p) => sum + p.amount, 0),
     byMethod,
     paymentCount: payments.length,
+    totalRefunded: refunds.reduce((sum, r) => sum + r.amount, 0),
+    refundsByMethod,
+    refundCount: refunds.length,
     invoicesCreated,
     invoicesVoided: voidedCount,
   };

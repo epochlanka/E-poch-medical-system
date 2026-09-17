@@ -39,13 +39,18 @@ const listSchema = z.object({
 const paymentsSchema = z.object({
   params: z.object({ invoiceId: z.coerce.number().int().positive() }),
   body: z.object({
-    payments: z.array(z.object({ method: z.enum(['Cash', 'Card', 'Mobile']), amount: z.number().positive() })).min(1),
+    payments: z
+      .array(z.object({ method: z.string().min(1), amount: z.number().positive(), idempotency_key: z.string().min(1).optional() }))
+      .min(1),
   }),
 });
 
 const voidSchema = z.object({
   params: z.object({ invoiceId: z.coerce.number().int().positive() }),
-  body: z.object({ reason: z.string().min(1, 'A void reason is required') }),
+  body: z.object({
+    reason: z.string().min(1, 'A void reason is required'),
+    refunds: z.array(z.object({ method: z.string().min(1), amount: z.number().positive() })).optional(),
+  }),
 });
 
 const reconciliationSchema = z.object({ query: z.object({ date: z.coerce.date().optional() }) });
@@ -53,7 +58,7 @@ const reconciliationSchema = z.object({ query: z.object({ date: z.coerce.date().
 const paymentsListSchema = z.object({
   query: z.object({
     search: z.string().optional(),
-    method: z.enum(['Cash', 'Card', 'Mobile']).optional(),
+    method: z.string().optional(),
     invoiceStatus: z.enum(['Outstanding', 'PartiallyPaid', 'Paid', 'Voided']).optional(),
     from: z.coerce.date().optional(),
     to: z.coerce.date().optional(),
@@ -72,6 +77,7 @@ router.get('/payments/stats', requireRole(READ_ROLES), validate(paymentsStatsSch
 router.get('/', requireRole(READ_ROLES), validate(listSchema), controller.list);
 router.post('/', requireRole(BILLING_ROLES), validate(createSchema), controller.create);
 router.get('/:invoiceId', requireRole(READ_ROLES), validate(invoiceIdParamsSchema), controller.getById);
+router.get('/:invoiceId/pdf', requireRole(READ_ROLES), validate(invoiceIdParamsSchema), controller.getPdf);
 router.post('/:invoiceId/payments', requireRole(BILLING_ROLES), validate(paymentsSchema), controller.recordPayments);
 router.post('/:invoiceId/void', requireRole(VOID_ROLES), validate(voidSchema), controller.voidInvoice);
 

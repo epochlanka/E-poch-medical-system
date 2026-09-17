@@ -94,7 +94,10 @@ const NewInvoiceModal = ({ onClose, onSuccess }: NewInvoiceModalProps) => {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
         <h3 className="modal-title">New Invoice</h3>
-        <p className="modal-subtitle">Invoices are generated from a finalized consultation — pick the patient and visit to bill.</p>
+        <p className="modal-subtitle">
+          Invoices are normally created automatically once a visit is finalized and any prescribed medicine is dispensed. Use this to bill a finalized
+          consultation early instead.
+        </p>
 
         <div className="modal-field span-2" style={{ position: 'relative' }}>
           <label>Patient *</label>

@@ -4,7 +4,7 @@ import { fileUrl } from '../../lib/api';
 import { listPatients } from '../../lib/patients';
 import type { Patient } from '../../lib/patients';
 import { getFamily } from '../../lib/families';
-import { listInvoices } from '../../lib/billing';
+import { listInvoices, downloadInvoicePdf } from '../../lib/billing';
 import type { Invoice, InvoicePayment } from '../../lib/billing';
 import {
   InvoiceIcon,
@@ -46,6 +46,7 @@ const ConsolidatedInvoice = () => {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [showNewInvoice, setShowNewInvoice] = useState(false);
   const [paymentTarget, setPaymentTarget] = useState<Invoice | null>(null);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     if (searchInput.trim().length < 2) {
@@ -112,6 +113,22 @@ const ConsolidatedInvoice = () => {
     setPatient(p);
     setSearchInput('');
     setSearchResults([]);
+  };
+
+  // This page is a multi-visit statement, so "Download PDF" downloads the real, server-rendered
+  // PDF for each invoice in the current range one at a time — not a single fabricated document,
+  // and not window.print() masquerading as a download.
+  const handleDownloadAll = async () => {
+    if (activeInvoices.length === 0 || downloading) return;
+    setDownloading(true);
+    try {
+      for (const inv of activeInvoices) {
+        await downloadInvoicePdf(inv.invoice_id, invoiceCode(inv.invoice_id, inv.created_at));
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+    } finally {
+      setDownloading(false);
+    }
   };
 
   if (!patient) {
@@ -219,8 +236,8 @@ const ConsolidatedInvoice = () => {
           <button className="pat-btn" onClick={() => window.print()}>
             <PrintIcon /> Print
           </button>
-          <button className="pat-btn" onClick={() => window.print()}>
-            <DownloadIcon /> Download PDF
+          <button className="pat-btn" onClick={handleDownloadAll} disabled={downloading || activeInvoices.length === 0}>
+            <DownloadIcon /> {downloading ? 'Downloading…' : 'Download PDF'}
           </button>
           <button className="pat-btn primary" onClick={() => setShowNewInvoice(true)}>
             <PlusIcon /> New Invoice
@@ -390,8 +407,8 @@ const ConsolidatedInvoice = () => {
               <button className="ci-action-btn" onClick={() => window.print()}>
                 <PrintIcon /> Print Invoice
               </button>
-              <button className="ci-action-btn" onClick={() => window.print()}>
-                <DownloadIcon /> Download PDF
+              <button className="ci-action-btn" onClick={handleDownloadAll} disabled={downloading || activeInvoices.length === 0}>
+                <DownloadIcon /> {downloading ? 'Downloading…' : 'Download PDF'}
               </button>
               <button className="ci-action-btn" onClick={() => setShowNewInvoice(true)} style={{ gridColumn: 'span 2' }}>
                 <UserPlusIcon /> New Invoice for This Patient

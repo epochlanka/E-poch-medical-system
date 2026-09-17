@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useApiData } from '../../hooks/useApiData';
 import { getClinicSettings } from '../../lib/settings';
-import { listPayments, getPaymentsStats } from '../../lib/billing';
+import { listPayments, getPaymentsStats, listPaymentMethodOptions } from '../../lib/billing';
 import type { ListPaymentsParams, PaymentRow, Invoice } from '../../lib/billing';
 import {
   PlusIcon,
@@ -70,6 +70,7 @@ const Payments = () => {
 
   const { data: clinic } = useApiData(() => getClinicSettings(), []);
   const { data: stats, reload: reloadStats } = useApiData(() => getPaymentsStats(), []);
+  const { data: methods } = useApiData(() => listPaymentMethodOptions(), []);
 
   const params: ListPaymentsParams = useMemo(
     () => ({
@@ -224,9 +225,11 @@ const Payments = () => {
               }}
             >
               <option value="">All Methods</option>
-              <option value="Cash">Cash</option>
-              <option value="Card">Card</option>
-              <option value="Mobile">Mobile</option>
+              {(methods ?? ['Cash', 'Card', 'Mobile']).map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
             </select>
           </div>
           <div className="modal-field">

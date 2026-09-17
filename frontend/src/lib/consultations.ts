@@ -35,6 +35,7 @@ export interface ConsultationInvoice {
   total_amount: number;
   paid_amount: number;
   payment_status: string;
+  created_via: 'Manual' | 'Auto';
   created_at: string;
 }
 

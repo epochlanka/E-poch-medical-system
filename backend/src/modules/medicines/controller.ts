@@ -94,7 +94,8 @@ export const getById = async (req: Request, res: Response) => {
 
 export const create = async (req: Request, res: Response) => {
   try {
-    const medicine = await service.createMedicine(req.body);
+    const actor = req.user as any as { user_id: number; role: string };
+    const medicine = await service.createMedicine(req.body, actor);
     res.status(201).json(medicine);
   } catch (error) {
     handleError(req, res, error);

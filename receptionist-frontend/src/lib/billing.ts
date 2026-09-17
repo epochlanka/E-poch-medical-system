@@ -1,7 +1,12 @@
 import { api } from './api';
+import { listMasterData } from './settings';
 
 export type InvoiceType = 'Consultation' | 'Pharmacy' | 'Consultation+Pharmacy';
 export type PaymentStatus = 'Outstanding' | 'PartiallyPaid' | 'Paid' | 'Voided';
+
+// Sourced from the same PaymentMethod master-data list Settings edits, so a method an admin adds
+// or retires there actually takes effect here rather than being purely decorative.
+export const listPaymentMethodOptions = () => listMasterData('PaymentMethod').then((items) => items.map((i) => i.value));
 
 export interface InvoiceItem {
   invoice_item_id: number;
@@ -16,10 +21,20 @@ export interface InvoiceItem {
 export interface InvoicePayment {
   payment_id: number;
   invoice_id: number;
-  method: 'Cash' | 'Card' | 'Mobile';
+  method: string;
   amount: number;
   received_at: string;
   receiver: { username: string };
+}
+
+export interface InvoiceRefund {
+  refund_id: number;
+  invoice_id: number;
+  method: string;
+  amount: number;
+  reason: string | null;
+  issued_at: string;
+  issuer: { username: string };
 }
 
 // A visit's doctor/consultation-type context, reached through Invoice -> Consultation ->
@@ -37,20 +52,24 @@ export interface InvoiceVisitContext {
 
 export interface Invoice {
   invoice_id: number;
-  patient_id: string;
+  patient_id: string | null;
   consultation_id: number | null;
   subtotal: number;
   discount_total: number;
   total_amount: number;
   paid_amount: number;
   payment_status: PaymentStatus;
+  created_via: 'Manual' | 'Auto';
   void_reason: string | null;
   voided_at: string | null;
   created_at: string;
   type: InvoiceType;
   items: InvoiceItem[];
   payments: InvoicePayment[];
-  patient: { patient_id: string; full_name: string; phone?: string | null };
+  refunds: InvoiceRefund[];
+  // patient_id is null for an unregistered walk-in — full_name/phone still resolve to the
+  // visit's captured temp_patient_* fields (see backend billing/service.ts resolveDisplayPatient).
+  patient: { patient_id: string | null; full_name: string; phone?: string | null };
   creator: { username: string };
   consultation: InvoiceVisitContext | null;
 }
@@ -82,8 +101,18 @@ export const getInvoice = (invoiceId: number) => api.get<Invoice>(`/invoices/${i
 export const createInvoiceForConsultation = (consultationId: number, discounts?: { description: string; amount: number }[]) =>
   api.post<Invoice>('/invoices', { consultation_id: consultationId, discounts }).then((r) => r.data);
 
-export const recordPayments = (invoiceId: number, payments: { method: 'Cash' | 'Card' | 'Mobile'; amount: number }[]) =>
+export const recordPayments = (invoiceId: number, payments: { method: string; amount: number; idempotency_key?: string }[]) =>
   api.post<Invoice>(`/invoices/${invoiceId}/payments`, { payments }).then((r) => r.data);
+
+export const downloadInvoicePdf = async (invoiceId: number, code: string) => {
+  const res = await api.get(`/invoices/${invoiceId}/pdf`, { responseType: 'blob' });
+  const url = URL.createObjectURL(res.data as Blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${code}.pdf`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
 
 export interface PaymentRow {
   paymentId: number;
@@ -92,18 +121,18 @@ export interface PaymentRow {
   invoiceCreatedAt: string;
   invoiceSubtotal: number;
   invoiceDiscount: number;
-  patientId: string;
+  patientId: string | null;
   patientName: string;
   patientPhone: string | null;
   amount: number;
-  method: 'Cash' | 'Card' | 'Mobile';
+  method: string;
   receivedAt: string;
   receivedBy: string;
 }
 
 export interface ListPaymentsParams {
   search?: string;
-  method?: 'Cash' | 'Card' | 'Mobile';
+  method?: string;
   invoiceStatus?: PaymentStatus;
   from?: string;
   to?: string;

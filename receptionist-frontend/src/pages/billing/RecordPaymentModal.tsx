@@ -1,8 +1,6 @@
-import { useState } from 'react';
-import { recordPayments } from '../../lib/billing';
+import { useEffect, useState } from 'react';
+import { recordPayments, listPaymentMethodOptions } from '../../lib/billing';
 import type { Invoice } from '../../lib/billing';
-
-const METHODS: ('Cash' | 'Card' | 'Mobile')[] = ['Cash', 'Card', 'Mobile'];
 
 interface RecordPaymentModalProps {
   invoice: Invoice;
@@ -10,21 +8,31 @@ interface RecordPaymentModalProps {
   onSuccess: (invoice: Invoice) => void;
 }
 
+const newLine = (method: string, amount = '') => ({ method, amount, idempotencyKey: crypto.randomUUID() });
+
 const RecordPaymentModal = ({ invoice, onClose, onSuccess }: RecordPaymentModalProps) => {
   const balance = Math.max(0, invoice.total_amount - invoice.paid_amount);
-  const [lines, setLines] = useState<{ method: 'Cash' | 'Card' | 'Mobile'; amount: string }[]>([{ method: 'Cash', amount: balance.toFixed(2) }]);
+  const [methods, setMethods] = useState<string[]>(['Cash', 'Card', 'Mobile']);
+  const [lines, setLines] = useState([newLine('Cash', balance.toFixed(2))]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const addLine = () => setLines((l) => [...l, { method: 'Cash', amount: '' }]);
+  useEffect(() => {
+    listPaymentMethodOptions()
+      .then((opts) => opts.length > 0 && setMethods(opts))
+      .catch(() => undefined);
+  }, []);
+
+  const addLine = () => setLines((l) => [...l, newLine(methods[0] ?? 'Cash')]);
   const removeLine = (i: number) => setLines((l) => l.filter((_, idx) => idx !== i));
   const total = lines.reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
 
   const handleSubmit = async () => {
+    if (submitting) return; // belt-and-suspenders against a double-click submitting twice before the button disables
     setSubmitting(true);
     setError(null);
     try {
-      const payments = lines.filter((l) => Number(l.amount) > 0).map((l) => ({ method: l.method, amount: Number(l.amount) }));
+      const payments = lines.filter((l) => Number(l.amount) > 0).map((l) => ({ method: l.method, amount: Number(l.amount), idempotency_key: l.idempotencyKey }));
       const updated = await recordPayments(invoice.invoice_id, payments);
       onSuccess(updated);
     } catch (err: any) {
@@ -48,10 +56,10 @@ const RecordPaymentModal = ({ invoice, onClose, onSuccess }: RecordPaymentModalP
           <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
             <select
               value={l.method}
-              onChange={(e) => setLines((arr) => arr.map((x, idx) => (idx === i ? { ...x, method: e.target.value as any } : x)))}
+              onChange={(e) => setLines((arr) => arr.map((x, idx) => (idx === i ? { ...x, method: e.target.value } : x)))}
               style={{ flex: 1, border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13 }}
             >
-              {METHODS.map((m) => (
+              {methods.map((m) => (
                 <option key={m}>{m}</option>
               ))}
             </select>

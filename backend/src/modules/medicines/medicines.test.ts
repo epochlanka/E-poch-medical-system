@@ -3,10 +3,14 @@ import app from '../../app';
 
 describe('Medicines API', () => {
   let token: string;
+  let pharmacistToken: string;
+  const runId = Date.now();
 
   beforeAll(async () => {
     const res = await request(app).post('/api/v1/auth/login').send({ username: 'doctor', password: 'doctor123' });
     token = res.body.token;
+    const pharmacistRes = await request(app).post('/api/v1/auth/login').send({ username: 'pharmacist', password: 'pharmacist123' });
+    pharmacistToken = pharmacistRes.body.token;
   });
 
   it('rejects unauthenticated requests', async () => {
@@ -80,6 +84,81 @@ describe('Medicines API', () => {
       const res = await request(app).get('/api/v1/medicines/stock').query({ supplierId: 999999 }).set('Authorization', `Bearer ${token}`);
       expect(res.status).toBe(200);
       expect(res.body.data.length).toBe(0);
+    });
+  });
+
+  describe('POST /medicines', () => {
+    it('rejects creation from a read-only role (Doctor)', async () => {
+      const res = await request(app)
+        .post('/api/v1/medicines')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ name: `Reject Test ${runId}`, unit: 'tablet' });
+      expect(res.status).toBe(403);
+    });
+
+    it('creates a medicine with no initial stock — no batch is created', async () => {
+      const res = await request(app)
+        .post('/api/v1/medicines')
+        .set('Authorization', `Bearer ${pharmacistToken}`)
+        .send({ name: `No Stock Drug ${runId}`, unit: 'tablet', unit_price: 10 });
+      expect(res.status).toBe(201);
+      expect(res.body.medicine_id).toBeDefined();
+
+      const batches = await request(app).get('/api/v1/inventory/batches').query({ medicineId: res.body.medicine_id }).set('Authorization', `Bearer ${pharmacistToken}`);
+      expect(batches.body.data).toHaveLength(0);
+    });
+
+    it('creates a medicine with an initial stock batch in the same call', async () => {
+      const expiry = new Date(Date.now() + 180 * 86400000).toISOString();
+      const res = await request(app)
+        .post('/api/v1/medicines')
+        .set('Authorization', `Bearer ${pharmacistToken}`)
+        .send({
+          name: `Stocked Drug ${runId}`,
+          unit: 'tablet',
+          unit_price: 20,
+          initial_stock: { qty: 150, expiry_date: expiry, batch_no: `OPEN-${runId}` },
+        });
+      expect(res.status).toBe(201);
+
+      const batches = await request(app).get('/api/v1/inventory/batches').query({ medicineId: res.body.medicine_id }).set('Authorization', `Bearer ${pharmacistToken}`);
+      expect(batches.body.data).toHaveLength(1);
+      expect(batches.body.data[0].qtyOnHand).toBe(150);
+      expect(batches.body.data[0].batchNo).toBe(`OPEN-${runId}`);
+
+      const ledger = await request(app)
+        .get(`/api/v1/inventory/batches/${batches.body.data[0].batchId}/ledger`)
+        .set('Authorization', `Bearer ${pharmacistToken}`);
+      expect(ledger.body.data.some((entry: any) => entry.eventType === 'InitialStock' && entry.changeQty === 150)).toBe(true);
+    });
+
+    it('auto-generates a batch number when initial stock omits one', async () => {
+      const expiry = new Date(Date.now() + 90 * 86400000).toISOString();
+      const res = await request(app)
+        .post('/api/v1/medicines')
+        .set('Authorization', `Bearer ${pharmacistToken}`)
+        .send({ name: `Auto Batch Drug ${runId}`, unit: 'tablet', initial_stock: { qty: 40, expiry_date: expiry } });
+      expect(res.status).toBe(201);
+
+      const batches = await request(app).get('/api/v1/inventory/batches').query({ medicineId: res.body.medicine_id }).set('Authorization', `Bearer ${pharmacistToken}`);
+      expect(batches.body.data[0].batchNo).toBe(`INIT-${res.body.medicine_id}`);
+    });
+
+    it('rejects initial stock with a past expiry date', async () => {
+      const res = await request(app)
+        .post('/api/v1/medicines')
+        .set('Authorization', `Bearer ${pharmacistToken}`)
+        .send({ name: `Expired Stock Drug ${runId}`, unit: 'tablet', initial_stock: { qty: 10, expiry_date: '2020-01-01' } });
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects a non-positive initial stock quantity', async () => {
+      const expiry = new Date(Date.now() + 90 * 86400000).toISOString();
+      const res = await request(app)
+        .post('/api/v1/medicines')
+        .set('Authorization', `Bearer ${pharmacistToken}`)
+        .send({ name: `Zero Stock Drug ${runId}`, unit: 'tablet', initial_stock: { qty: 0, expiry_date: expiry } });
+      expect(res.status).toBe(400);
     });
   });
 });

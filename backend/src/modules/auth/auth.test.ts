@@ -77,6 +77,17 @@ describe('Auth API', () => {
     expect(res.headers['access-control-allow-credentials']).toBe('true');
   });
 
+  it('allows credentialed CORS preflights from a clinic LAN address in development', async () => {
+    const res = await request(app)
+      .options('/api/v1/auth/login')
+      .set('Origin', 'http://192.168.1.50:5174')
+      .set('Access-Control-Request-Method', 'POST');
+
+    expect(res.status).toBe(204);
+    expect(res.headers['access-control-allow-origin']).toBe('http://192.168.1.50:5174');
+    expect(res.headers['access-control-allow-credentials']).toBe('true');
+  });
+
   it('denies an unlisted CORS origin without raising an internal server error', async () => {
     const res = await request(app)
       .options('/api/v1/auth/login')

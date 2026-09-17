@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
-import { listPayments, getPaymentsStats } from '../../lib/billing';
+import { listPayments, getPaymentsStats, listPaymentMethodOptions } from '../../lib/billing';
 import type { ListPaymentsParams, PaymentStatus, PaymentsStats } from '../../lib/billing';
 import {
   PaymentIcon,
@@ -39,7 +39,8 @@ const Payments = () => {
 
   const [searchInput, setSearchInput] = useState('');
   const [filters, setFilters] = useState<ListPaymentsParams>({ page: 1, limit: 10 });
-  const [method, setMethod] = useState<'all' | 'Cash' | 'Card' | 'Mobile'>('all');
+  const [method, setMethod] = useState<string>('all');
+  const [methods, setMethods] = useState<string[]>(['Cash', 'Card', 'Mobile']);
   const [invoiceStatus, setInvoiceStatus] = useState<'all' | PaymentStatus>('all');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -53,6 +54,12 @@ const Payments = () => {
     const t = setTimeout(() => setFilters((f) => ({ ...f, search: searchInput || undefined, page: 1 })), 350);
     return () => clearTimeout(t);
   }, [searchInput]);
+
+  useEffect(() => {
+    listPaymentMethodOptions()
+      .then((opts) => opts.length > 0 && setMethods(opts))
+      .catch(() => undefined);
+  }, []);
 
   const { data: result, loading, error, reload } = useApiData(() => listPayments(filters), [JSON.stringify(filters)]);
   const { data: stats, reload: reloadStats } = useApiData(() => getPaymentsStats(statsRange), [statsRange]);
@@ -211,11 +218,13 @@ const Payments = () => {
               <input placeholder="Search by payment ID, invoice no, patient name…" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
             </div>
 
-            <select className="pat-select" value={method} onChange={(e) => setMethod(e.target.value as any)}>
+            <select className="pat-select" value={method} onChange={(e) => setMethod(e.target.value)}>
               <option value="all">All Payment Methods</option>
-              <option value="Cash">Cash</option>
-              <option value="Card">Card</option>
-              <option value="Mobile">Mobile</option>
+              {methods.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
             </select>
 
             <select className="pat-select" value={invoiceStatus} onChange={(e) => setInvoiceStatus(e.target.value as any)}>

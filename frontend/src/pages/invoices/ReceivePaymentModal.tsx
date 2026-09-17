@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
-import { listInvoices, recordPayments } from '../../lib/billing';
+import { listInvoices, recordPayments, listPaymentMethodOptions } from '../../lib/billing';
 import type { Invoice } from '../../lib/billing';
 import { SearchIcon, TrashIcon, PlusIcon } from '../../components/layout/Icons';
 import { formatCurrency, invoiceCode } from './invoiceUtils';
@@ -12,17 +12,27 @@ interface ReceivePaymentModalProps {
 }
 
 interface PaymentLine {
-  method: 'Cash' | 'Card' | 'Mobile';
+  method: string;
   amount: string;
+  idempotencyKey: string;
 }
+
+const newLine = (method: string): PaymentLine => ({ method, amount: '', idempotencyKey: crypto.randomUUID() });
 
 const ReceivePaymentModal = ({ invoice, onClose, onSuccess }: ReceivePaymentModalProps) => {
   const [selected, setSelected] = useState<Invoice | null>(invoice ?? null);
   const [searchTerm, setSearchTerm] = useState('');
   const [results, setResults] = useState<Invoice[]>([]);
-  const [lines, setLines] = useState<PaymentLine[]>([{ method: 'Cash', amount: '' }]);
+  const [methods, setMethods] = useState<string[]>(['Cash', 'Card', 'Mobile']);
+  const [lines, setLines] = useState<PaymentLine[]>([newLine('Cash')]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    listPaymentMethodOptions()
+      .then((opts) => opts.length > 0 && setMethods(opts))
+      .catch(() => undefined);
+  }, []);
 
   const balance = selected ? selected.total_amount - selected.paid_amount : 0;
 
@@ -38,11 +48,11 @@ const ReceivePaymentModal = ({ invoice, onClose, onSuccess }: ReceivePaymentModa
   }, [searchTerm, selected]);
 
   useEffect(() => {
-    if (selected) setLines([{ method: 'Cash', amount: String(selected.total_amount - selected.paid_amount) }]);
+    if (selected) setLines([{ ...newLine('Cash'), amount: String(selected.total_amount - selected.paid_amount) }]);
   }, [selected]);
 
   const updateLine = (i: number, patch: Partial<PaymentLine>) => setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
-  const addLine = () => setLines((ls) => [...ls, { method: 'Cash', amount: '' }]);
+  const addLine = () => setLines((ls) => [...ls, newLine(methods[0] ?? 'Cash')]);
   const removeLine = (i: number) => setLines((ls) => ls.filter((_, idx) => idx !== i));
 
   const totalEntered = lines.reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
@@ -51,7 +61,8 @@ const ReceivePaymentModal = ({ invoice, onClose, onSuccess }: ReceivePaymentModa
     e.preventDefault();
     setError(null);
     if (!selected) return;
-    const toSubmit = lines.filter((l) => Number(l.amount) > 0).map((l) => ({ method: l.method, amount: Number(l.amount) }));
+    if (submitting) return; // belt-and-suspenders against a double-click submitting twice before the button disables
+    const toSubmit = lines.filter((l) => Number(l.amount) > 0).map((l) => ({ method: l.method, amount: Number(l.amount), idempotency_key: l.idempotencyKey }));
     if (toSubmit.length === 0) {
       setError('Enter at least one payment amount.');
       return;
@@ -124,10 +135,12 @@ const ReceivePaymentModal = ({ invoice, onClose, onSuccess }: ReceivePaymentModa
               </div>
               {lines.map((l, i) => (
                 <div key={i} style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                  <select value={l.method} onChange={(e) => updateLine(i, { method: e.target.value as PaymentLine['method'] })} style={{ width: 110 }}>
-                    <option value="Cash">Cash</option>
-                    <option value="Card">Card</option>
-                    <option value="Mobile">Mobile</option>
+                  <select value={l.method} onChange={(e) => updateLine(i, { method: e.target.value })} style={{ width: 110 }}>
+                    {methods.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
                   </select>
                   <input type="number" min={0} step="0.01" value={l.amount} onChange={(e) => updateLine(i, { amount: e.target.value })} style={{ flex: 1 }} />
                   {lines.length > 1 && (

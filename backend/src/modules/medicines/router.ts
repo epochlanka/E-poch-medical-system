@@ -37,6 +37,16 @@ const createSchema = z.object({
     unit_price: z.number().min(0).optional(),
     buy_price: z.number().min(0).optional(),
     barcode: z.string().optional(),
+    // Optional first batch, created in the same request — the only place a batch can be
+    // created outside the GRN flow, meant for seeding a brand-new medicine's opening stock.
+    initial_stock: z
+      .object({
+        qty: z.number().int().positive(),
+        expiry_date: z.coerce.date(),
+        batch_no: z.string().optional(),
+        location: z.string().optional(),
+      })
+      .optional(),
   }),
 });
 

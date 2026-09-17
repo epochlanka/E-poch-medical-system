@@ -114,24 +114,36 @@ export class AppointmentsService {
 
   /**
    * Convert a temporary/unregistered walk-in's appointment to point at a just-registered Patient
-   * — the one bridge back from "Continue Without Registration" to a permanent record. Required
-   * before billing (Invoice.patient_id is a hard FK — see billing/service.ts's createInvoice
-   * guard) but useful any time reception decides the walk-in should have a real chart after all.
-   * temp_* fields are left in place as a historical trace of how the visit started; only
-   * is_temporary flips false since the appointment now has a real patient_id.
+   * — the one bridge back from "Continue Without Registration" to a permanent record. Billing no
+   * longer requires this (an unregistered walk-in can be invoiced directly — see
+   * billing/service.ts's createInvoice), but any invoice already created against the visit while
+   * it was still unregistered gets backfilled to the new patient_id here, so it shows up under
+   * their patient record instead of staying orphaned. temp_* fields are left in place as a
+   * historical trace of how the visit started; only is_temporary flips false.
    */
   async convertToPatient(appointment_id: number, patient_id: string) {
-    const appointment = await prisma.appointment.findUnique({ where: { appointment_id } });
+    const appointment = await prisma.appointment.findUnique({ where: { appointment_id }, include: { consultation: true } });
     if (!appointment) throw new NotFoundError('Appointment not found');
     if (!appointment.is_temporary) throw new ValidationError('This appointment is not a temporary walk-in');
 
     const patient = await prisma.patient.findUnique({ where: { patient_id } });
     if (!patient) throw new NotFoundError('Patient not found');
 
-    return prisma.appointment.update({
-      where: { appointment_id },
-      data: { patient_id, is_temporary: false },
-      include: { patient: { select: patientSelect }, doctor: { select: doctorSelect } },
+    return prisma.$transaction(async (tx) => {
+      const updated = await tx.appointment.update({
+        where: { appointment_id },
+        data: { patient_id, is_temporary: false },
+        include: { patient: { select: patientSelect }, doctor: { select: doctorSelect } },
+      });
+
+      if (appointment.consultation) {
+        await tx.invoice.updateMany({
+          where: { consultation_id: appointment.consultation.consultation_id, patient_id: null },
+          data: { patient_id },
+        });
+      }
+
+      return updated;
     });
   }
 

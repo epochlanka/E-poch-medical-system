@@ -5,6 +5,7 @@ import type { PrescriptionDetail, PrescriptionItemDetail } from '../../lib/presc
 import { getBatchSuggestions, dispensePrescription, downloadDispenseLabel, collectPrescription } from '../../lib/pharmacy';
 import type { BatchSuggestion, BatchOption, DispenseItemInput } from '../../lib/pharmacy';
 import { formatDateTime } from '../prescriptions/patientUtils';
+import HandoverPaymentDialog from './HandoverPaymentDialog';
 import './guidedDispensing.css';
 import { statusLabel } from '../../lib/pharmacy';
 
@@ -55,6 +56,7 @@ function DispensingWorkspace({ prescriptionId }: { prescriptionId: number }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [collectBusy, setCollectBusy] = useState(false);
+  const [showPayment, setShowPayment] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -191,7 +193,7 @@ function DispensingWorkspace({ prescriptionId }: { prescriptionId: number }) {
     setCollectBusy(true); setError('');
     try {
       await collectPrescription(detail.prescription_id);
-      try { await load(); setSuccess('Handover recorded. This prescription is complete.'); }
+      try { await load(); setSuccess('Handover recorded. This prescription is complete.'); setShowPayment(true); }
       catch (refreshError) { setNeedsReload(true); setError(`Handover was saved, but the page could not refresh: ${message(refreshError)}. Reload before taking another action.`); }
     } catch (e) { setError(message(e)); }
     finally { setCollectBusy(false); }
@@ -210,7 +212,7 @@ function DispensingWorkspace({ prescriptionId }: { prescriptionId: number }) {
       <div className={`gd-alert ${detail.status === 'Collected' ? 'success' : 'neutral'}`}><strong>{detail.status === 'Collected' ? 'Handed to patient' : 'Medicine recorded — waiting for handover'}</strong><br />{detail.status === 'Collected' ? 'This prescription is complete.' : 'Check the patient and medicine one last time, then record the handover below.'}</div>
       <section className="gd-panel"><h2>Medicines on this prescription</h2><div className="gd-list">{detail.items.map(item => <div className="gd-record" key={item.rx_item_id}><div><strong>{item.medicine.name}</strong><small>Prescribed {item.qty} {item.medicine.unit} · Clinic {item.dispensed_qty} · External {item.external_qty}</small></div><span className="gd-pill">Complete</span></div>)}</div></section>
       {detail.status === 'Dispensed' && <div className="gd-handover"><div><strong>Have you given the medicines to this patient?</strong><span>Only mark handed over after the physical handoff.</span></div><button className="gd-button primary" disabled={collectBusy} onClick={() => void markHandedOver()}>{collectBusy ? 'Saving handover…' : 'Mark handed over'}</button></div>}
-      {detail.status === 'Collected' && <div className="gd-alert neutral">Reception handles the patient invoice and payment separately. This screen prints medicine instructions, not a bill.</div>}
+      {detail.status === 'Collected' && <div className="gd-handover"><div><strong>Handed to patient</strong><span>Payment for this visit can be collected here or by reception.</span></div><button className="gd-button secondary" onClick={() => setShowPayment(true)}>Collect payment</button></div>}
     </> : <>
       <nav className="gd-steps" aria-label="Steps to record medicine"><span className={patientChecked ? 'done' : 'current'}>1 <b>Check patient</b></span><span className={review ? 'done' : patientChecked ? 'current' : ''}>2 <b>Pick and tick medicines</b></span><span className={review ? 'current' : ''}>3 <b>Review and record</b></span></nav>
       <label className="gd-check-row"><input type="checkbox" checked={patientChecked} onChange={e => setPatientChecked(e.target.checked)} /><span>I checked this patient’s identity and allergies against the prescription.</span></label>
@@ -243,6 +245,8 @@ function DispensingWorkspace({ prescriptionId }: { prescriptionId: number }) {
       <div className="gd-alert neutral">Confirming records the picked medicines and updates stock. Next, hand the medicines to the patient and mark the handover.</div>
       <div className="gd-actions"><button className="gd-button secondary" disabled={busy} onClick={() => { setReview(null); reviewButton.current?.focus(); }}>Go back and correct</button><button className="gd-button primary" disabled={busy || (reviewHasUnfinished && !partialAcknowledged)} onClick={() => void confirm()}>{busy ? 'Recording…' : 'Confirm and record'}</button></div>
     </dialog>}
+
+    <HandoverPaymentDialog open={showPayment} consultationId={detail.consultation.consultation_id} patientName={patient.fullName} onClose={() => setShowPayment(false)} />
   </main>;
 }
 

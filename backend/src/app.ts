@@ -53,7 +53,15 @@ const isAllowedDevelopmentOrigin = (origin: string) => {
   if (process.env.NODE_ENV === 'production') return false;
   try {
     const url = new URL(origin);
-    return url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+    if (url.protocol !== 'http:') return false;
+
+    const hostname = url.hostname.toLowerCase();
+    const isLoopback = ['localhost', '127.0.0.1', '[::1]'].includes(hostname);
+    const isPrivateIpv4 = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname);
+    const isPrivateIpv6 = /^\[(fc|fd|fe8|fe9|fea|feb)/.test(hostname);
+    const isLocalHostname = !hostname.includes('.') || hostname.endsWith('.local');
+
+    return isLoopback || isPrivateIpv4 || isPrivateIpv6 || isLocalHostname;
   } catch {
     return false;
   }

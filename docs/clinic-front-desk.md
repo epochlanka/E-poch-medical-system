@@ -17,7 +17,7 @@ The existing `reception` account has the `FrontDesk` role; its password is uncha
 - Shared sign-in: http://localhost:5173/login
 - Backend: port 3000
 
-For installation on two physical PCs, use one shared backend/database. Configure `VITE_API_URL` and the portal URL environment variables on all frontend builds to the clinic server's reachable address. In particular, set `VITE_FRONT_DESK_APP_URL` (or `VITE_RECEPTIONIST_APP_URL`) to the front desk portal address. `localhost` addresses above are for testing on the development computer and do not point to another PC. Keep both frontend source folders when building the front desk: it reuses the pharmacist pages directly.
+For two physical PCs on the same private network, use one shared backend/database and open each portal with the server laptop's LAN hostname or IP address instead of `localhost` (for example, `http://192.168.1.50:5174`). By default, the portals now derive the API and the other portal addresses from that browser hostname, so no fixed-IP frontend configuration is required. The backend accepts loopback and private-network origins in development. For production or public hosting, configure explicit HTTPS `VITE_API_URL`, portal URL, and backend `FRONTEND_URLS` values. Keep both frontend source folders when building the front desk: it reuses the pharmacist pages directly.
 
 ## Verification
 

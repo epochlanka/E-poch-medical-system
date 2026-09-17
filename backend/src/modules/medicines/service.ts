@@ -3,6 +3,11 @@ import { NotFoundError, ValidationError } from './errors';
 
 const prisma = new PrismaClient();
 
+interface Actor {
+  user_id: number;
+  role: string;
+}
+
 interface SearchMedicinesParams {
   search?: string;
   category?: string;
@@ -417,6 +422,13 @@ export const importMedicinesFromCsv = async (csvText: string) => {
   return { created, updated, errored, results };
 };
 
+interface InitialStockInput {
+  qty: number;
+  expiry_date: Date;
+  batch_no?: string;
+  location?: string;
+}
+
 interface CreateMedicineInput {
   name: string;
   generic_name?: string;
@@ -431,15 +443,58 @@ interface CreateMedicineInput {
   unit_price?: number;
   buy_price?: number;
   barcode?: string;
+  initial_stock?: InitialStockInput;
 }
 
 // The parent record every batch, prescription line, and dispense event ultimately references.
-export const createMedicine = async (input: CreateMedicineInput) => {
+// Optionally seeds the medicine's first batch in the same call — the one exception to GRN being
+// the only path stock normally enters through (see suppliers/service.ts), meant for getting a
+// brand-new catalog entry's opening stock in without a Purchase Order round-trip. Still leaves a
+// StockLedger row (event_type "InitialStock") so the opening balance is as auditable as any
+// other stock movement.
+export const createMedicine = async (input: CreateMedicineInput, actor: Actor) => {
   if (input.barcode) {
     const existing = await prisma.medicine.findUnique({ where: { barcode: input.barcode } });
     if (existing) throw new ValidationError('A medicine with this barcode already exists');
   }
-  return prisma.medicine.create({ data: input });
+  const { initial_stock, ...medicineData } = input;
+  // `validate` middleware checks the request shape but doesn't write the coerced result back
+  // onto req.body (see middlewares/validate.ts), so expiry_date can still arrive as a raw string
+  // here — re-coerce explicitly rather than relying on it already being a Date.
+  const expiryDate = initial_stock ? new Date(initial_stock.expiry_date) : null;
+  if (initial_stock && (Number.isNaN(expiryDate!.getTime()) || expiryDate! <= new Date())) {
+    throw new ValidationError('Initial stock must have a valid, future expiry date');
+  }
+
+  if (!initial_stock) return prisma.medicine.create({ data: medicineData });
+
+  return prisma.$transaction(async (tx) => {
+    const medicine = await tx.medicine.create({ data: medicineData });
+
+    const batch = await tx.batch.create({
+      data: {
+        medicine_id: medicine.medicine_id,
+        batch_no: initial_stock.batch_no?.trim() || `INIT-${medicine.medicine_id}`,
+        expiry_date: expiryDate!,
+        qty_on_hand: initial_stock.qty,
+        location: initial_stock.location,
+      },
+    });
+
+    await tx.stockLedger.create({
+      data: {
+        batch_id: batch.batch_id,
+        change_qty: initial_stock.qty,
+        balance_after: initial_stock.qty,
+        event_type: 'InitialStock',
+        reference_type: 'Medicine',
+        reference_id: String(medicine.medicine_id),
+        created_by: actor.user_id,
+      },
+    });
+
+    return medicine;
+  });
 };
 
 interface UpdateMedicineInput {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getInvoice } from '../../lib/billing';
+import { getInvoice, downloadInvoicePdf } from '../../lib/billing';
 import type { Invoice } from '../../lib/billing';
 import { formatCurrency, formatDateTime, invoiceCode, paymentStatusLabel, STATUS_BADGE } from './billingUtils';
 
@@ -14,12 +14,23 @@ interface ViewInvoiceModalProps {
 const ViewInvoiceModal = ({ invoiceId, onClose, onRecordPayment }: ViewInvoiceModalProps) => {
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     getInvoice(invoiceId)
       .then(setInvoice)
       .finally(() => setLoading(false));
   }, [invoiceId]);
+
+  const handleDownload = async () => {
+    if (!invoice) return;
+    setDownloading(true);
+    try {
+      await downloadInvoicePdf(invoice.invoice_id, invoiceCode(invoice.invoice_id, invoice.created_at));
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const chargeItems = invoice?.items.filter((i) => i.item_type !== 'Discount') ?? [];
   const discountItems = invoice?.items.filter((i) => i.item_type === 'Discount') ?? [];
@@ -38,7 +49,8 @@ const ViewInvoiceModal = ({ invoiceId, onClose, onRecordPayment }: ViewInvoiceMo
               </span>
             </div>
             <div className="modal-subtitle">
-              {invoice.patient.full_name} ({invoice.patient.patient_id}) — {formatDateTime(invoice.created_at)}
+              {invoice.patient.full_name}
+              {invoice.patient.patient_id ? ` (${invoice.patient.patient_id})` : ' (unregistered walk-in)'} — {formatDateTime(invoice.created_at)}
             </div>
 
             <div className="pat-table-scroll">
@@ -115,6 +127,20 @@ const ViewInvoiceModal = ({ invoiceId, onClose, onRecordPayment }: ViewInvoiceMo
               </div>
             )}
 
+            {invoice.refunds.length > 0 && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: '#334155', marginBottom: 6 }}>Refunds</div>
+                {invoice.refunds.map((r) => (
+                  <div className="ci-payment-row" key={r.refund_id}>
+                    <span>
+                      {r.method} — {formatDateTime(r.issued_at)}
+                    </span>
+                    <span>{formatCurrency(r.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {invoice.payment_status === 'Voided' && invoice.void_reason && (
               <div className="dash-error-banner" style={{ marginTop: 12 }}>
                 Voided — {invoice.void_reason}
@@ -127,6 +153,11 @@ const ViewInvoiceModal = ({ invoiceId, onClose, onRecordPayment }: ViewInvoiceMo
           <button className="modal-btn secondary" onClick={onClose}>
             Close
           </button>
+          {invoice && (
+            <button className="modal-btn secondary" onClick={handleDownload} disabled={downloading}>
+              {downloading ? 'Downloading…' : 'Download PDF'}
+            </button>
+          )}
           {invoice && onRecordPayment && invoice.payment_status !== 'Voided' && invoice.payment_status !== 'Paid' && (
             <button className="modal-btn primary" onClick={() => onRecordPayment(invoice)}>
               Record Payment

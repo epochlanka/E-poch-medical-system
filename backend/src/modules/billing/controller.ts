@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import * as service from './service';
+import { streamInvoicePdf } from './pdf';
 import { NotFoundError, ValidationError } from './errors';
 import { respondWithServerError } from '../../errors';
 
@@ -69,8 +70,19 @@ export const recordPayments = async (req: Request, res: Response) => {
 
 export const voidInvoice = async (req: Request, res: Response) => {
   try {
-    const invoice = await service.voidInvoice(Number(req.params.invoiceId), req.body.reason, actor(req));
+    const invoice = await service.voidInvoice(Number(req.params.invoiceId), req.body.reason, actor(req), req.body.refunds);
     res.status(200).json(invoice);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const getPdf = async (req: Request, res: Response) => {
+  try {
+    const invoice = await service.getInvoiceById(Number(req.params.invoiceId));
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="INV-${new Date(invoice.created_at).getFullYear()}-${String(invoice.invoice_id).padStart(4, '0')}.pdf"`);
+    streamInvoicePdf(invoice, res);
   } catch (error) {
     handleError(req, res, error);
   }

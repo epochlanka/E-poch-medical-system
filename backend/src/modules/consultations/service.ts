@@ -2,6 +2,8 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import fs from 'fs';
 import path from 'path';
 import { NotFoundError, ValidationError, ForbiddenError } from './errors';
+import { maybeAutoCreateInvoice } from '../billing/service';
+import { logger } from '../../errors';
 
 const prisma = new PrismaClient();
 export const uploadsDir = path.join(__dirname, '..', '..', '..', 'uploads', 'consultations');
@@ -165,6 +167,15 @@ export const finalizeConsultation = async (id: number, actor: Actor) => {
     prisma.consultation.update({ where: { consultation_id: id }, data: { status: 'Finalized', finalized_at: new Date() } }),
     prisma.appointment.update({ where: { appointment_id: existing.appointment_id }, data: { status: 'Completed' } }),
   ]);
+
+  // Best-effort: covers visits with no prescription, or where dispensing already finished
+  // before finalization. A billing failure here (e.g. missing clinic settings) must never
+  // block the clinical action of finalizing a consultation.
+  try {
+    await maybeAutoCreateInvoice(id, actor);
+  } catch (err) {
+    logger.warn({ err, consultationId: id }, 'Auto-invoice creation failed after consultation finalization');
+  }
 
   return serializeConsultation(consultation);
 };

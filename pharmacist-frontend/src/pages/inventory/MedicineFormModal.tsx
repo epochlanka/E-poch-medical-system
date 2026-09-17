@@ -28,6 +28,9 @@ interface FormState {
   unit_price: string;
   buy_price: string;
   barcode: string;
+  initial_qty: string;
+  initial_expiry: string;
+  initial_batch_no: string;
 }
 
 const emptyForm: FormState = {
@@ -44,6 +47,9 @@ const emptyForm: FormState = {
   unit_price: '0',
   buy_price: '0',
   barcode: '',
+  initial_qty: '',
+  initial_expiry: '',
+  initial_batch_no: '',
 };
 
 const toForm = (m?: MedicineCatalogRow): FormState =>
@@ -62,6 +68,9 @@ const toForm = (m?: MedicineCatalogRow): FormState =>
         unit_price: String(m.unit_price),
         buy_price: String(m.buy_price),
         barcode: m.barcode ?? '',
+        initial_qty: '',
+        initial_expiry: '',
+        initial_batch_no: '',
       }
     : emptyForm;
 
@@ -81,6 +90,13 @@ const MedicineFormModal = ({ mode, medicine, meta, onClose, onSaved }: Props) =>
     if (!form.name.trim()) return setError('Medicine name is required.');
     if (!form.unit.trim()) return setError('Unit is required.');
 
+    const initialQty = Number(form.initial_qty) || 0;
+    if (mode === 'add' && initialQty > 0) {
+      if (!Number.isInteger(initialQty)) return setError('Initial stock quantity must be a whole number.');
+      if (!form.initial_expiry) return setError('Enter an expiry date for the initial stock.');
+      if (new Date(form.initial_expiry) <= new Date()) return setError('The initial stock expiry date must be in the future.');
+    }
+
     const input = {
       name: form.name.trim(),
       generic_name: form.generic_name.trim() || undefined,
@@ -95,6 +111,10 @@ const MedicineFormModal = ({ mode, medicine, meta, onClose, onSaved }: Props) =>
       unit_price: Number(form.unit_price) || 0,
       buy_price: Number(form.buy_price) || 0,
       barcode: form.barcode.trim() || undefined,
+      initial_stock:
+        mode === 'add' && initialQty > 0
+          ? { qty: initialQty, expiry_date: form.initial_expiry, batch_no: form.initial_batch_no.trim() || undefined }
+          : undefined,
     };
 
     setSaving(true);
@@ -193,6 +213,26 @@ const MedicineFormModal = ({ mode, medicine, meta, onClose, onSaved }: Props) =>
               <label>Barcode / Medicine Code</label>
               <input value={form.barcode} onChange={set('barcode')} disabled={readOnly} placeholder="Auto-generated if left blank" />
             </div>
+            {mode === 'add' && (
+              <>
+                <div className="modal-field span-2">
+                  <label>Initial Stock (optional)</label>
+                  <input type="number" min={0} step="1" value={form.initial_qty} onChange={set('initial_qty')} placeholder="Quantity on hand right now, if any" />
+                </div>
+                {Number(form.initial_qty) > 0 && (
+                  <>
+                    <div className="modal-field">
+                      <label>Expiry Date *</label>
+                      <input type="date" value={form.initial_expiry} onChange={set('initial_expiry')} required />
+                    </div>
+                    <div className="modal-field">
+                      <label>Batch Number</label>
+                      <input value={form.initial_batch_no} onChange={set('initial_batch_no')} placeholder="Auto-generated if left blank" />
+                    </div>
+                  </>
+                )}
+              </>
+            )}
             {mode === 'edit' && (
               <div className="modal-field span-2">
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

@@ -26,6 +26,9 @@ const MedicineFormModal = ({ medicine, categories, onClose, onSaved }: MedicineF
     unit_price: String(medicine?.sell_price ?? ''),
     barcode: medicine?.barcode ?? '',
     is_active: medicine?.is_active ?? true,
+    initial_qty: '',
+    initial_expiry: '',
+    initial_batch_no: '',
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +39,14 @@ const MedicineFormModal = ({ medicine, categories, onClose, onSaved }: MedicineF
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    const initialQty = Number(form.initial_qty) || 0;
+    if (!isEdit && initialQty > 0) {
+      if (!Number.isInteger(initialQty)) return setError('Initial stock quantity must be a whole number.');
+      if (!form.initial_expiry) return setError('Enter an expiry date for the initial stock.');
+      if (new Date(form.initial_expiry) <= new Date()) return setError('The initial stock expiry date must be in the future.');
+    }
+
     setSubmitting(true);
     try {
       const payload = {
@@ -50,6 +61,10 @@ const MedicineFormModal = ({ medicine, categories, onClose, onSaved }: MedicineF
         buy_price: form.buy_price ? Number(form.buy_price) : undefined,
         unit_price: form.unit_price ? Number(form.unit_price) : undefined,
         barcode: form.barcode || undefined,
+        initial_stock:
+          !isEdit && initialQty > 0
+            ? { qty: initialQty, expiry_date: form.initial_expiry, batch_no: form.initial_batch_no || undefined }
+            : undefined,
       };
       if (isEdit && medicine) {
         await updateMedicine(medicine.medicine_id, { ...payload, is_active: form.is_active });
@@ -131,6 +146,26 @@ const MedicineFormModal = ({ medicine, categories, onClose, onSaved }: MedicineF
               <label>Barcode</label>
               <input value={form.barcode} onChange={set('barcode')} placeholder="Optional" />
             </div>
+            {!isEdit && (
+              <>
+                <div className="modal-field span-2">
+                  <label>Initial stock (optional)</label>
+                  <input type="number" min={0} step="1" value={form.initial_qty} onChange={set('initial_qty')} placeholder="Quantity on hand right now, if any" />
+                </div>
+                {Number(form.initial_qty) > 0 && (
+                  <>
+                    <div className="modal-field">
+                      <label>Expiry date *</label>
+                      <input type="date" value={form.initial_expiry} onChange={set('initial_expiry')} required />
+                    </div>
+                    <div className="modal-field">
+                      <label>Batch number</label>
+                      <input value={form.initial_batch_no} onChange={set('initial_batch_no')} placeholder="Auto-generated if left blank" />
+                    </div>
+                  </>
+                )}
+              </>
+            )}
             {isEdit && (
               <div className="modal-field">
                 <label>Status</label>

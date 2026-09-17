@@ -502,7 +502,7 @@ model StockLedger {
   batch_id       Int
   change_qty     Int // positive = stock in, negative = stock out
   balance_after  Int
-  event_type     String // Dispense, Adjustment, GRN, StockTakeCorrection
+  event_type     String // Dispense, Adjustment, GRN, StockTakeCorrection, InitialStock
   reference_type String?
   reference_id   String?
   reason         String?
@@ -618,25 +618,32 @@ model GRNItem {
 
 model Invoice {
   invoice_id      Int       @id @default(autoincrement())
-  patient_id      String
+  // Nullable: an unregistered walk-in (Appointment.is_temporary) has no Patient row — never
+  // fabricate a stub Patient just to satisfy this FK. The display name/phone for such an invoice
+  // is derived at read time from the visit's Appointment.temp_patient_* fields (see
+  // resolveDisplayPatient in billing/service.ts) rather than duplicated here. Backfilled to the
+  // real patient_id if the walk-in later registers (see appointments.convertToPatient).
+  patient_id      String?
   consultation_id Int?
   subtotal        Float     @default(0)
   discount_total  Float     @default(0)
   total_amount    Float     @default(0)
   paid_amount     Float     @default(0)
   payment_status  String    @default("Outstanding") // Outstanding, PartiallyPaid, Paid, Voided
+  created_via     String    @default("Manual") // Manual, Auto — Auto means the system generated this when the visit completed
   void_reason     String?
   voided_by       Int?
   voided_at       DateTime?
   created_by      Int
   created_at      DateTime  @default(now())
 
-  patient        Patient       @relation(fields: [patient_id], references: [patient_id])
+  patient        Patient?      @relation(fields: [patient_id], references: [patient_id])
   consultation   Consultation? @relation(fields: [consultation_id], references: [consultation_id])
   creator        User          @relation("InvoiceCreator", fields: [created_by], references: [user_id])
   voided_by_user User?         @relation("InvoiceVoider", fields: [voided_by], references: [user_id])
   items          InvoiceItem[]
   payments       Payment[]
+  refunds        Refund[]
 
   @@index([created_at])
 }
@@ -656,17 +663,35 @@ model InvoiceItem {
 }
 
 model Payment {
-  payment_id  Int      @id @default(autoincrement())
-  invoice_id  Int
-  method      String // Cash, Card, Mobile
-  amount      Float
-  received_by Int
-  received_at DateTime @default(now())
+  payment_id      Int      @id @default(autoincrement())
+  invoice_id      Int
+  method          String // Cash, Card, Mobile, or any active PaymentMethod master-data entry
+  amount          Float
+  idempotency_key String?  @unique // client-generated key — a replayed request with the same key returns the original payment instead of double-charging
+  received_by     Int
+  received_at     DateTime @default(now())
 
   invoice  Invoice @relation(fields: [invoice_id], references: [invoice_id])
   receiver User    @relation(fields: [received_by], references: [user_id])
 
   @@index([received_at])
+}
+
+// A void on an invoice that already collected money must account for where that money went —
+// this is the only place in the schema that records money leaving, mirroring Payment for money in.
+model Refund {
+  refund_id   Int      @id @default(autoincrement())
+  invoice_id  Int
+  method      String
+  amount      Float
+  reason      String?
+  issued_by   Int
+  issued_at   DateTime @default(now())
+
+  invoice Invoice @relation(fields: [invoice_id], references: [invoice_id])
+  issuer  User    @relation(fields: [issued_by], references: [user_id])
+
+  @@index([issued_at])
 }
 
 model User {
@@ -703,6 +728,7 @@ model User {
   invoices_created              Invoice[]                      @relation("InvoiceCreator")
   invoices_voided               Invoice[]                      @relation("InvoiceVoider")
   payments_received             Payment[]
+  refunds_issued                Refund[]
   settings_updates              ClinicSettings[]
   backups_created               DbBackup[]
   sessions                      UserSession[]

@@ -79,7 +79,7 @@ describe('Billing API', () => {
     expect(res.status).toBe(403);
   });
 
-  it('rejects invoice creation for a temporary/unregistered walk-in until they are registered', async () => {
+  it('bills an unregistered walk-in directly — no Patient row required', async () => {
     const receptionist = await prisma.user.findUniqueOrThrow({ where: { username: 'reception' } });
     const appointment = await prisma.appointment.create({
       data: {
@@ -90,6 +90,7 @@ describe('Billing API', () => {
         is_walk_in: true,
         is_temporary: true,
         temp_patient_name: `Temp Billing Test ${runId}`,
+        temp_patient_phone: '0771112222',
       },
     });
     const consultRes = await request(app)
@@ -100,8 +101,47 @@ describe('Billing API', () => {
     const res = await request(app)
       .post('/api/v1/invoices')
       .set('Authorization', `Bearer ${receptionToken}`)
-      .send({ consultation_id: consultRes.body.consultation_id });
-    expect(res.status).toBe(400);
+      .send({ consultation_id: consultRes.body.consultation_id, consultation_fee: 500 });
+    expect(res.status).toBe(201);
+    expect(res.body.patient.patient_id).toBeNull();
+    expect(res.body.patient.full_name).toBe(`Temp Billing Test ${runId}`);
+    expect(res.body.patient.phone).toBe('0771112222');
+
+    // Findable by the temp name even though it has no Patient row to match against.
+    const searchRes = await request(app)
+      .get('/api/v1/invoices')
+      .query({ search: `Temp Billing Test ${runId}` })
+      .set('Authorization', `Bearer ${receptionToken}`);
+    expect(searchRes.body.data.some((i: any) => i.invoice_id === res.body.invoice_id)).toBe(true);
+
+    // Payment can be recorded against it exactly like any other invoice.
+    const payRes = await request(app)
+      .post(`/api/v1/invoices/${res.body.invoice_id}/payments`)
+      .set('Authorization', `Bearer ${receptionToken}`)
+      .send({ payments: [{ method: 'Cash', amount: 500 }] });
+    expect(payRes.status).toBe(200);
+    expect(payRes.body.payment_status).toBe('Paid');
+
+    // Registering the walk-in afterward backfills the invoice onto their new patient record.
+    const family = await prisma.family.create({ data: { family_name: `Temp Convert Family ${runId}` } });
+    const newPatient = await prisma.patient.create({
+      data: {
+        patient_id: `PT-TEMPCONV-${runId}`,
+        family_id: family.family_id,
+        nic: `TEMPCONV-NIC-${runId}`,
+        full_name: `Temp Billing Test ${runId}`,
+        dob: new Date('1990-01-01'),
+        gender: 'Male',
+      },
+    });
+    const convertRes = await request(app)
+      .patch(`/api/v1/appointments/${appointment.appointment_id}/convert-to-patient`)
+      .set('Authorization', `Bearer ${receptionToken}`)
+      .send({ patient_id: newPatient.patient_id });
+    expect(convertRes.status).toBe(200);
+
+    const invoiceAfter = await prisma.invoice.findUnique({ where: { invoice_id: res.body.invoice_id } });
+    expect(invoiceAfter?.patient_id).toBe(newPatient.patient_id);
   });
 
   let invoiceId: number;
@@ -231,15 +271,48 @@ describe('Billing API', () => {
     expect(res.status).toBe(400);
   });
 
-  it('voids an invoice with Admin approval and a documented reason', async () => {
+  it('rejects voiding a paid invoice without refund lines', async () => {
     const res = await request(app)
       .post(`/api/v1/invoices/${invoiceId}/void`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ reason: 'Patient disputed the charge, reissuing corrected invoice' });
+      .send({ reason: 'Missing refund info' });
+    expect(res.status).toBe(400);
+  });
+
+  it('voids a paid invoice with Admin approval, a documented reason, and refund lines', async () => {
+    const invoiceRes = await request(app).get(`/api/v1/invoices/${invoiceId}`).set('Authorization', `Bearer ${receptionToken}`);
+    const paidAmount = invoiceRes.body.paid_amount;
+
+    const res = await request(app)
+      .post(`/api/v1/invoices/${invoiceId}/void`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        reason: 'Patient disputed the charge, reissuing corrected invoice',
+        refunds: [{ method: 'Cash', amount: paidAmount }],
+      });
 
     expect(res.status).toBe(200);
     expect(res.body.payment_status).toBe('Voided');
     expect(res.body.dispensedItemsNeedingReview).toBe(true);
+
+    const refetched = await request(app).get(`/api/v1/invoices/${invoiceId}`).set('Authorization', `Bearer ${receptionToken}`);
+    expect(refetched.body.refunds).toHaveLength(1);
+    expect(refetched.body.refunds[0].amount).toBe(paidAmount);
+  });
+
+  it('rejects a refund total that exceeds what was actually paid', async () => {
+    const { consultationId } = await makeFinalizedConsultationWithDispensedRx(doctorToken, doctorId, pharmacistToken);
+    const invoiceRes = await request(app).post('/api/v1/invoices').set('Authorization', `Bearer ${receptionToken}`).send({ consultation_id: consultationId });
+    await request(app)
+      .post(`/api/v1/invoices/${invoiceRes.body.invoice_id}/payments`)
+      .set('Authorization', `Bearer ${receptionToken}`)
+      .send({ payments: [{ method: 'Cash', amount: 100 }] });
+
+    const res = await request(app)
+      .post(`/api/v1/invoices/${invoiceRes.body.invoice_id}/void`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ reason: 'Over-refund attempt', refunds: [{ method: 'Cash', amount: 100000 }] });
+    expect(res.status).toBe(400);
   });
 
   it('rejects recording a payment against a voided invoice', async () => {
@@ -326,9 +399,10 @@ describe('Billing API', () => {
       expect(res.body.data.every((p: any) => p.invoiceStatus === 'PartiallyPaid')).toBe(true);
     });
 
-    it('rejects an invalid payment method filter', async () => {
+    it('returns no rows for a method filter that matches nothing (not a hardcoded enum, so an unknown value just filters to empty)', async () => {
       const res = await request(app).get('/api/v1/invoices/payments').query({ method: 'Bitcoin' }).set('Authorization', `Bearer ${receptionToken}`);
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
+      expect(res.body.data).toHaveLength(0);
     });
   });
 
@@ -360,6 +434,113 @@ describe('Billing API', () => {
     it('rejects an invalid range', async () => {
       const res = await request(app).get('/api/v1/invoices/payments/stats').query({ range: 'decade' }).set('Authorization', `Bearer ${adminToken}`);
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe('Automatic billing on visit completion', () => {
+    it('bills consultation fee + dispensed medicine automatically once the consultation is finalized (dispensing already done)', async () => {
+      const { consultationId, medicineUnitPrice } = await makeFinalizedConsultationWithDispensedRx(doctorToken, doctorId, pharmacistToken);
+
+      const finalizeRes = await request(app).post(`/api/v1/consultations/${consultationId}/finalize`).set('Authorization', `Bearer ${doctorToken}`);
+      expect(finalizeRes.status).toBe(200);
+
+      const listRes = await request(app).get('/api/v1/invoices').query({ consultationId }).set('Authorization', `Bearer ${receptionToken}`);
+      expect(listRes.body.data).toHaveLength(1);
+      const invoice = listRes.body.data[0];
+      expect(invoice.created_via).toBe('Auto');
+      expect(invoice.total_amount).toBe(500 + medicineUnitPrice * 10);
+    });
+
+    it('defers billing until dispensing finishes, then fires automatically the moment it does', async () => {
+      const medicine = await prisma.medicine.create({ data: { name: `Auto Bill Drug ${runId}-${Math.random()}`, unit: 'tablet', unit_price: 40, is_active: true } });
+      const batch = await prisma.batch.create({
+        data: { medicine_id: medicine.medicine_id, batch_no: `AUTO-${runId}-${Math.random()}`, expiry_date: new Date(Date.now() + 90 * 86400000), qty_on_hand: 50 },
+      });
+      const family = await prisma.family.create({ data: { family_name: `Auto Bill Family ${runId}-${Math.random()}` } });
+      const patient = await prisma.patient.create({
+        data: {
+          patient_id: `PT-AUTO-${runId}-${Math.random().toString(36).slice(2, 8)}`,
+          family_id: family.family_id,
+          nic: `AUTO-NIC-${runId}-${Math.random().toString(36).slice(2, 8)}`,
+          full_name: 'Auto Bill Test Patient',
+          dob: new Date('1990-01-01'),
+          gender: 'Male',
+        },
+      });
+      const receptionist = await prisma.user.findUniqueOrThrow({ where: { username: 'reception' } });
+      const appointment = await prisma.appointment.create({
+        data: { patient_id: patient.patient_id, doctor_id: doctorId, scheduled_at: new Date(), status: 'Consulting', created_by: receptionist.user_id },
+      });
+      const consultRes = await request(app).post('/api/v1/consultations').set('Authorization', `Bearer ${doctorToken}`).send({ appointment_id: appointment.appointment_id });
+      const consultationId = consultRes.body.consultation_id;
+
+      const rxRes = await request(app)
+        .post('/api/v1/prescriptions')
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ consultation_id: consultationId, items: [{ medicine_id: medicine.medicine_id, dosage: '1 tab', qty: 5 }] });
+
+      // Doctor finalizes before the pharmacist dispenses — this is the common real-world order.
+      const finalizeRes = await request(app).post(`/api/v1/consultations/${consultationId}/finalize`).set('Authorization', `Bearer ${doctorToken}`);
+      expect(finalizeRes.status).toBe(200);
+
+      const beforeDispense = await request(app).get('/api/v1/invoices').query({ consultationId }).set('Authorization', `Bearer ${receptionToken}`);
+      expect(beforeDispense.body.data).toHaveLength(0);
+
+      await request(app)
+        .post(`/api/v1/pharmacy/prescriptions/${rxRes.body.prescription_id}/dispense`)
+        .set('Authorization', `Bearer ${pharmacistToken}`)
+        .send({ items: [{ rx_item_id: rxRes.body.items[0].rx_item_id, batch_id: batch.batch_id }] });
+
+      const afterDispense = await request(app).get('/api/v1/invoices').query({ consultationId }).set('Authorization', `Bearer ${receptionToken}`);
+      expect(afterDispense.body.data).toHaveLength(1);
+      expect(afterDispense.body.data[0].created_via).toBe('Auto');
+      expect(afterDispense.body.data[0].total_amount).toBe(500 + 40 * 5);
+    });
+
+    it('does not auto-bill a still-Draft consultation, and manual creation remains available as a fallback', async () => {
+      const { consultationId, medicineUnitPrice } = await makeFinalizedConsultationWithDispensedRx(doctorToken, doctorId, pharmacistToken);
+      // Never finalized — the dispense above already ran maybeAutoCreateInvoice and found it not Finalized yet.
+      const before = await request(app).get('/api/v1/invoices').query({ consultationId }).set('Authorization', `Bearer ${receptionToken}`);
+      expect(before.body.data).toHaveLength(0);
+
+      const manual = await request(app).post('/api/v1/invoices').set('Authorization', `Bearer ${receptionToken}`).send({ consultation_id: consultationId });
+      expect(manual.status).toBe(201);
+      expect(manual.body.created_via).toBe('Manual');
+      expect(manual.body.total_amount).toBe(500 + medicineUnitPrice * 10);
+    });
+  });
+
+  describe('Payment method validation & idempotency', () => {
+    it('rejects a payment method that is not an active PaymentMethod master-data entry', async () => {
+      const { consultationId } = await makeFinalizedConsultationWithDispensedRx(doctorToken, doctorId, pharmacistToken);
+      const invoiceRes = await request(app).post('/api/v1/invoices').set('Authorization', `Bearer ${receptionToken}`).send({ consultation_id: consultationId });
+
+      const res = await request(app)
+        .post(`/api/v1/invoices/${invoiceRes.body.invoice_id}/payments`)
+        .set('Authorization', `Bearer ${receptionToken}`)
+        .send({ payments: [{ method: 'Bitcoin', amount: 100 }] });
+      expect(res.status).toBe(400);
+    });
+
+    it('replays an idempotent payment submission without double-charging', async () => {
+      const { consultationId } = await makeFinalizedConsultationWithDispensedRx(doctorToken, doctorId, pharmacistToken);
+      const invoiceRes = await request(app).post('/api/v1/invoices').set('Authorization', `Bearer ${receptionToken}`).send({ consultation_id: consultationId });
+      const idempotencyKey = `idem-${runId}-${Math.random()}`;
+
+      const first = await request(app)
+        .post(`/api/v1/invoices/${invoiceRes.body.invoice_id}/payments`)
+        .set('Authorization', `Bearer ${receptionToken}`)
+        .send({ payments: [{ method: 'Cash', amount: 100, idempotency_key: idempotencyKey }] });
+      expect(first.status).toBe(200);
+      expect(first.body.paid_amount).toBe(100);
+
+      const replay = await request(app)
+        .post(`/api/v1/invoices/${invoiceRes.body.invoice_id}/payments`)
+        .set('Authorization', `Bearer ${receptionToken}`)
+        .send({ payments: [{ method: 'Cash', amount: 100, idempotency_key: idempotencyKey }] });
+      expect(replay.status).toBe(200);
+      expect(replay.body.paid_amount).toBe(100);
+      expect(replay.body.payments).toHaveLength(1);
     });
   });
 });

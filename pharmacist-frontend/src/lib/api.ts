@@ -1,7 +1,8 @@
 import axios from 'axios';
 import { commonLoginUrl } from '../config/roleRoutes';
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+// Default to the host used to open the UI so LAN clients call the clinic server, not themselves.
+export const API_BASE_URL = import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
 export const api = axios.create({
   baseURL: `${API_BASE_URL}/api/v1`,

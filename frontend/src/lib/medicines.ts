@@ -46,6 +46,8 @@ export interface CreateMedicineInput {
   unit_price?: number;
   buy_price?: number;
   barcode?: string;
+  // Optional first batch, created in the same request — see backend/src/modules/medicines/service.ts.
+  initial_stock?: { qty: number; expiry_date: string; batch_no?: string; location?: string };
 }
 
 export const createMedicine = (input: CreateMedicineInput) => api.post<MedicineDetail>('/medicines', input).then((r) => r.data);
