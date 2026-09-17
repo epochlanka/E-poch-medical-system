@@ -45,17 +45,82 @@ interface CreateInvoiceInput {
   discounts?: DiscountInput[];
 }
 
-// One invoice per visit — closes the "two separate bills" gap. Only fully-dispensed lines
-// (dispensed_at set) are billed — batch_id alone is no longer a safe "done" signal now that
-// partial dispensing can set it mid-way through a still-incomplete line (see pharmacy/service.ts).
-// `createdVia` distinguishes a system-generated invoice (fired when a visit completes, see
-// maybeAutoCreateInvoice below) from one reception created by hand — same math either way.
+interface LineItemDraft {
+  item_type: string;
+  description: string;
+  qty: number;
+  unit_price: number;
+  line_total: number;
+  source_prescription_item_id?: number;
+  medicine_id?: number;
+  batch_id?: number;
+  source_dispense_id?: number;
+  base_qty?: number;
+  unit?: string;
+  purchase_cost?: number;
+  profit?: number;
+}
+
+// Shape pulled onto every PrescriptionItem so a Medicine line can be built per exact batch draw —
+// shared by createInvoice (first billing) and syncDispensedItemsToInvoice (later top-ups).
+const dispensableItemInclude = {
+  dispenses: {
+    include: {
+      invoice_item: { select: { invoice_item_id: true } },
+      batch: { include: { medicine: { select: { medicine_id: true, name: true, base_unit: true } } } },
+    },
+  },
+} as const;
+
+type DispenseForBilling = Prisma.PrescriptionItemDispenseGetPayload<{ include: typeof dispensableItemInclude.dispenses.include }>;
+
+// One InvoiceItem per PrescriptionItemDispense — never a weighted average across batches — so a
+// line drawn from two different batches produces two batch-specific lines (Section 6/7), each
+// carrying the batch's own selling price (never purchase price) and its own purchase cost (never
+// the selling price) for accurate historical profit reporting (Section 8). A fully external-
+// purchase line (the patient bought it outside the clinic) never reaches here at all, since it
+// never has a dispense row to begin with — see the `dispenses.length === 0` skip below.
+const buildMedicineLine = (dispense: DispenseForBilling, rxItemId: number): LineItemDraft => {
+  const medicine = dispense.batch.medicine;
+  const lineTotal = dispense.qty * dispense.unit_price;
+  const purchaseCost = dispense.qty * dispense.unit_cost;
+  return {
+    item_type: 'Medicine',
+    description: medicine.name,
+    qty: dispense.qty,
+    unit_price: dispense.unit_price,
+    line_total: lineTotal,
+    source_prescription_item_id: rxItemId,
+    medicine_id: medicine.medicine_id,
+    batch_id: dispense.batch_id,
+    source_dispense_id: dispense.dispense_id,
+    base_qty: dispense.qty,
+    unit: medicine.base_unit,
+    purchase_cost: purchaseCost,
+    profit: lineTotal - purchaseCost,
+  };
+};
+
+// Every not-yet-billed dispense across a consultation's prescriptions, turned into draft Medicine
+// lines. "Not yet billed" is decided by InvoiceItem.source_dispense_id (unique), not by whether an
+// invoice exists yet — the same lookup safely powers both a brand-new invoice and a top-up of an
+// existing one.
+const collectUnbilledMedicineLines = (
+  items: { rx_item_id: number; dispensed_at: Date | null; dispenses: DispenseForBilling[] }[]
+): LineItemDraft[] =>
+  items
+    .filter((item) => !!item.dispensed_at)
+    .flatMap((item) => item.dispenses.filter((d) => !d.invoice_item).map((d) => buildMedicineLine(d, item.rx_item_id)));
+
+// One invoice per visit — closes the "two separate bills" gap. `createdVia` distinguishes a
+// system-generated invoice (fired from ensureInvoiceForConsultation below) from one reception
+// created by hand — same math either way.
 export const createInvoice = async (input: CreateInvoiceInput, actor: Actor, createdVia: 'Manual' | 'Auto' = 'Manual') => {
   const consultation = await prisma.consultation.findUnique({
     where: { consultation_id: input.consultation_id },
     include: {
       appointment: { include: { patient: true } },
-      prescriptions: { include: { items: { include: { medicine: true } } } },
+      prescriptions: { include: { items: { include: dispensableItemInclude } } },
       invoices: { where: { payment_status: { not: 'Voided' } } },
     },
   });
@@ -69,31 +134,18 @@ export const createInvoice = async (input: CreateInvoiceInput, actor: Actor, cre
   // derives a name/phone from the appointment's temp_patient_* fields wherever this is read.
   const patientId = consultation.appointment.patient_id;
 
+  // The doctor's fee for THIS visit, frozen onto the consultation at finalize time, wins over
+  // whatever the admin default is *right now* — that's what makes a later default change never
+  // rewrite an already-finalized visit's charge (Section 20). `input.consultation_fee` remains as
+  // an explicit override for the rare manual/early invoice created before finalization even ran.
   const clinicSettings = await prisma.clinicSettings.findUnique({ where: { id: 1 } });
-  const fee = input.consultation_fee ?? clinicSettings?.default_consultation_fee ?? FALLBACK_CONSULTATION_FEE;
+  const fee = input.consultation_fee ?? consultation.consultation_fee ?? clinicSettings?.default_consultation_fee ?? FALLBACK_CONSULTATION_FEE;
   if (fee < 0) throw new ValidationError('Consultation fee cannot be negative');
 
-  const lineItems: {
-    item_type: string;
-    description: string;
-    qty: number;
-    unit_price: number;
-    line_total: number;
-    source_prescription_item_id?: number;
-  }[] = [{ item_type: 'ConsultationFee', description: 'Consultation fee', qty: 1, unit_price: fee, line_total: fee }];
+  const lineItems: LineItemDraft[] = [{ item_type: 'ConsultationFee', description: 'Consultation fee', qty: 1, unit_price: fee, line_total: fee }];
 
   for (const rx of consultation.prescriptions) {
-    for (const item of rx.items) {
-      if (!item.dispensed_at) continue;
-      lineItems.push({
-        item_type: 'Medicine',
-        description: item.medicine.name,
-        qty: item.qty,
-        unit_price: item.medicine.unit_price,
-        line_total: item.medicine.unit_price * item.qty,
-        source_prescription_item_id: item.rx_item_id,
-      });
-    }
+    lineItems.push(...collectUnbilledMedicineLines(rx.items));
   }
 
   const subtotal = lineItems.reduce((sum, i) => sum + i.line_total, 0);
@@ -102,7 +154,7 @@ export const createInvoice = async (input: CreateInvoiceInput, actor: Actor, cre
   for (const d of discounts) {
     if (d.amount <= 0) throw new ValidationError('Discount amounts must be positive');
   }
-  const discountItems = discounts.map((d) => ({
+  const discountItems: LineItemDraft[] = discounts.map((d) => ({
     item_type: 'Discount',
     description: d.description,
     qty: 1,
@@ -137,27 +189,59 @@ export const createInvoice = async (input: CreateInvoiceInput, actor: Actor, cre
   return getInvoiceById(created.invoice_id);
 };
 
-// A visit is billable the moment its final cost is fully known: the consultation is Finalized,
-// and either no prescription was issued or every issued prescription is fully dispensed. Called
-// from both finalizeConsultation (covers no-prescription visits, and visits where dispensing
-// already finished before finalization) and pharmacy's dispense-completion path (covers the
-// common case where dispensing finishes after finalization) — whichever happens last is the one
-// that actually creates the invoice, using the exact same formula as a manual createInvoice call.
-// Best-effort by design: callers should not let a billing hiccup block a clinical/pharmacy action.
-export const maybeAutoCreateInvoice = async (consultationId: number, actor: Actor) => {
+// ---- Incremental medicine-line top-up ------------------------------------------------------
+// Appends any not-yet-billed dispense as a new Medicine line to an EXISTING active invoice and
+// recomputes subtotal/total/status — the counterpart to createInvoice's line-building, for the
+// (now common) case where the invoice already exists — created at finalization with just the
+// consultation fee, or created early by hand — before this particular dispense happened.
+// Idempotent: a dispense already linked to an invoice item (source_dispense_id) is never re-billed,
+// so calling this repeatedly as dispensing progresses is always safe.
+export const syncDispensedItemsToInvoice = async (consultationId: number, actor: Actor) => {
+  const invoice = await prisma.invoice.findFirst({ where: { consultation_id: consultationId, payment_status: { not: 'Voided' } } });
+  if (!invoice) return null;
+
+  const items = await prisma.prescriptionItem.findMany({
+    where: { prescription: { consultation_id: consultationId }, dispensed_at: { not: null } },
+    include: dispensableItemInclude,
+  });
+
+  const newLines = collectUnbilledMedicineLines(items);
+  if (newLines.length === 0) return getInvoiceById(invoice.invoice_id);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.invoiceItem.createMany({ data: newLines.map((l) => ({ invoice_id: invoice.invoice_id, ...l })) });
+
+    const allItems = await tx.invoiceItem.findMany({ where: { invoice_id: invoice.invoice_id } });
+    const subtotal = allItems.filter((i) => i.item_type !== 'Discount').reduce((sum, i) => sum + i.line_total, 0);
+    const discountTotal = allItems.filter((i) => i.item_type === 'Discount').reduce((sum, i) => sum - i.line_total, 0);
+    const totalAmount = subtotal - discountTotal;
+    const paymentStatus = invoice.paid_amount >= totalAmount - 0.01 ? 'Paid' : invoice.paid_amount > 0 ? 'PartiallyPaid' : 'Outstanding';
+
+    await tx.invoice.update({
+      where: { invoice_id: invoice.invoice_id },
+      data: { subtotal, discount_total: discountTotal, total_amount: totalAmount, payment_status: paymentStatus },
+    });
+  });
+
+  return getInvoiceById(invoice.invoice_id);
+};
+
+// Single entry point for keeping a consultation's invoice honest as its billable facts change —
+// called right after finalization (the consultation fee is now known) and after every dispense (a
+// new medicine charge may now be known). The first call creates the invoice; every call after that
+// tops up the one that already exists. This is what lets a visit with no prescription at all —
+// including an unregistered walk-in's — reach Payment immediately at finalization, and lets a
+// visit billed early (Section 25's manual-invoice escape hatch) still pick up medicine charges
+// dispensed afterwards, rather than losing them (Section 17). Best-effort by design: callers must
+// never let a billing hiccup block a clinical/pharmacy action.
+export const ensureInvoiceForConsultation = async (consultationId: number, actor: Actor) => {
   const consultation = await prisma.consultation.findUnique({
     where: { consultation_id: consultationId },
-    include: {
-      invoices: { where: { payment_status: { not: 'Voided' } } },
-      prescriptions: { include: { items: true } },
-    },
+    include: { invoices: { where: { payment_status: { not: 'Voided' } } } },
   });
   if (!consultation || consultation.status !== 'Finalized') return null;
-  if (consultation.invoices.length > 0) return null; // already billed, manually or automatically
 
-  const fullyDispensed = consultation.prescriptions.every((rx) => rx.items.every((item) => !!item.dispensed_at));
-  if (!fullyDispensed) return null;
-
+  if (consultation.invoices.length > 0) return syncDispensedItemsToInvoice(consultationId, actor);
   return createInvoice({ consultation_id: consultationId }, actor, 'Auto');
 };
 

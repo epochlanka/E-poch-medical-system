@@ -2,15 +2,17 @@ import { api } from './api';
 
 export interface Batch {
   batchId: number; batchNo: string; medicineId: number; medicineName: string;
-  expiryDate: string; manufactureDate: string | null; qtyOnHand: number;
+  purchaseDate?: string; expiryDate: string; manufactureDate: string | null;
+  receivedUnit?: string; receivedQty?: number; unitsPerPack?: number; qtyBaseTotal?: number; qtyOnHand: number;
+  purchasePricePerPack?: number; costPerBaseUnit?: number; sellingPricePerPack?: number | null; sellingPricePerBaseUnit?: number; stockValue?: number;
   location: string | null; supplierName: string | null; status: string;
 }
 export interface Page<T> { data: T[]; pagination: { page: number; totalPages: number; total: number } }
-export interface LedgerEntry { ledgerId: number; changeQty: number; balanceAfter: number; eventType: string; reason: string | null; createdBy: string; createdAt: string }
+export interface LedgerEntry { ledgerId: number; changeQty: number; balanceAfter: number; eventType: string; unitPrice?: number | null; unitCost?: number | null; reason: string | null; createdBy: string; createdAt: string }
 export interface StockAlert { type: 'low-stock' | 'expiring-batch' | 'expired-batch'; severity: string; message: string; refId: number }
 export interface StockCount { stock_count_id: number; status: string; created_at: string; performed_by_user: { username: string }; items: { batch_id: number; expected_qty: number; counted_qty: number; variance: number }[] }
 export interface Supplier { supplier_id: number; name: string; phone: string | null; email: string | null; city: string | null; is_active: boolean }
-export interface OrderItem { po_item_id: number; qty_ordered: number; medicine: { name: string; unit: string }; grn_items: { qty_received: number }[] }
+export interface OrderItem { po_item_id: number; qty_ordered: number; medicine: { name: string; base_unit: string }; grn_items: { qty_received: number }[] }
 export interface PurchaseOrder { po_id: number; status: string; order_date: string; expected_date: string | null; supplier: Supplier; items: OrderItem[]; orderedQty: number; receivedQty: number; totalAmount: number }
 export interface Grn { grn_id: number; po_id: number; received_at: string; has_discrepancy: boolean; discrepancy_reviewed_at: string | null; purchase_order: { supplier: Supplier }; receiver: { username: string }; items?: { grn_item_id: number; qty_received: number; batch: { batch_no: string; expiry_date: string }; po_item: { medicine: { name: string } } }[] }
 // patient_id is null for an unregistered walk-in — full_name still resolves to the visit's
@@ -24,14 +26,20 @@ export const getStockAlerts = () => api.get<StockAlert[]>('/inventory/alerts').t
 export const getStockCounts = () => api.get<StockCount[]>('/inventory/stock-counts').then(r => r.data);
 export const createStockCount = (items: { batch_id: number; counted_qty: number }[], notes: string) => api.post('/inventory/stock-counts', { items, notes }).then(r => r.data);
 export const postStockCount = (id: number) => api.post(`/inventory/stock-counts/${id}/post`).then(r => r.data);
-export const adjustStock = (batchId: number, delta: number, reason: string) => api.post(`/inventory/batches/${batchId}/adjust`, { delta, reason }).then(r => r.data);
+export const adjustStock = (batchId: number, delta: number, reason: string, transactionType?: 'Adjustment' | 'Transfer' | 'Return' | 'Damaged' | 'Expired') =>
+  api.post(`/inventory/batches/${batchId}/adjust`, { delta, reason, transactionType }).then(r => r.data);
 export const getSuppliers = (search?: string) => api.get<Supplier[]>('/suppliers', { params: { search } }).then(r => r.data);
 export const getOrders = (params?: Record<string, string | number | undefined>) => api.get<Page<PurchaseOrder>>('/suppliers/purchase-orders', { params }).then(r => r.data);
 export const getOrder = (id: number) => api.get<PurchaseOrder>(`/suppliers/purchase-orders/${id}`).then(r => r.data);
 export const createOrder = (supplier_id: number, items: { medicine_id: number; qty_ordered: number; unit_cost?: number }[]) => api.post('/suppliers/purchase-orders', { supplier_id, items }).then(r => r.data);
 export const submitOrder = (id: number) => api.post(`/suppliers/purchase-orders/${id}/submit`).then(r => r.data);
 export const closeOrder = (id: number) => api.post(`/suppliers/purchase-orders/${id}/close`).then(r => r.data);
-export const receiveOrder = (id: number, items: { po_item_id: number; qty_received: number; batch_no: string; expiry_date: string }[]) => api.post(`/suppliers/purchase-orders/${id}/grn`, { items }).then(r => r.data);
+export interface GrnReceiptItem {
+  po_item_id: number; qty_received: number; batch_no: string; expiry_date: string; manufacture_date?: string;
+  received_unit: string; units_per_pack: number; purchase_price_per_pack?: number;
+  selling_price_per_pack?: number; selling_price_per_base_unit?: number;
+}
+export const receiveOrder = (id: number, items: GrnReceiptItem[]) => api.post(`/suppliers/purchase-orders/${id}/grn`, { items }).then(r => r.data);
 export const getGrns = (params?: Record<string, string | boolean>) => api.get<Grn[]>('/suppliers/goods-received-notes', { params }).then(r => r.data);
 export const getGrn = (id: number) => api.get<Grn>(`/suppliers/goods-received-notes/${id}`).then(r => r.data);
 export const getInvoices = (params?: Record<string, string | number | undefined>) => api.get<Page<Invoice>>('/invoices', { params }).then(r => r.data);

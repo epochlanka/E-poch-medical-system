@@ -31,6 +31,11 @@ const vitalsSchema = z
 const consultationIdParams = z.object({ consultationId: z.coerce.number().int().positive() });
 const consultationIdParamsSchema = z.object({ params: consultationIdParams });
 
+const finalizeSchema = z.object({
+  params: consultationIdParams,
+  body: z.object({ consultation_fee: z.number().min(0).optional() }).optional(),
+});
+
 const clinicalFields = {
   vitals: vitalsSchema,
   complaint: z.string().optional(),
@@ -131,7 +136,7 @@ router.post('/', requireRole(WRITE_ROLES), validate(createSchema), controller.cr
 
 router.get('/:consultationId', requireRole(READ_ROLES), validate(consultationIdParamsSchema), controller.getById);
 router.put('/:consultationId', requireRole(WRITE_ROLES), validate(updateSchema), controller.update);
-router.post('/:consultationId/finalize', requireRole(WRITE_ROLES), validate(consultationIdParamsSchema), controller.finalize);
+router.post('/:consultationId/finalize', requireRole(WRITE_ROLES), validate(finalizeSchema), controller.finalize);
 router.post('/:consultationId/amend', requireRole(WRITE_ROLES), validate(amendSchema), controller.amend);
 router.get('/:consultationId/amendments', requireRole(READ_ROLES), validate(consultationIdParamsSchema), controller.amendments);
 

@@ -1,6 +1,6 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import { NotFoundError, ValidationError } from './errors';
-import { maybeAutoCreateInvoice } from '../billing/service';
+import { ensureInvoiceForConsultation } from '../billing/service';
 import { logger } from '../../errors';
 
 const prisma = new PrismaClient();
@@ -205,6 +205,8 @@ export const dispense = async (prescriptionId: number, items: DispenseItemInput[
           change_qty: -requestedQty,
           balance_after: updatedBatch.qty_on_hand,
           event_type: 'Dispense',
+          unit_price: batch.selling_price_per_base_unit,
+          unit_cost: batch.cost_per_base_unit,
           reference_type: 'Prescription',
           reference_id: String(prescriptionId),
           reason: isFefoChoice ? null : dispenseItem.override_reason,
@@ -214,12 +216,16 @@ export const dispense = async (prescriptionId: number, items: DispenseItemInput[
 
       // Full per-batch audit trail for this line — a later top-up from a different batch (the
       // first one ran out mid-way) gets its own row here, even though PrescriptionItem itself
-      // only ever remembers the last batch that touched it.
+      // only ever remembers the last batch that touched it. unit_price/unit_cost are snapshotted
+      // from the batch right now — billing reads these (not live Medicine/Batch pricing) so a
+      // later price change never rewrites what this sale actually charged (Section 15).
       await tx.prescriptionItemDispense.create({
         data: {
           rx_item_id: rxItem.rx_item_id,
           batch_id: batch.batch_id,
           qty: requestedQty,
+          unit_price: batch.selling_price_per_base_unit,
+          unit_cost: batch.cost_per_base_unit,
           fefo_override_reason: isFefoChoice ? null : dispenseItem.override_reason,
           notes: dispenseItem.notes,
           dispensed_by: actor.user_id,
@@ -252,14 +258,14 @@ export const dispense = async (prescriptionId: number, items: DispenseItemInput[
       include: { items: { include: { medicine: true, batch: true } } },
     });
   }).then(async (result) => {
-    // The common case: dispensing finishes after the doctor already finalized the consultation.
-    // Best-effort, same as the finalize-time trigger — must never fail the dispense action itself.
-    if (result.status === 'Dispensed') {
-      try {
-        await maybeAutoCreateInvoice(result.consultation_id, actor);
-      } catch (err) {
-        logger.warn({ err, prescriptionId, consultationId: result.consultation_id }, 'Auto-invoice creation failed after dispensing completed');
-      }
+    // Every dispense (partial or the item/prescription's final one) can make the invoice stale —
+    // either it doesn't exist yet (created once the consultation is finalized) or it's missing the
+    // line(s) this call just completed. Best-effort, same as the finalize-time trigger — must never
+    // fail the dispense action itself.
+    try {
+      await ensureInvoiceForConsultation(result.consultation_id, actor);
+    } catch (err) {
+      logger.warn({ err, prescriptionId, consultationId: result.consultation_id }, 'Invoice sync failed after dispensing');
     }
     return result;
   });

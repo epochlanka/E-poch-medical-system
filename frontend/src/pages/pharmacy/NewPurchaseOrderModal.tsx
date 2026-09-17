@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useApiData } from '../../hooks/useApiData';
 import { listSuppliers, createPurchaseOrder } from '../../lib/suppliers';
-import { searchMedicines, getMedicine } from '../../lib/medicines';
+import { searchMedicines } from '../../lib/medicines';
 import type { Medicine } from '../../lib/medicines';
 import { SearchIcon, TrashIcon, PlusIcon } from '../../components/layout/Icons';
 import { formatCurrency } from './pharmacyUtils';
@@ -41,18 +41,13 @@ const NewPurchaseOrderModal = ({ onClose, onSuccess }: NewPurchaseOrderModalProp
     return () => clearTimeout(t);
   }, [searchTerm]);
 
-  const addLine = async (m: Medicine) => {
+  // A Medicine no longer carries its own buy price (cost now lives per-batch) — there's no
+  // reliable server-side figure to auto-fill from, so the pharmacist enters the cost manually.
+  const addLine = (m: Medicine) => {
     setSearchTerm('');
     setResults([]);
     if (lines.some((l) => l.medicine_id === m.medicine_id)) return;
-    let unitCost = 0;
-    try {
-      const detail = await getMedicine(m.medicine_id);
-      unitCost = detail.buy_price;
-    } catch {
-      // fall back to 0 if the lookup fails — the pharmacist can still fill it in manually
-    }
-    setLines((ls) => [...ls, { medicine_id: m.medicine_id, name: m.name, qty_ordered: 1, unit_cost: unitCost }]);
+    setLines((ls) => [...ls, { medicine_id: m.medicine_id, name: m.name, qty_ordered: 1, unit_cost: 0 }]);
   };
 
   const updateLine = (medicineId: number, patch: Partial<OrderLine>) =>
@@ -131,7 +126,7 @@ const NewPurchaseOrderModal = ({ onClose, onSuccess }: NewPurchaseOrderModalProp
                 {results.map((m) => (
                   <button type="button" key={m.medicine_id} className="ph-search-result" onClick={() => addLine(m)}>
                     <span>{m.name}</span>
-                    <span className="pat-muted">{m.unit}</span>
+                    <span className="pat-muted">{m.base_unit}</span>
                   </button>
                 ))}
               </div>

@@ -172,6 +172,12 @@ model Consultation {
   status                     String    @default("Draft") // Draft, Finalized
   created_at                 DateTime  @default(now())
   finalized_at               DateTime?
+  // Resolved and frozen the moment this consultation is finalized: the doctor's manually-entered
+  // fee for THIS visit if they provided one, otherwise ClinicSettings.default_consultation_fee at
+  // that instant. Never a permanent per-doctor setting, and never re-resolved later — a later
+  // change to the admin default must not alter what an already-finalized consultation charged
+  // (Invoice/InvoiceItem read this value, not ClinicSettings, once it's set).
+  consultation_fee           Float?
 
   appointment     Appointment                @relation(fields: [appointment_id], references: [appointment_id])
   prescriptions   Prescription[]
@@ -267,6 +273,11 @@ model PrescriptionItemDispense {
   rx_item_id           Int
   batch_id             Int
   qty                  Int
+  // Snapshotted from the batch at the moment of dispensing — billing invoice-creation reads
+  // these (not live Medicine/Batch pricing) so a later price change never rewrites history, and
+  // profit-per-sale stays accurate even when the same medicine has batches at different costs.
+  unit_price           Float    @default(0) // batch.selling_price_per_base_unit at dispense time — what the patient is charged per unit
+  unit_cost            Float    @default(0) // batch.cost_per_base_unit at dispense time — for profit reporting
   fefo_override_reason String?
   notes                String?
   dispensed_by         Int
@@ -275,26 +286,40 @@ model PrescriptionItemDispense {
   item              PrescriptionItem @relation(fields: [rx_item_id], references: [rx_item_id])
   batch             Batch            @relation(fields: [batch_id], references: [batch_id])
   dispensed_by_user User             @relation(fields: [dispensed_by], references: [user_id])
+  invoice_item      InvoiceItem?
 
   @@index([rx_item_id])
 }
 
 model Medicine {
-  medicine_id     Int     @id @default(autoincrement())
-  name            String
-  generic_name    String?
-  brand_name      String? // e.g. "Panadol" for generic "Paracetamol" — searchable, distinct from name
-  category        String? // doubles as "Therapeutic Class" wherever that's shown
-  form            String? // doubles as "Dosage Form" wherever that's shown
-  strength        String? // e.g. "500mg", "10mg/5ml"
-  manufacturer    String?
-  unit            String
-  reorder_level   Int     @default(0) // "Min Stock" — reorder trigger threshold
-  max_stock_level Int     @default(0) // "Max Stock" — target ceiling for reorder-quantity suggestions
-  unit_price      Float   @default(0) // sell price charged to the patient
-  buy_price       Float   @default(0) // supplier cost price, for margin/PO reference
-  barcode         String? @unique // doubles as "Medicine Code" wherever that's shown
-  is_active       Boolean @default(true)
+  medicine_id           Int     @id @default(autoincrement())
+  name                  String
+  generic_name          String?
+  brand_name            String? // e.g. "Panadol" for generic "Paracetamol" — searchable, distinct from name. Same generic + different brand/strength/form is a separate Medicine row by design (never one row with a brand list).
+  category              String? // doubles as "Therapeutic Class" wherever that's shown
+  form                  String? // doubles as "Dosage Form" wherever that's shown — Tablet, Capsule, Syrup, Suspension, Cream, Ointment, Drops, Injection, ...
+  strength              String? // e.g. "500mg", "10mg/5ml"
+  manufacturer          String?
+  requires_prescription Boolean @default(false)
+  // The atomic unit every batch's stock and every price-per-unit figure is expressed in —
+  // Tablet/Capsule for solids, ml for liquids (syrup/suspension/drops/injection), Gram for
+  // creams/ointments sold by weight, Piece for anything else. Batches may be RECEIVED in a
+  // different pack unit (Box/Strip/Bottle/Tube) and converted down to this via their own
+  // units_per_pack — see Batch below.
+  base_unit             String  @default("Piece")
+  // Prefill only for the "Add Stock Batch" form, e.g. default_pack_unit "Box" + default_pack_size
+  // 100 for a medicine normally bought as boxes of 100 tablets. Never authoritative — each batch
+  // records its own received_unit/units_per_pack because a given shipment can still arrive loose.
+  default_pack_unit     String?
+  default_pack_size     Float?
+  // Fallback reference price only — shown when there's no batch to price from yet (a brand-new
+  // catalog entry, or a fully-external prescription line). Real dispenses/sales always price off
+  // the specific Batch they draw from (Batch.selling_price_per_base_unit), never this field.
+  default_selling_price Float   @default(0)
+  reorder_level         Int     @default(0) // "Min Stock" — reorder trigger threshold, in base units
+  max_stock_level       Int     @default(0) // "Max Stock" — target ceiling for reorder-quantity suggestions, in base units
+  barcode               String? @unique // doubles as "Medicine Code" wherever that's shown
+  is_active             Boolean @default(true)
 
   batches                    Batch[]
   purchaseOrderItems         PurchaseOrderItem[]
@@ -303,6 +328,7 @@ model Medicine {
   substitutionsAsOriginal    MedicineSubstitution[]         @relation("SubstitutionOriginal")
   substitutionsAsAlternative MedicineSubstitution[]         @relation("SubstitutionAlternative")
   externalPrescriptionRefs   ExternalPrescriptionMedicine[]
+  invoiceItems               InvoiceItem[]
 
   @@index([name])
   @@index([generic_name])
@@ -476,15 +502,34 @@ model MedicineSubstitution {
   @@unique([medicine_id, substitute_medicine_id])
 }
 
+// One row per stock receipt ("Stock Batch") — a Medicine Product can have many, each keeping its
+// own batch number, expiry, supplier, purchase cost and selling price forever (receiving a new
+// batch at a different price/expiry never touches an older one). Status (Active/Depleted/Expired)
+// is deliberately not a stored column — it's derived live from qty_on_hand/expiry_date, same
+// "compute, don't cache" convention as medicine stock status elsewhere in this codebase.
 model Batch {
-  batch_id         Int       @id @default(autoincrement())
-  medicine_id      Int
-  batch_no         String
-  manufacture_date DateTime?
-  expiry_date      DateTime
-  qty_on_hand      Int
-  location         String? // physical storage location, e.g. "Main Store / Shelf A-01"
-  supplier_id      Int?
+  batch_id                    Int       @id @default(autoincrement())
+  medicine_id                 Int
+  batch_no                    String
+  supplier_id                 Int?
+  purchase_date               DateTime  @default(now())
+  manufacture_date            DateTime?
+  expiry_date                 DateTime
+  // The unit this specific receipt was recorded in — Box, Strip, Bottle, Tablet, Capsule, ml,
+  // Tube, Piece, Other. Independent of the medicine's default_pack_unit: a shipment can arrive as
+  // loose tablets (received_unit "Tablet", units_per_pack 1) even if boxes are the norm.
+  received_unit               String    @default("Piece")
+  received_qty                Float     @default(0) // quantity in received_unit, e.g. 5 (boxes) or 25 (loose tablets)
+  units_per_pack              Float     @default(1) // base units per one received_unit — e.g. 100 tablets/box; 1 if received_unit already is the base unit
+  qty_base_total              Float     @default(0) // received_qty * units_per_pack, frozen at receipt — the batch's original size in base units
+  qty_on_hand                 Float // remaining stock, in base units (fractional for ml/gram) — decremented by sales/adjustments
+  // Purchase (cost) side — never overwritten by, or used to derive, the selling side.
+  purchase_price_per_pack     Float     @default(0) // price paid per received_unit
+  cost_per_base_unit          Float     @default(0) // purchase_price_per_pack / units_per_pack, frozen at receipt
+  // Selling side — never overwritten by, or used to derive, the purchase side.
+  selling_price_per_pack      Float? // optional — price charged when sold as a whole received_unit pack
+  selling_price_per_base_unit Float     @default(0) // drives per-base-unit sales/dispensing (FEFO draws always charge this)
+  location                    String? // physical storage location, e.g. "Main Store / Shelf A-01"
 
   medicine          Medicine                   @relation(fields: [medicine_id], references: [medicine_id])
   supplier          Supplier?                  @relation(fields: [supplier_id], references: [supplier_id])
@@ -493,16 +538,22 @@ model Batch {
   ledger_entries    StockLedger[]
   stock_count_items StockCountItem[]
   grn_item          GRNItem?
+  invoiceItems      InvoiceItem[]
 
   @@index([medicine_id, expiry_date])
 }
 
+// Every stock movement ("Stock Transaction"), always tied to the exact batch it moved —
+// change_qty/balance_after are always in the medicine's base unit, whatever unit the underlying
+// event itself was recorded in (e.g. a 5-box GRN receipt lands here as +500 tablets).
 model StockLedger {
   ledger_id      Int      @id @default(autoincrement())
   batch_id       Int
-  change_qty     Int // positive = stock in, negative = stock out
-  balance_after  Int
-  event_type     String // Dispense, Adjustment, GRN, StockTakeCorrection, InitialStock
+  change_qty     Float // positive = stock in, negative = stock out, in base units
+  balance_after  Float // in base units
+  event_type     String // OpeningStock, GRN (purchase receipt), Dispense (sale), Adjustment, Transfer, Return, Damaged, Expired, StockTakeCorrection
+  unit_price     Float? // batch.selling_price_per_base_unit at the moment of a Dispense — snapshotted for historically-accurate revenue reporting
+  unit_cost      Float? // batch.cost_per_base_unit at the moment of the event — snapshotted for historically-accurate profit reporting
   reference_type String?
   reference_id   String?
   reason         String?
@@ -530,12 +581,12 @@ model StockCount {
 }
 
 model StockCountItem {
-  stock_count_item_id Int @id @default(autoincrement())
+  stock_count_item_id Int   @id @default(autoincrement())
   stock_count_id      Int
   batch_id            Int
-  expected_qty        Int
-  counted_qty         Int
-  variance            Int
+  expected_qty        Float
+  counted_qty         Float
+  variance            Float
 
   stock_count StockCount @relation(fields: [stock_count_id], references: [stock_count_id])
   batch       Batch      @relation(fields: [batch_id], references: [batch_id])
@@ -580,8 +631,8 @@ model PurchaseOrderItem {
   po_item_id  Int    @id @default(autoincrement())
   po_id       Int
   medicine_id Int
-  qty_ordered Int
-  unit_cost   Float?
+  qty_ordered Float
+  unit_cost   Float? // estimated purchase price per pack unit at order time — the batch created at GRN receipt records its own actual purchase_price_per_pack, which may differ
 
   purchase_order PurchaseOrder @relation(fields: [po_id], references: [po_id])
   medicine       Medicine      @relation(fields: [medicine_id], references: [medicine_id])
@@ -605,11 +656,11 @@ model GoodsReceivedNote {
 }
 
 model GRNItem {
-  grn_item_id  Int  @id @default(autoincrement())
+  grn_item_id  Int   @id @default(autoincrement())
   grn_id       Int
   po_item_id   Int
-  batch_id     Int? @unique
-  qty_received Int
+  batch_id     Int?  @unique
+  qty_received Float
 
   grn     GoodsReceivedNote @relation(fields: [grn_id], references: [grn_id])
   po_item PurchaseOrderItem @relation(fields: [po_item_id], references: [po_item_id])
@@ -649,17 +700,33 @@ model Invoice {
 }
 
 model InvoiceItem {
-  invoice_item_id             Int    @id @default(autoincrement())
+  invoice_item_id             Int     @id @default(autoincrement())
   invoice_id                  Int
   item_type                   String // ConsultationFee, Medicine, Discount
   description                 String
-  qty                         Int    @default(1)
+  qty                         Int     @default(1)
   unit_price                  Float
   line_total                  Float
   source_prescription_item_id Int?
+  // Medicine lines only — the exact product/batch this line was priced and deducted from.
+  // ConsultationFee/Discount lines leave these null.
+  medicine_id                 Int?
+  batch_id                    Int?
+  // The exact PrescriptionItemDispense this line bills for — one line per batch actually drawn
+  // (never a weighted-average across batches), and the unique constraint makes billing a given
+  // dispense idempotent: a later top-up sync can find "already-billed" dispenses by this FK and
+  // never double-charge the same batch draw twice.
+  source_dispense_id          Int?    @unique
+  base_qty                    Float? // qty in the medicine's base unit (matches the dispense's batch draw)
+  unit                        String? // snapshot of medicine.base_unit at billing time
+  purchase_cost               Float? // total cost for this line, from the batch's cost_per_base_unit — for profit reporting only, never shown to the patient
+  profit                      Float? // line_total - purchase_cost
 
-  invoice     Invoice           @relation(fields: [invoice_id], references: [invoice_id])
-  source_item PrescriptionItem? @relation(fields: [source_prescription_item_id], references: [rx_item_id])
+  invoice         Invoice                   @relation(fields: [invoice_id], references: [invoice_id])
+  source_item     PrescriptionItem?         @relation(fields: [source_prescription_item_id], references: [rx_item_id])
+  medicine        Medicine?                 @relation(fields: [medicine_id], references: [medicine_id])
+  batch           Batch?                    @relation(fields: [batch_id], references: [batch_id])
+  source_dispense PrescriptionItemDispense? @relation(fields: [source_dispense_id], references: [dispense_id])
 }
 
 model Payment {
@@ -680,13 +747,13 @@ model Payment {
 // A void on an invoice that already collected money must account for where that money went —
 // this is the only place in the schema that records money leaving, mirroring Payment for money in.
 model Refund {
-  refund_id   Int      @id @default(autoincrement())
-  invoice_id  Int
-  method      String
-  amount      Float
-  reason      String?
-  issued_by   Int
-  issued_at   DateTime @default(now())
+  refund_id  Int      @id @default(autoincrement())
+  invoice_id Int
+  method     String
+  amount     Float
+  reason     String?
+  issued_by  Int
+  issued_at  DateTime @default(now())
 
   invoice Invoice @relation(fields: [invoice_id], references: [invoice_id])
   issuer  User    @relation(fields: [issued_by], references: [user_id])
@@ -809,22 +876,22 @@ model LetterTemplate {
 
   // Letterhead values substituted into placeholders. All optional — an admin may instead
   // hard-code them directly in the Word document and simply not use the placeholder.
-  clinic_name         String?
-  clinic_address      String?
-  phone_number        String?
-  doctor_name         String?
+  clinic_name          String?
+  clinic_address       String?
+  phone_number         String?
+  doctor_name          String?
   doctor_qualification String?
-  doctor_department   String?
-  registration_number String?
+  doctor_department    String?
+  registration_number  String?
 
   created_by Int
   created_at DateTime @default(now())
   updated_by Int?
   updated_at DateTime @updatedAt
 
-  creator         User                   @relation("LetterTemplateCreator", fields: [created_by], references: [user_id])
-  updater         User?                  @relation("LetterTemplateUpdater", fields: [updated_by], references: [user_id])
-  current_version LetterTemplateVersion? @relation("CurrentVersion", fields: [current_version_id], references: [version_id])
+  creator         User                    @relation("LetterTemplateCreator", fields: [created_by], references: [user_id])
+  updater         User?                   @relation("LetterTemplateUpdater", fields: [updated_by], references: [user_id])
+  current_version LetterTemplateVersion?  @relation("CurrentVersion", fields: [current_version_id], references: [version_id])
   versions        LetterTemplateVersion[] @relation("TemplateVersions")
   issued_letters  IssuedLetter[]
 }

@@ -61,7 +61,7 @@ describe('Pharmacy API', () => {
     const receptionRes = await request(app).post('/api/v1/auth/login').send({ username: 'reception', password: 'reception123' });
     receptionToken = receptionRes.body.token;
 
-    const medicine = await prisma.medicine.create({ data: { name: `FEFO Test Drug ${runId}`, unit: 'tablet', is_active: true } });
+    const medicine = await prisma.medicine.create({ data: { name: `FEFO Test Drug ${runId}`, base_unit: 'Tablet', is_active: true } });
     medicineId = medicine.medicine_id;
 
     const earlyExpiry = new Date();
@@ -143,7 +143,7 @@ describe('Pharmacy API', () => {
   });
 
   it('uses the earliest batch that can supply the requested quantity', async () => {
-    const medicine = await prisma.medicine.create({ data: { name: `FEFO Available Drug ${runId}`, unit: 'tablet', is_active: true } });
+    const medicine = await prisma.medicine.create({ data: { name: `FEFO Available Drug ${runId}`, base_unit: 'Tablet', is_active: true } });
     await prisma.batch.create({ data: { medicine_id: medicine.medicine_id, batch_no: `SMALL-EARLY-${runId}`, expiry_date: new Date(Date.now() + 10 * 86400000), qty_on_hand: 2 } });
     const enough = await prisma.batch.create({ data: { medicine_id: medicine.medicine_id, batch_no: `ENOUGH-LATER-${runId}`, expiry_date: new Date(Date.now() + 20 * 86400000), qty_on_hand: 10 } });
     const rx = await makePrescription(doctorToken, doctorId, [{ medicine_id: medicine.medicine_id, dosage: '1 tab', qty: 5 }]);
@@ -153,7 +153,7 @@ describe('Pharmacy API', () => {
   });
 
   it('re-validates stock at confirm-time and rejects an over-quantity batch', async () => {
-    const smallMedicine = await prisma.medicine.create({ data: { name: `Small Stock Drug ${runId}`, unit: 'tablet', is_active: true } });
+    const smallMedicine = await prisma.medicine.create({ data: { name: `Small Stock Drug ${runId}`, base_unit: 'Tablet', is_active: true } });
     const smallBatch = await prisma.batch.create({
       data: { medicine_id: smallMedicine.medicine_id, batch_no: `SMALL-${runId}`, expiry_date: new Date(Date.now() + 30 * 86400000), qty_on_hand: 2 },
     });
@@ -168,7 +168,7 @@ describe('Pharmacy API', () => {
   });
 
   it('supports partial dispense — only the selected lines advance', async () => {
-    const secondMedicine = await prisma.medicine.create({ data: { name: `Second Drug ${runId}`, unit: 'tablet', is_active: true } });
+    const secondMedicine = await prisma.medicine.create({ data: { name: `Second Drug ${runId}`, base_unit: 'Tablet', is_active: true } });
     const secondBatch = await prisma.batch.create({
       data: { medicine_id: secondMedicine.medicine_id, batch_no: `SECOND-${runId}`, expiry_date: new Date(Date.now() + 60 * 86400000), qty_on_hand: 50 },
     });
@@ -287,7 +287,7 @@ describe('Pharmacy API', () => {
   });
 
   it('rejects dispensing with an unconfigured substitution', async () => {
-    const unrelated = await prisma.medicine.create({ data: { name: `Unrelated Drug ${runId}`, unit: 'tablet', is_active: true } });
+    const unrelated = await prisma.medicine.create({ data: { name: `Unrelated Drug ${runId}`, base_unit: 'Tablet', is_active: true } });
     const rx = await makePrescription(doctorToken, doctorId, [{ medicine_id: medicineId, dosage: '1 tab', qty: 1 }]);
 
     const res = await request(app)
@@ -298,7 +298,7 @@ describe('Pharmacy API', () => {
   });
 
   it('creates a substitution rule and allows dispensing with the configured alternative', async () => {
-    const altMedicine = await prisma.medicine.create({ data: { name: `Alt Drug ${runId}`, unit: 'tablet', is_active: true } });
+    const altMedicine = await prisma.medicine.create({ data: { name: `Alt Drug ${runId}`, base_unit: 'Tablet', is_active: true } });
     const altBatch = await prisma.batch.create({
       data: { medicine_id: altMedicine.medicine_id, batch_no: `ALT-${runId}`, expiry_date: new Date(Date.now() + 60 * 86400000), qty_on_hand: 20 },
     });
@@ -328,7 +328,7 @@ describe('Pharmacy API', () => {
   });
 
   it('rejects creating a duplicate substitution pair, supports priority/type, and can update/deactivate a rule', async () => {
-    const altMedicine = await prisma.medicine.create({ data: { name: `Rule Test Alt ${runId}`, unit: 'tablet', is_active: true } });
+    const altMedicine = await prisma.medicine.create({ data: { name: `Rule Test Alt ${runId}`, base_unit: 'Tablet', is_active: true } });
 
     const createRes = await request(app)
       .post('/api/v1/pharmacy/substitutions')

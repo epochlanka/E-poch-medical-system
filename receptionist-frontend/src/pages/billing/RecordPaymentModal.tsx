@@ -12,7 +12,7 @@ const newLine = (method: string, amount = '') => ({ method, amount, idempotencyK
 
 const RecordPaymentModal = ({ invoice, onClose, onSuccess }: RecordPaymentModalProps) => {
   const balance = Math.max(0, invoice.total_amount - invoice.paid_amount);
-  const [methods, setMethods] = useState<string[]>(['Cash', 'Card', 'Mobile']);
+  const [methods, setMethods] = useState<string[]>(['Cash', 'Card', 'Mobile', 'Bank Transfer', 'Other']);
   const [lines, setLines] = useState([newLine('Cash', balance.toFixed(2))]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);

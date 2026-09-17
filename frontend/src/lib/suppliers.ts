@@ -71,7 +71,7 @@ export interface PoItem {
   qty_ordered: number;
   unit_cost: number | null;
   grn_items?: { grn_item_id: number; qty_received: number }[];
-  medicine?: { medicine_id: number; name: string; unit: string };
+  medicine?: { medicine_id: number; name: string; base_unit: string };
 }
 
 export interface PurchaseOrder {
@@ -152,6 +152,11 @@ export interface GrnItemInput {
   batch_no: string;
   expiry_date: string;
   manufacture_date?: string;
+  received_unit: string;
+  units_per_pack: number;
+  purchase_price_per_pack?: number; // overrides the PO line's estimated unit_cost if the actual invoice price differs
+  selling_price_per_pack?: number;
+  selling_price_per_base_unit?: number;
 }
 
 export const receiveGrn = (poId: number, items: GrnItemInput[]) =>

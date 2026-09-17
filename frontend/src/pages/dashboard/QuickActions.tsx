@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
-import { listMasterData } from '../../lib/settings';
+import { getCatalogMeta } from '../../lib/medicines';
 import {
   PatientsIcon,
   CalendarIcon,
@@ -31,7 +31,7 @@ const ACTIONS = [
 const QuickActions = () => {
   const navigate = useNavigate();
   const [modal, setModal] = useState<string | null>(null);
-  const { data: categories } = useApiData(() => listMasterData('MedicineCategory'));
+  const { data: meta } = useApiData(() => getCatalogMeta());
 
   return (
     <div className="card">
@@ -61,9 +61,7 @@ const QuickActions = () => {
         <NewAppointmentModal onClose={() => setModal(null)} onSuccess={() => setModal(null)} />
       )}
 
-      {modal === 'medicine' && (
-        <MedicineFormModal categories={(categories ?? []).map((c) => c.value)} onClose={() => setModal(null)} onSaved={() => setModal(null)} />
-      )}
+      {modal === 'medicine' && <MedicineFormModal meta={meta} onClose={() => setModal(null)} onSaved={() => setModal(null)} />}
 
       {modal === 'invoice' && <NewInvoiceModal onClose={() => setModal(null)} onSuccess={() => setModal(null)} />}
 

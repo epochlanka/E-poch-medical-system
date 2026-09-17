@@ -34,6 +34,9 @@ export interface Consultation {
   status: 'Draft' | 'Finalized';
   created_at: string;
   finalized_at: string | null;
+  // Resolved and frozen at finalize time — this visit's fee override if the doctor entered one,
+  // otherwise the admin default at that moment. Always null until Finalized.
+  consultation_fee: number | null;
   vitals: Vitals | null;
   prescriptions: ConsultationPrescription[];
 }
@@ -172,8 +175,10 @@ export const createConsultation = (appointmentId: number, input: ConsultationInp
 export const updateConsultation = (consultationId: number, input: ConsultationInput) =>
   api.put<Consultation>(`/consultations/${consultationId}`, input).then((r) => r.data);
 
-export const finalizeConsultation = (consultationId: number) =>
-  api.post<Consultation>(`/consultations/${consultationId}/finalize`).then((r) => r.data);
+// consultationFee is this visit's manually-entered override only — omit it to fall back to
+// Settings > Default Consultation Fee, resolved and frozen server-side at finalize time.
+export const finalizeConsultation = (consultationId: number, consultationFee?: number) =>
+  api.post<Consultation>(`/consultations/${consultationId}/finalize`, consultationFee !== undefined ? { consultation_fee: consultationFee } : {}).then((r) => r.data);
 
 // A Finalized consultation can never be edited through the same form as a Draft (BR-08/FR-037) —
 // a correction goes through this logged amend path instead, one field at a time with a reason.

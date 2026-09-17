@@ -184,27 +184,37 @@ export const getTopMedicinesReport = async (input: DateRangeInput & { limit?: nu
   const { start, end } = resolveRange(input);
   const limit = input.limit && input.limit > 0 && input.limit <= 100 ? input.limit : 10;
 
-  const grouped = await prisma.prescriptionItem.groupBy({
-    by: ['medicine_id'],
-    _sum: { qty: true },
+  // Revenue is summed from what each dispense actually charged (batch-snapshotted unit_price),
+  // not a live Medicine price — accurate even when the same medicine's batches were priced
+  // differently over the report window. Grouped in JS since the revenue figure depends on a
+  // per-row price, not just a count, same pattern as the Pharmacist dashboard's top-dispensed list.
+  const dispenses = await prisma.prescriptionItemDispense.findMany({
     where: { dispensed_at: { gte: start, lte: end } },
-    orderBy: { _sum: { qty: 'desc' } },
-    take: limit,
+    select: { qty: true, unit_price: true, item: { select: { medicine_id: true, substituted_medicine_id: true } } },
   });
 
-  const medicines = await prisma.medicine.findMany({ where: { medicine_id: { in: grouped.map((g) => g.medicine_id) } } });
-  const byId = new Map(medicines.map((m) => [m.medicine_id, m]));
+  const byMedicine = new Map<number, { medicineId: number; unitsSold: number; revenue: number }>();
+  for (const d of dispenses) {
+    const medicineId = d.item.substituted_medicine_id ?? d.item.medicine_id;
+    const entry = byMedicine.get(medicineId) ?? { medicineId, unitsSold: 0, revenue: 0 };
+    entry.unitsSold += d.qty;
+    entry.revenue += d.qty * d.unit_price;
+    byMedicine.set(medicineId, entry);
+  }
 
-  const rows = grouped.map((g) => {
-    const medicine = byId.get(g.medicine_id);
-    const unitsSold = g._sum.qty ?? 0;
-    return {
-      medicineId: g.medicine_id,
-      name: medicine?.name ?? 'Unknown',
-      unitsSold,
-      revenue: medicine ? medicine.unit_price * unitsSold : 0,
-    };
-  });
+  const top = Array.from(byMedicine.values())
+    .sort((a, b) => b.unitsSold - a.unitsSold)
+    .slice(0, limit);
+
+  const medicines = await prisma.medicine.findMany({ where: { medicine_id: { in: top.map((t) => t.medicineId) } } });
+  const nameById = new Map(medicines.map((m) => [m.medicine_id, m.name]));
+
+  const rows = top.map((t) => ({
+    medicineId: t.medicineId,
+    name: nameById.get(t.medicineId) ?? 'Unknown',
+    unitsSold: t.unitsSold,
+    revenue: t.revenue,
+  }));
 
   return {
     title: 'Top Dispensed Medicines',

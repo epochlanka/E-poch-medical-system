@@ -34,8 +34,9 @@ const ledgerSchema = z.object({
 const adjustSchema = z.object({
   params: z.object({ batchId: z.coerce.number().int().positive() }),
   body: z.object({
-    delta: z.number().int().refine((n) => n !== 0, 'delta cannot be zero'),
+    delta: z.number().refine((n) => n !== 0, 'delta cannot be zero'),
     reason: z.string().min(1, 'A reason is required'),
+    transactionType: z.enum(['Adjustment', 'Transfer', 'Return', 'Damaged', 'Expired']).optional(),
   }),
 });
 
@@ -49,7 +50,7 @@ const alertsSchema = z.object({ query: z.object({ days: z.coerce.number().int().
 const createStockCountSchema = z.object({
   body: z.object({
     items: z
-      .array(z.object({ batch_id: z.number().int().positive(), counted_qty: z.number().int().min(0) }))
+      .array(z.object({ batch_id: z.number().int().positive(), counted_qty: z.number().min(0) }))
       .min(1, 'At least one batch is required'),
     notes: z.string().optional(),
   }),

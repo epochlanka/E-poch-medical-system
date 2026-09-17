@@ -156,11 +156,11 @@ const AddExternalMedicineModal = ({
       brand_name: m.brand_name || '',
       dosage_form: m.form || '',
       strength: m.strength || '',
-      dosage: m.strength || `1 ${m.unit}`,
+      dosage: m.strength || `1 ${m.base_unit}`,
       frequency: '',
       duration: '',
       quantity: '1',
-      quantity_unit: m.unit,
+      quantity_unit: m.base_unit,
       instructionChips: [],
     });
     setStep('details');

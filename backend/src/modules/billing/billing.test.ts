@@ -6,9 +6,18 @@ const prisma = new PrismaClient();
 const runId = Date.now();
 
 const makeFinalizedConsultationWithDispensedRx = async (doctorToken: string, doctorId: number, pharmacistToken: string) => {
-  const medicine = await prisma.medicine.create({ data: { name: `Billing Test Drug ${runId}-${Math.random()}`, unit: 'tablet', unit_price: 25, is_active: true } });
+  const unitPrice = 25;
+  const medicine = await prisma.medicine.create({ data: { name: `Billing Test Drug ${runId}-${Math.random()}`, base_unit: 'Tablet', default_selling_price: unitPrice, is_active: true } });
+  // Billing now prices a dispensed line off what the batch actually charged (unit_price snapshotted
+  // onto PrescriptionItemDispense at dispense time), not a live Medicine price — set it explicitly here.
   const batch = await prisma.batch.create({
-    data: { medicine_id: medicine.medicine_id, batch_no: `BILL-${runId}-${Math.random()}`, expiry_date: new Date(Date.now() + 90 * 86400000), qty_on_hand: 50 },
+    data: {
+      medicine_id: medicine.medicine_id,
+      batch_no: `BILL-${runId}-${Math.random()}`,
+      expiry_date: new Date(Date.now() + 90 * 86400000),
+      qty_on_hand: 50,
+      selling_price_per_base_unit: unitPrice,
+    },
   });
 
   const family = await prisma.family.create({ data: { family_name: `Billing Test Family ${runId}-${Math.random()}` } });
@@ -39,7 +48,7 @@ const makeFinalizedConsultationWithDispensedRx = async (doctorToken: string, doc
     .set('Authorization', `Bearer ${pharmacistToken}`)
     .send({ items: [{ rx_item_id: rxRes.body.items[0].rx_item_id, batch_id: batch.batch_id }] });
 
-  return { consultationId, medicineUnitPrice: medicine.unit_price };
+  return { consultationId, medicineUnitPrice: unitPrice };
 };
 
 describe('Billing API', () => {
@@ -142,6 +151,48 @@ describe('Billing API', () => {
 
     const invoiceAfter = await prisma.invoice.findUnique({ where: { invoice_id: res.body.invoice_id } });
     expect(invoiceAfter?.patient_id).toBe(newPatient.patient_id);
+  });
+
+  it('an unregistered walk-in with no prescription reaches Payment automatically at finalization (Section 15/16)', async () => {
+    const receptionist = await prisma.user.findUniqueOrThrow({ where: { username: 'reception' } });
+    const appointment = await prisma.appointment.create({
+      data: {
+        doctor_id: doctorId,
+        scheduled_at: new Date(),
+        status: 'Consulting',
+        created_by: receptionist.user_id,
+        is_walk_in: true,
+        is_temporary: true,
+        temp_patient_name: `Walkin No Rx Test ${runId}`,
+        temp_patient_phone: '0779998888',
+      },
+    });
+    const consultRes = await request(app)
+      .post('/api/v1/consultations')
+      .set('Authorization', `Bearer ${doctorToken}`)
+      .send({ appointment_id: appointment.appointment_id });
+    const consultationId = consultRes.body.consultation_id;
+
+    // No prescription at all — doctor just finalizes (Continue Without Registration -> consultation
+    // only). The invoice must appear immediately, not stay stuck waiting on pharmacy dispensing.
+    const finalizeRes = await request(app)
+      .post(`/api/v1/consultations/${consultationId}/finalize`)
+      .set('Authorization', `Bearer ${doctorToken}`)
+      .send({ consultation_fee: 650 });
+    expect(finalizeRes.status).toBe(200);
+
+    const invoiceRes = await request(app).get('/api/v1/invoices').query({ consultationId }).set('Authorization', `Bearer ${receptionToken}`);
+    expect(invoiceRes.body.data).toHaveLength(1);
+    expect(invoiceRes.body.data[0].total_amount).toBe(650);
+    expect(invoiceRes.body.data[0].payment_status).toBe('Outstanding');
+    expect(invoiceRes.body.data[0].patient.full_name).toBe(`Walkin No Rx Test ${runId}`);
+
+    // And it's the exact record receptionist-frontend's walk-in search mode finds by name.
+    const searchRes = await request(app)
+      .get('/api/v1/invoices')
+      .query({ search: `Walkin No Rx Test ${runId}`, status: 'Outstanding' })
+      .set('Authorization', `Bearer ${receptionToken}`);
+    expect(searchRes.body.data.some((i: any) => i.invoice_id === invoiceRes.body.data[0].invoice_id)).toBe(true);
   });
 
   let invoiceId: number;
@@ -451,10 +502,16 @@ describe('Billing API', () => {
       expect(invoice.total_amount).toBe(500 + medicineUnitPrice * 10);
     });
 
-    it('defers billing until dispensing finishes, then fires automatically the moment it does', async () => {
-      const medicine = await prisma.medicine.create({ data: { name: `Auto Bill Drug ${runId}-${Math.random()}`, unit: 'tablet', unit_price: 40, is_active: true } });
+    it('creates the invoice immediately at finalization, then tops it up as dispensing happens', async () => {
+      const medicine = await prisma.medicine.create({ data: { name: `Auto Bill Drug ${runId}-${Math.random()}`, base_unit: 'Tablet', default_selling_price: 40, is_active: true } });
       const batch = await prisma.batch.create({
-        data: { medicine_id: medicine.medicine_id, batch_no: `AUTO-${runId}-${Math.random()}`, expiry_date: new Date(Date.now() + 90 * 86400000), qty_on_hand: 50 },
+        data: {
+          medicine_id: medicine.medicine_id,
+          batch_no: `AUTO-${runId}-${Math.random()}`,
+          expiry_date: new Date(Date.now() + 90 * 86400000),
+          qty_on_hand: 50,
+          selling_price_per_base_unit: 40,
+        },
       });
       const family = await prisma.family.create({ data: { family_name: `Auto Bill Family ${runId}-${Math.random()}` } });
       const patient = await prisma.patient.create({
@@ -483,23 +540,195 @@ describe('Billing API', () => {
       const finalizeRes = await request(app).post(`/api/v1/consultations/${consultationId}/finalize`).set('Authorization', `Bearer ${doctorToken}`);
       expect(finalizeRes.status).toBe(200);
 
+      // Invoice exists the moment the visit is finalized — consultation fee only, nothing
+      // dispensed yet — so an unregistered walk-in with no prescription can reach Payment right
+      // away too (Section 3/15), not just once every prescription line is fully dispensed.
       const beforeDispense = await request(app).get('/api/v1/invoices').query({ consultationId }).set('Authorization', `Bearer ${receptionToken}`);
-      expect(beforeDispense.body.data).toHaveLength(0);
+      expect(beforeDispense.body.data).toHaveLength(1);
+      expect(beforeDispense.body.data[0].created_via).toBe('Auto');
+      expect(beforeDispense.body.data[0].total_amount).toBe(500);
+      const invoiceId = beforeDispense.body.data[0].invoice_id;
 
       await request(app)
         .post(`/api/v1/pharmacy/prescriptions/${rxRes.body.prescription_id}/dispense`)
         .set('Authorization', `Bearer ${pharmacistToken}`)
         .send({ items: [{ rx_item_id: rxRes.body.items[0].rx_item_id, batch_id: batch.batch_id }] });
 
+      // Same invoice, topped up — not a second one.
       const afterDispense = await request(app).get('/api/v1/invoices').query({ consultationId }).set('Authorization', `Bearer ${receptionToken}`);
       expect(afterDispense.body.data).toHaveLength(1);
-      expect(afterDispense.body.data[0].created_via).toBe('Auto');
+      expect(afterDispense.body.data[0].invoice_id).toBe(invoiceId);
       expect(afterDispense.body.data[0].total_amount).toBe(500 + 40 * 5);
+    });
+
+    it("uses the doctor's per-consultation fee override, and it never carries over to the next consultation", async () => {
+      const family = await prisma.family.create({ data: { family_name: `Fee Test Family ${runId}-${Math.random()}` } });
+      const patient = await prisma.patient.create({
+        data: {
+          patient_id: `PT-FEE-${runId}-${Math.random().toString(36).slice(2, 8)}`,
+          family_id: family.family_id,
+          nic: `FEE-NIC-${runId}-${Math.random().toString(36).slice(2, 8)}`,
+          full_name: 'Fee Override Test Patient',
+          dob: new Date('1990-01-01'),
+          gender: 'Male',
+        },
+      });
+      const receptionist = await prisma.user.findUniqueOrThrow({ where: { username: 'reception' } });
+
+      const makeAndFinalize = async (fee?: number) => {
+        const appointment = await prisma.appointment.create({
+          data: { patient_id: patient.patient_id, doctor_id: doctorId, scheduled_at: new Date(), status: 'Consulting', created_by: receptionist.user_id },
+        });
+        const consultRes = await request(app).post('/api/v1/consultations').set('Authorization', `Bearer ${doctorToken}`).send({ appointment_id: appointment.appointment_id });
+        const consultationId = consultRes.body.consultation_id;
+        const finalizeRes = await request(app)
+          .post(`/api/v1/consultations/${consultationId}/finalize`)
+          .set('Authorization', `Bearer ${doctorToken}`)
+          .send(fee !== undefined ? { consultation_fee: fee } : {});
+        expect(finalizeRes.status).toBe(200);
+        const invoiceRes = await request(app).get('/api/v1/invoices').query({ consultationId }).set('Authorization', `Bearer ${receptionToken}`);
+        return invoiceRes.body.data[0];
+      };
+
+      const settingsRes = await request(app).get('/api/v1/settings').set('Authorization', `Bearer ${adminToken}`);
+      const adminDefault = settingsRes.body.default_consultation_fee;
+
+      // Doctor enters a fee for this visit only.
+      const invoiceWithOverride = await makeAndFinalize(700);
+      expect(invoiceWithOverride.total_amount).toBe(700);
+
+      // Next consultation, doctor leaves it empty — falls back to the admin default, not the 700
+      // just used above (never a permanent per-doctor fee).
+      const invoiceWithoutOverride = await makeAndFinalize(undefined);
+      expect(invoiceWithoutOverride.total_amount).toBe(adminDefault);
+
+      // A different explicit override for a third visit doesn't touch the first invoice's frozen fee.
+      await makeAndFinalize(600);
+      const stillFrozen = await request(app).get(`/api/v1/invoices/${invoiceWithOverride.invoice_id}`).set('Authorization', `Bearer ${receptionToken}`);
+      expect(stillFrozen.body.total_amount).toBe(700);
+    });
+
+    it('splits a dispense across two batches into two batch-specific invoice lines with independent cost/profit', async () => {
+      const medicine = await prisma.medicine.create({
+        data: { name: `Split Batch Drug ${runId}-${Math.random()}`, base_unit: 'Tablet', default_selling_price: 5, is_active: true },
+      });
+      // B001: earliest expiry, only 1 tablet left. B002: later expiry, plenty of stock. FEFO must
+      // draw B001 first and only spill into B002 for what B001 can't cover (Section 6, TEST 7).
+      const batch1 = await prisma.batch.create({
+        data: {
+          medicine_id: medicine.medicine_id,
+          batch_no: `SPLIT-B001-${runId}`,
+          expiry_date: new Date(Date.now() + 30 * 86400000),
+          qty_on_hand: 1,
+          cost_per_base_unit: 3,
+          selling_price_per_base_unit: 4.5,
+        },
+      });
+      const batch2 = await prisma.batch.create({
+        data: {
+          medicine_id: medicine.medicine_id,
+          batch_no: `SPLIT-B002-${runId}`,
+          expiry_date: new Date(Date.now() + 90 * 86400000),
+          qty_on_hand: 200,
+          cost_per_base_unit: 3.5,
+          selling_price_per_base_unit: 5,
+        },
+      });
+      const family = await prisma.family.create({ data: { family_name: `Split Batch Family ${runId}-${Math.random()}` } });
+      const patient = await prisma.patient.create({
+        data: {
+          patient_id: `PT-SPLIT-${runId}-${Math.random().toString(36).slice(2, 8)}`,
+          family_id: family.family_id,
+          nic: `SPLIT-NIC-${runId}-${Math.random().toString(36).slice(2, 8)}`,
+          full_name: 'Split Batch Test Patient',
+          dob: new Date('1990-01-01'),
+          gender: 'Male',
+        },
+      });
+      const receptionist = await prisma.user.findUniqueOrThrow({ where: { username: 'reception' } });
+      const appointment = await prisma.appointment.create({
+        data: { patient_id: patient.patient_id, doctor_id: doctorId, scheduled_at: new Date(), status: 'Consulting', created_by: receptionist.user_id },
+      });
+      const consultRes = await request(app).post('/api/v1/consultations').set('Authorization', `Bearer ${doctorToken}`).send({ appointment_id: appointment.appointment_id });
+      const consultationId = consultRes.body.consultation_id;
+      const rxRes = await request(app)
+        .post('/api/v1/prescriptions')
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ consultation_id: consultationId, items: [{ medicine_id: medicine.medicine_id, dosage: '1 tab', qty: 2 }] });
+      await request(app).post(`/api/v1/consultations/${consultationId}/finalize`).set('Authorization', `Bearer ${doctorToken}`);
+
+      // 1 tablet from B001 (all it has), 1 tablet from B002 — two separate dispense calls, same
+      // as a pharmacist drawing from the earliest-expiry batch until it runs dry.
+      await request(app)
+        .post(`/api/v1/pharmacy/prescriptions/${rxRes.body.prescription_id}/dispense`)
+        .set('Authorization', `Bearer ${pharmacistToken}`)
+        .send({ items: [{ rx_item_id: rxRes.body.items[0].rx_item_id, batch_id: batch1.batch_id, qty: 1 }] });
+      await request(app)
+        .post(`/api/v1/pharmacy/prescriptions/${rxRes.body.prescription_id}/dispense`)
+        .set('Authorization', `Bearer ${pharmacistToken}`)
+        .send({ items: [{ rx_item_id: rxRes.body.items[0].rx_item_id, batch_id: batch2.batch_id, qty: 1 }] });
+
+      const invoiceRes = await request(app).get('/api/v1/invoices').query({ consultationId }).set('Authorization', `Bearer ${receptionToken}`);
+      const invoice = invoiceRes.body.data[0];
+      const medicineLines = invoice.items.filter((i: any) => i.item_type === 'Medicine');
+
+      expect(medicineLines).toHaveLength(2);
+      const line1 = medicineLines.find((l: any) => l.batch_id === batch1.batch_id);
+      const line2 = medicineLines.find((l: any) => l.batch_id === batch2.batch_id);
+      expect(line1.qty).toBe(1);
+      expect(line1.unit_price).toBe(4.5);
+      expect(line1.purchase_cost).toBe(3);
+      expect(line1.profit).toBe(1.5);
+      expect(line2.qty).toBe(1);
+      expect(line2.unit_price).toBe(5);
+      expect(line2.purchase_cost).toBe(3.5);
+      expect(line2.profit).toBe(1.5);
+      expect(invoice.total_amount).toBe(500 + 4.5 + 5);
+    });
+
+    it('never charges a fully external-purchase prescription line', async () => {
+      const medicine = await prisma.medicine.create({
+        data: { name: `External Only Drug ${runId}-${Math.random()}`, base_unit: 'Tablet', default_selling_price: 999, is_active: true },
+      });
+      const family = await prisma.family.create({ data: { family_name: `External Family ${runId}-${Math.random()}` } });
+      const patient = await prisma.patient.create({
+        data: {
+          patient_id: `PT-EXT-${runId}-${Math.random().toString(36).slice(2, 8)}`,
+          family_id: family.family_id,
+          nic: `EXT-NIC-${runId}-${Math.random().toString(36).slice(2, 8)}`,
+          full_name: 'External Only Test Patient',
+          dob: new Date('1990-01-01'),
+          gender: 'Male',
+        },
+      });
+      const receptionist = await prisma.user.findUniqueOrThrow({ where: { username: 'reception' } });
+      const appointment = await prisma.appointment.create({
+        data: { patient_id: patient.patient_id, doctor_id: doctorId, scheduled_at: new Date(), status: 'Consulting', created_by: receptionist.user_id },
+      });
+      const consultRes = await request(app).post('/api/v1/consultations').set('Authorization', `Bearer ${doctorToken}`).send({ appointment_id: appointment.appointment_id });
+      const consultationId = consultRes.body.consultation_id;
+      // Fully external — the patient buys the whole quantity outside the clinic, so the clinic
+      // must never charge for it even though the line still reaches "dispensed" (Section 17/32).
+      const rxRes = await request(app)
+        .post('/api/v1/prescriptions')
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .send({ consultation_id: consultationId, items: [{ medicine_id: medicine.medicine_id, dosage: '1 tab', qty: 5, external_qty: 5 }] });
+      await request(app).post(`/api/v1/consultations/${consultationId}/finalize`).set('Authorization', `Bearer ${doctorToken}`);
+
+      await request(app)
+        .post(`/api/v1/pharmacy/prescriptions/${rxRes.body.prescription_id}/dispense`)
+        .set('Authorization', `Bearer ${pharmacistToken}`)
+        .send({ items: [{ rx_item_id: rxRes.body.items[0].rx_item_id }] });
+
+      const invoiceRes = await request(app).get('/api/v1/invoices').query({ consultationId }).set('Authorization', `Bearer ${receptionToken}`);
+      const invoice = invoiceRes.body.data[0];
+      expect(invoice.items.filter((i: any) => i.item_type === 'Medicine')).toHaveLength(0);
+      expect(invoice.total_amount).toBe(500);
     });
 
     it('does not auto-bill a still-Draft consultation, and manual creation remains available as a fallback', async () => {
       const { consultationId, medicineUnitPrice } = await makeFinalizedConsultationWithDispensedRx(doctorToken, doctorId, pharmacistToken);
-      // Never finalized — the dispense above already ran maybeAutoCreateInvoice and found it not Finalized yet.
+      // Never finalized — the dispense above already ran ensureInvoiceForConsultation and found it not Finalized yet.
       const before = await request(app).get('/api/v1/invoices').query({ consultationId }).set('Authorization', `Bearer ${receptionToken}`);
       expect(before.body.data).toHaveLength(0);
 

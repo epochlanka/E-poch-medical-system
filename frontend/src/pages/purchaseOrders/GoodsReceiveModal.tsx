@@ -11,6 +11,9 @@ interface GoodsReceiveModalProps {
   onSuccess: () => void;
 }
 
+// Received units a batch can be checked in as — matches backend/src/modules/medicines/router.ts stockBatchSchema.
+const RECEIVED_UNITS = ['Box', 'Strip', 'Bottle', 'Tablet', 'Capsule', 'ml', 'Tube', 'Piece', 'Other'];
+
 interface ReceiveLine {
   po_item_id: number;
   medicineName: string;
@@ -19,6 +22,10 @@ interface ReceiveLine {
   qty_received: string;
   batch_no: string;
   expiry_date: string;
+  received_unit: string;
+  units_per_pack: string;
+  purchase_price_per_pack: string;
+  selling_price_per_pack: string;
 }
 
 const remainingQty = (item: PurchaseOrderDetail['items'][number]) =>
@@ -46,11 +53,15 @@ const GoodsReceiveModal = ({ po, onClose, onSuccess }: GoodsReceiveModalProps) =
         .map((item) => ({
           po_item_id: item.po_item_id,
           medicineName: item.medicine?.name ?? `Medicine #${item.medicine_id}`,
-          unit: item.medicine?.unit ?? '',
+          unit: item.medicine?.base_unit ?? '',
           remaining: remainingQty(item),
           qty_received: String(remainingQty(item)),
           batch_no: '',
           expiry_date: '',
+          received_unit: item.medicine?.base_unit || RECEIVED_UNITS[0],
+          units_per_pack: '1',
+          purchase_price_per_pack: '',
+          selling_price_per_pack: '',
         }))
         .filter((l) => l.remaining > 0)
     );
@@ -80,6 +91,18 @@ const GoodsReceiveModal = ({ po, onClose, onSuccess }: GoodsReceiveModalProps) =
         setError(`${l.medicineName}: received quantity can't exceed the remaining ordered quantity (${l.remaining}).`);
         return;
       }
+      if (!l.received_unit) {
+        setError(`Choose a received unit for ${l.medicineName}.`);
+        return;
+      }
+      if (!l.units_per_pack || Number(l.units_per_pack) <= 0) {
+        setError(`Enter ${l.unit || 'units'} per ${l.received_unit} for ${l.medicineName}.`);
+        return;
+      }
+      if (!l.selling_price_per_pack || Number(l.selling_price_per_pack) <= 0) {
+        setError(`Enter a selling price per ${l.received_unit} for ${l.medicineName}.`);
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -91,6 +114,10 @@ const GoodsReceiveModal = ({ po, onClose, onSuccess }: GoodsReceiveModalProps) =
           qty_received: Number(l.qty_received),
           batch_no: l.batch_no.trim(),
           expiry_date: new Date(l.expiry_date).toISOString(),
+          received_unit: l.received_unit,
+          units_per_pack: Number(l.units_per_pack),
+          purchase_price_per_pack: l.purchase_price_per_pack ? Number(l.purchase_price_per_pack) : undefined,
+          selling_price_per_pack: Number(l.selling_price_per_pack),
         }))
       );
       onSuccess();
@@ -154,6 +181,10 @@ const GoodsReceiveModal = ({ po, onClose, onSuccess }: GoodsReceiveModalProps) =
                       <th>Qty Received</th>
                       <th>Batch No.</th>
                       <th>Expiry Date</th>
+                      <th>Received As</th>
+                      <th>{'Units / Pack'}</th>
+                      <th>Purchase Price / Pack</th>
+                      <th>Selling Price / Pack</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -183,6 +214,45 @@ const GoodsReceiveModal = ({ po, onClose, onSuccess }: GoodsReceiveModalProps) =
                             type="date"
                             value={l.expiry_date}
                             onChange={(e) => updateLine(l.po_item_id, { expiry_date: e.target.value })}
+                          />
+                        </td>
+                        <td>
+                          <select value={l.received_unit} onChange={(e) => updateLine(l.po_item_id, { received_unit: e.target.value })} style={{ width: 90 }}>
+                            {RECEIVED_UNITS.map((u) => (
+                              <option key={u} value={u}>
+                                {u}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          <input
+                            type="number"
+                            min={0}
+                            value={l.units_per_pack}
+                            onChange={(e) => updateLine(l.po_item_id, { units_per_pack: e.target.value })}
+                            style={{ width: 70 }}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            placeholder="PO estimate"
+                            value={l.purchase_price_per_pack}
+                            onChange={(e) => updateLine(l.po_item_id, { purchase_price_per_pack: e.target.value })}
+                            style={{ width: 90 }}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={l.selling_price_per_pack}
+                            onChange={(e) => updateLine(l.po_item_id, { selling_price_per_pack: e.target.value })}
+                            style={{ width: 90 }}
                           />
                         </td>
                       </tr>

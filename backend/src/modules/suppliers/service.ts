@@ -331,7 +331,134 @@ export const suggestReorder = async () => {
     .filter((m) => m.suggestedQty > 0);
 };
 
-// ---- Goods Received Notes (the only path by which new stock enters the system) -----------
+// ---- Batch pricing math (shared by GRN receiving and the quick "Add Stock Batch" path) ----
+// Kept in one place so cost/selling-per-base-unit math is computed identically everywhere a
+// Stock Batch is created, and purchase cost is never derived from — or used to derive — the
+// selling price (Section 14).
+
+interface BatchDerivedInput {
+  received_qty: number;
+  units_per_pack: number;
+  purchase_price_per_pack: number;
+  selling_price_per_pack?: number;
+  selling_price_per_base_unit?: number;
+}
+
+const computeBatchDerived = (input: BatchDerivedInput) => {
+  if (input.units_per_pack <= 0) throw new ValidationError('Units per pack must be greater than zero');
+  if (input.received_qty <= 0) throw new ValidationError('Received quantity must be greater than zero');
+  if (input.purchase_price_per_pack < 0) throw new ValidationError('Purchase price cannot be negative');
+
+  const qty_base_total = input.received_qty * input.units_per_pack;
+  const cost_per_base_unit = input.purchase_price_per_pack / input.units_per_pack;
+
+  let selling_price_per_base_unit = input.selling_price_per_base_unit;
+  if (selling_price_per_base_unit === undefined || selling_price_per_base_unit === null) {
+    if (input.selling_price_per_pack === undefined || input.selling_price_per_pack === null) {
+      throw new ValidationError('Provide either selling_price_per_base_unit or selling_price_per_pack');
+    }
+    selling_price_per_base_unit = input.selling_price_per_pack / input.units_per_pack;
+  }
+  if (selling_price_per_base_unit < 0) throw new ValidationError('Selling price cannot be negative');
+
+  return { qty_base_total, cost_per_base_unit, selling_price_per_base_unit };
+};
+
+export interface ReceiveStockInput {
+  medicine_id: number;
+  supplier_id: number;
+  batch_no: string;
+  purchase_date?: Date;
+  manufacture_date?: Date;
+  expiry_date: Date;
+  received_unit: string;
+  received_qty: number;
+  units_per_pack: number;
+  purchase_price_per_pack: number;
+  selling_price_per_pack?: number;
+  selling_price_per_base_unit?: number;
+  location?: string;
+}
+
+// The single path that actually creates a Stock Batch — always via an (auto-created, immediately
+// posted) Purchase Order + GRN, so every batch is equally auditable whether it came from a
+// planned, multi-line PO (receiveGrn below) or this one-step shortcut ("Add Stock Batch" on an
+// existing Medicine Product, or a brand-new product's opening stock — Section 16/17).
+export const receiveStockBatch = async (input: ReceiveStockInput, actor: Actor) => {
+  const medicine = await prisma.medicine.findUnique({ where: { medicine_id: input.medicine_id } });
+  if (!medicine) throw new NotFoundError('Medicine not found');
+  const supplier = await prisma.supplier.findUnique({ where: { supplier_id: input.supplier_id } });
+  if (!supplier) throw new NotFoundError('Supplier not found');
+  if (!input.batch_no?.trim()) throw new ValidationError('A batch number is required');
+  // `validate` middleware checks the request shape but doesn't write the coerced result back
+  // onto req.body, so dates can still arrive as raw strings here — re-coerce explicitly.
+  const expiryDate = new Date(input.expiry_date);
+  if (Number.isNaN(expiryDate.getTime()) || expiryDate <= new Date()) {
+    throw new ValidationError('Expiry date must be valid and in the future — a batch cannot be received already expired');
+  }
+  const purchaseDate = input.purchase_date ? new Date(input.purchase_date) : new Date();
+  const manufactureDate = input.manufacture_date ? new Date(input.manufacture_date) : undefined;
+
+  const derived = computeBatchDerived(input);
+
+  return prisma.$transaction(async (tx) => {
+    const po = await tx.purchaseOrder.create({
+      data: {
+        supplier_id: input.supplier_id,
+        order_date: purchaseDate,
+        status: 'Submitted',
+        created_by: actor.user_id,
+        items: { create: [{ medicine_id: input.medicine_id, qty_ordered: input.received_qty, unit_cost: input.purchase_price_per_pack }] },
+      },
+      include: { items: true },
+    });
+    const poItem = po.items[0];
+
+    const grn = await tx.goodsReceivedNote.create({ data: { po_id: po.po_id, received_by: actor.user_id } });
+
+    const batch = await tx.batch.create({
+      data: {
+        medicine_id: input.medicine_id,
+        supplier_id: input.supplier_id,
+        batch_no: input.batch_no.trim(),
+        purchase_date: purchaseDate,
+        manufacture_date: manufactureDate,
+        expiry_date: expiryDate,
+        received_unit: input.received_unit,
+        received_qty: input.received_qty,
+        units_per_pack: input.units_per_pack,
+        qty_base_total: derived.qty_base_total,
+        qty_on_hand: derived.qty_base_total,
+        purchase_price_per_pack: input.purchase_price_per_pack,
+        cost_per_base_unit: derived.cost_per_base_unit,
+        selling_price_per_pack: input.selling_price_per_pack,
+        selling_price_per_base_unit: derived.selling_price_per_base_unit,
+        location: input.location,
+      },
+    });
+
+    await tx.gRNItem.create({ data: { grn_id: grn.grn_id, po_item_id: poItem.po_item_id, batch_id: batch.batch_id, qty_received: input.received_qty } });
+
+    await tx.stockLedger.create({
+      data: {
+        batch_id: batch.batch_id,
+        change_qty: derived.qty_base_total,
+        balance_after: derived.qty_base_total,
+        event_type: 'GRN',
+        unit_cost: derived.cost_per_base_unit,
+        reference_type: 'GRN',
+        reference_id: String(grn.grn_id),
+        created_by: actor.user_id,
+      },
+    });
+
+    await tx.purchaseOrder.update({ where: { po_id: po.po_id }, data: { status: 'Received' } });
+
+    return tx.batch.findUniqueOrThrow({ where: { batch_id: batch.batch_id }, include: { medicine: true, supplier: true } });
+  });
+};
+
+// ---- Goods Received Notes (planned multi-line receiving against an existing PO) -----------
 
 interface GrnItemInput {
   po_item_id: number;
@@ -339,6 +466,11 @@ interface GrnItemInput {
   batch_no: string;
   expiry_date: Date;
   manufacture_date?: Date;
+  received_unit: string;
+  units_per_pack: number;
+  purchase_price_per_pack?: number; // overrides the PO line's estimated unit_cost if the actual invoice price differs
+  selling_price_per_pack?: number;
+  selling_price_per_base_unit?: number;
 }
 
 export const receiveGrn = async (poId: number, items: GrnItemInput[], actor: Actor) => {
@@ -361,6 +493,18 @@ export const receiveGrn = async (poId: number, items: GrnItemInput[], actor: Act
 
     for (const item of items) {
       const poItem = poItemById.get(item.po_item_id)!;
+      const expiryDate = new Date(item.expiry_date);
+      if (Number.isNaN(expiryDate.getTime()) || expiryDate <= new Date()) {
+        throw new ValidationError(`Batch ${item.batch_no} must have a valid, future expiry date`);
+      }
+      const purchasePricePerPack = item.purchase_price_per_pack ?? poItem.unit_cost ?? 0;
+      const derived = computeBatchDerived({
+        received_qty: item.qty_received,
+        units_per_pack: item.units_per_pack,
+        purchase_price_per_pack: purchasePricePerPack,
+        selling_price_per_pack: item.selling_price_per_pack,
+        selling_price_per_base_unit: item.selling_price_per_base_unit,
+      });
 
       const priorReceived = await tx.gRNItem.aggregate({ _sum: { qty_received: true }, where: { po_item_id: item.po_item_id } });
       const totalReceived = (priorReceived._sum.qty_received ?? 0) + item.qty_received;
@@ -373,8 +517,16 @@ export const receiveGrn = async (poId: number, items: GrnItemInput[], actor: Act
           medicine_id: poItem.medicine_id,
           batch_no: item.batch_no,
           manufacture_date: item.manufacture_date,
-          expiry_date: item.expiry_date,
-          qty_on_hand: item.qty_received,
+          expiry_date: expiryDate,
+          received_unit: item.received_unit,
+          received_qty: item.qty_received,
+          units_per_pack: item.units_per_pack,
+          qty_base_total: derived.qty_base_total,
+          qty_on_hand: derived.qty_base_total,
+          purchase_price_per_pack: purchasePricePerPack,
+          cost_per_base_unit: derived.cost_per_base_unit,
+          selling_price_per_pack: item.selling_price_per_pack,
+          selling_price_per_base_unit: derived.selling_price_per_base_unit,
           supplier_id: po.supplier_id,
         },
       });
@@ -384,9 +536,10 @@ export const receiveGrn = async (poId: number, items: GrnItemInput[], actor: Act
       await tx.stockLedger.create({
         data: {
           batch_id: batch.batch_id,
-          change_qty: item.qty_received,
-          balance_after: item.qty_received,
+          change_qty: derived.qty_base_total,
+          balance_after: derived.qty_base_total,
           event_type: 'GRN',
+          unit_cost: derived.cost_per_base_unit,
           reference_type: 'GRN',
           reference_id: String(grn.grn_id),
           created_by: actor.user_id,

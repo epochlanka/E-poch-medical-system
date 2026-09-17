@@ -16,6 +16,7 @@ import {
 import type { ConsultationInput, AmendmentEntry, AmendableField, PatientConsultationHistoryEntry } from '../../lib/consultations';
 import { searchIcd11 } from '../../lib/icd11';
 import type { Icd11Match } from '../../lib/icd11';
+import { getClinicSettings } from '../../lib/settings';
 import { listLabTestOrders, printLabTestOrder, printLabResultReport } from '../../lib/labTestOrders';
 import type { LabTestOrder } from '../../lib/labTestOrders';
 import { listActiveLetterTemplates, previewLetter, issueLetter, listIssuedLettersForPatient, printIssuedLetterAgain } from '../../lib/letters';
@@ -174,9 +175,13 @@ const ConsultationWorkspace = () => {
 const Workspace = ({ appointmentId }: { appointmentId: number }) => {
   const navigate = useNavigate();
   const { data: context, loading, error, reload } = useApiData(() => getConsultationContext(appointmentId), [appointmentId]);
+  const { data: clinicSettings } = useApiData(() => getClinicSettings(), []);
 
   const [tab, setTab] = useState<TabKey>('consultation');
   const [form, setForm] = useState<FormState>(emptyForm);
+  // This visit's fee only — never persisted anywhere until Complete Consultation resolves and
+  // freezes it onto the consultation. Left empty, the backend falls back to the admin default.
+  const [consultationFeeInput, setConsultationFeeInput] = useState('');
   const [followUpDate, setFollowUpDate] = useState('');
   const [consultationId, setConsultationId] = useState<number | null>(null);
   const [conditionDraft, setConditionDraft] = useState('');
@@ -496,7 +501,12 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
     setFinalizing(true);
     try {
       const cid = await persist();
-      await finalizeConsultation(cid);
+      const fee = consultationFeeInput.trim() === '' ? undefined : Number(consultationFeeInput);
+      if (fee !== undefined && (Number.isNaN(fee) || fee < 0)) {
+        setSaveError('Consultation fee must be a positive number.');
+        return;
+      }
+      await finalizeConsultation(cid, fee);
       reload();
     } catch (err: any) {
       setSaveError(err.response?.data?.message || 'Failed to complete consultation.');
@@ -756,6 +766,33 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
                   placeholder="Advise, treatment plan, or notes..."
                 />
               </div>
+
+              {!isFinalized && (
+                <div className="cons-box span-2">
+                  <div className="cons-box-title">Consultation Fee (LKR)</div>
+                  <input
+                    className="cons-input"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    disabled={!canEdit}
+                    value={consultationFeeInput}
+                    onChange={(e) => setConsultationFeeInput(e.target.value)}
+                    placeholder={clinicSettings ? String(clinicSettings.default_consultation_fee) : '—'}
+                    style={{ maxWidth: 220 }}
+                  />
+                  <span className="pat-muted" style={{ fontSize: 12, marginLeft: 10 }}>
+                    {clinicSettings ? `Default fee: Rs. ${clinicSettings.default_consultation_fee.toLocaleString()}` : ''} — leave empty to use the default
+                  </span>
+                </div>
+              )}
+
+              {isFinalized && consultation?.consultation_fee != null && (
+                <div className="cons-box span-2">
+                  <div className="cons-box-title">Consultation Fee (LKR)</div>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>Rs. {consultation.consultation_fee.toLocaleString()}</div>
+                </div>
+              )}
 
               {!isFinalized && (
                 <div className="span-2" style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>

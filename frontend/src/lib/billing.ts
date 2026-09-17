@@ -39,6 +39,14 @@ export interface InvoiceItem {
   qty: number;
   unit_price: number;
   line_total: number;
+  // Medicine lines only — the exact batch this line billed, for cost/profit reporting. Never
+  // shown to the patient.
+  medicine_id?: number | null;
+  batch_id?: number | null;
+  base_qty?: number | null;
+  unit?: string | null;
+  purchase_cost?: number | null;
+  profit?: number | null;
 }
 
 export interface Payment {

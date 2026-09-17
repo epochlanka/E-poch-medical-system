@@ -60,7 +60,7 @@ describe('External Medicines API', () => {
     receptionToken = receptionRes.body.token;
 
     const medicine = await prisma.medicine.create({
-      data: { name: `ExtMed Catalog Drug ${runId}`, generic_name: 'Test Genericol', brand_name: 'TestoBrand', unit: 'tablet', is_active: true },
+      data: { name: `ExtMed Catalog Drug ${runId}`, generic_name: 'Test Genericol', brand_name: 'TestoBrand', base_unit: 'Tablet', is_active: true },
     });
     medicineId = medicine.medicine_id;
   });

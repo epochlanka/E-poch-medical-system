@@ -21,7 +21,7 @@ const ViewInvoiceModal = ({ invoiceId, canVoid, onClose, onChanged }: ViewInvoic
   const { data: invoice, loading, reload } = useApiData(() => getInvoice(invoiceId), [invoiceId]);
   const [showVoidForm, setShowVoidForm] = useState(false);
   const [reason, setReason] = useState('');
-  const [methods, setMethods] = useState<string[]>(['Cash', 'Card', 'Mobile']);
+  const [methods, setMethods] = useState<string[]>(['Cash', 'Card', 'Mobile', 'Bank Transfer', 'Other']);
   const [refunds, setRefunds] = useState<RefundLine[]>([{ method: 'Cash', amount: '' }]);
   const [submitting, setSubmitting] = useState(false);
   const [downloading, setDownloading] = useState(false);

@@ -26,7 +26,7 @@ export interface PrescriptionItem {
   duration: string | null;
   route: string | null;
   qty: number;
-  medicine: { name: string; generic_name: string | null; strength: string | null; unit: string };
+  medicine: { name: string; generic_name: string | null; strength: string | null; base_unit: string };
   stockStatus?: string;
 }
 

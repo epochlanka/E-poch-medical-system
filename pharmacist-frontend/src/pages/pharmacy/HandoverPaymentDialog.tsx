@@ -45,7 +45,7 @@ export default function HandoverPaymentDialog({ open, consultationId, patientNam
 
   const [loading, setLoading] = useState(true);
   const [invoice, setInvoice] = useState<Invoice | null>(null);
-  const [methods, setMethods] = useState<string[]>(['Cash', 'Card', 'Mobile']);
+  const [methods, setMethods] = useState<string[]>(['Cash', 'Card', 'Mobile', 'Bank Transfer', 'Other']);
   const [lines, setLines] = useState<PaymentLine[]>([newLine('Cash')]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');

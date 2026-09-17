@@ -75,7 +75,7 @@ export const update = async (req: Request, res: Response) => {
 
 export const finalize = async (req: Request, res: Response) => {
   try {
-    const consultation = await service.finalizeConsultation(idParam(req), actor(req));
+    const consultation = await service.finalizeConsultation(idParam(req), actor(req), req.body?.consultation_fee);
     res.status(200).json(consultation);
   } catch (error) {
     handleError(req, res, error);

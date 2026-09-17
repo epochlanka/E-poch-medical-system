@@ -56,13 +56,16 @@ export const catalogMeta = async (req: Request, res: Response) => {
 
 export const listCatalog = async (req: Request, res: Response) => {
   try {
-    const { search, category, form, manufacturer, status, page, limit } = req.query as any;
+    const { search, category, form, manufacturer, brand, batchNo, status, stockStatus, page, limit } = req.query as any;
     const data = await service.listMedicineCatalog({
       search,
       category,
       form,
       manufacturer,
+      brand,
+      batchNo,
       status,
+      stockStatus,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });
@@ -106,6 +109,25 @@ export const update = async (req: Request, res: Response) => {
   try {
     const medicine = await service.updateMedicine(Number(req.params.medicineId), req.body);
     res.status(200).json(medicine);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const getWithBatches = async (req: Request, res: Response) => {
+  try {
+    const medicine = await service.getMedicineWithBatches(Number(req.params.medicineId));
+    res.status(200).json(medicine);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const addStockBatch = async (req: Request, res: Response) => {
+  try {
+    const actor = req.user as any as { user_id: number; role: string };
+    const batch = await service.addStockBatch(Number(req.params.medicineId), req.body, actor);
+    res.status(201).json(batch);
   } catch (error) {
     handleError(req, res, error);
   }

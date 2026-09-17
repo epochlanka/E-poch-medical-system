@@ -2,8 +2,10 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import fs from 'fs';
 import path from 'path';
 import { NotFoundError, ValidationError, ForbiddenError } from './errors';
-import { maybeAutoCreateInvoice } from '../billing/service';
+import { ensureInvoiceForConsultation } from '../billing/service';
 import { logger } from '../../errors';
+
+const FALLBACK_CONSULTATION_FEE = 500;
 
 const prisma = new PrismaClient();
 export const uploadsDir = path.join(__dirname, '..', '..', '..', 'uploads', 'consultations');
@@ -157,22 +159,37 @@ export const updateConsultation = async (id: number, updates: UpdateConsultation
 
 // Finalizing is one-way; it also marks the originating appointment Completed, matching the
 // queue's own status machine (Consulting -> Completed) rather than leaving it to drift out of sync.
-export const finalizeConsultation = async (id: number, actor: Actor) => {
+//
+// Consultation fee resolution happens exactly once, right here: the doctor's manually-entered
+// fee for THIS visit if provided, otherwise ClinicSettings.default_consultation_fee at this
+// instant — then frozen onto the consultation row forever. This is never a permanent per-doctor
+// fee (nothing here touches the User/doctor row), and a later change to the admin default must
+// never alter what an already-finalized consultation charged.
+export const finalizeConsultation = async (id: number, actor: Actor, consultationFee?: number) => {
   const existing = await prisma.consultation.findUnique({ where: { consultation_id: id }, include: { appointment: true } });
   if (!existing) throw new NotFoundError('Consultation not found');
   assertDoctorOwnsOrAdmin(actor, existing.appointment.doctor_id);
   if (existing.status !== 'Draft') throw new ValidationError('Only a Draft consultation can be finalized');
+  if (consultationFee !== undefined && consultationFee < 0) throw new ValidationError('Consultation fee cannot be negative');
+
+  const clinicSettings = await prisma.clinicSettings.findUnique({ where: { id: 1 } });
+  const resolvedFee = consultationFee ?? clinicSettings?.default_consultation_fee ?? FALLBACK_CONSULTATION_FEE;
 
   const [consultation] = await prisma.$transaction([
-    prisma.consultation.update({ where: { consultation_id: id }, data: { status: 'Finalized', finalized_at: new Date() } }),
+    prisma.consultation.update({
+      where: { consultation_id: id },
+      data: { status: 'Finalized', finalized_at: new Date(), consultation_fee: resolvedFee },
+    }),
     prisma.appointment.update({ where: { appointment_id: existing.appointment_id }, data: { status: 'Completed' } }),
   ]);
 
-  // Best-effort: covers visits with no prescription, or where dispensing already finished
-  // before finalization. A billing failure here (e.g. missing clinic settings) must never
-  // block the clinical action of finalizing a consultation.
+  // Best-effort: the invoice is created immediately (consultation fee only, if nothing's been
+  // dispensed yet) so a visit with no prescription — including a walk-in's — can reach Payment
+  // right away; medicine charges are appended as dispensing completes (see pharmacy/service.ts).
+  // A billing failure here (e.g. missing clinic settings) must never block the clinical action of
+  // finalizing a consultation — reception can still create the invoice manually as a fallback.
   try {
-    await maybeAutoCreateInvoice(id, actor);
+    await ensureInvoiceForConsultation(id, actor);
   } catch (err) {
     logger.warn({ err, consultationId: id }, 'Auto-invoice creation failed after consultation finalization');
   }

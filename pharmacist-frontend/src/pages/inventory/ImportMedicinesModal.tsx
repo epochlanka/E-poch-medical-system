@@ -43,9 +43,10 @@ const ImportMedicinesModal = ({ onClose, onImported }: { onClose: () => void; on
               <input ref={inputRef} type="file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
             </div>
             <p className="pat-muted" style={{ fontSize: 11.5, marginTop: 4 }}>
-              Required columns: <strong>name</strong>, <strong>unit</strong>. Optional: generic_name, brand_name, category, form, strength,
-              manufacturer, unit_price, buy_price, reorder_level, max_stock_level, barcode. Rows matching an existing barcode (or the same
-              name + strength + form) are updated; others are created.
+              Required columns: <strong>name</strong>, <strong>base_unit</strong>. Optional: generic_name, brand_name, category, form, strength,
+              manufacturer, requires_prescription, default_pack_unit, default_pack_size, default_selling_price, reorder_level, max_stock_level, barcode.
+              This only creates/updates medicine products — add stock separately via Add Stock Batch. Rows matching an existing barcode (or the same
+              name + brand + strength + form) are updated; others are created.
             </p>
 
             {error && <div className="modal-error">{error}</div>}

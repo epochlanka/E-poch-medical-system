@@ -569,6 +569,111 @@
   font-size: 26px;
 }
 
+/* Multi-step wizard (Add Medicine) */
+.wiz-steps {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0 22px;
+}
+.wiz-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+.wiz-step-dot {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  background: #f1f5f9;
+  color: #64748b;
+}
+.wiz-step.done .wiz-step-dot {
+  background: #dcfce7;
+  color: #16a34a;
+}
+.wiz-step.active .wiz-step-dot {
+  background: #2563eb;
+  color: white;
+}
+.wiz-step-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #64748b;
+  white-space: nowrap;
+}
+.wiz-step.active .wiz-step-label {
+  color: #0f172a;
+}
+.wiz-step-line {
+  flex: 1;
+  height: 2px;
+  background: #e2e8f0;
+  margin: 0 4px;
+}
+.wiz-step.done ~ .wiz-step-line,
+.wiz-step-line.done {
+  background: #16a34a;
+}
+.wiz-section-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 4px;
+}
+.wiz-section-help {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0 0 14px;
+}
+.wiz-review-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 7px 0;
+  border-bottom: 1px dashed #e2e8f0;
+  font-size: 13px;
+}
+.wiz-review-row span:first-child {
+  color: #64748b;
+}
+.wiz-review-row span:last-child {
+  color: #0f172a;
+  font-weight: 600;
+  text-align: right;
+}
+.wiz-calc-box {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: #1e3a8a;
+  margin-top: 4px;
+}
+
+/* Expandable inventory table rows (Medicine batches) */
+.med-expand-btn {
+  transition: transform 0.15s;
+}
+.med-expand-btn.open {
+  transform: rotate(180deg);
+}
+.med-batches-panel {
+  background: #f8fafc;
+  padding: 10px 16px;
+}
+.med-batches-panel .pat-table {
+  background: white;
+  border-radius: 8px;
+}
+
 @media (max-width: 1180px) {
   .dash-kpi-row {
     grid-template-columns: repeat(3, 1fr);

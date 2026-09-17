@@ -47,7 +47,7 @@ const updateSupplierSchema = z.object({
   }),
 });
 
-const poItemSchema = z.object({ medicine_id: z.number().int().positive(), qty_ordered: z.number().int().positive(), unit_cost: z.number().min(0).optional() });
+const poItemSchema = z.object({ medicine_id: z.number().int().positive(), qty_ordered: z.number().positive(), unit_cost: z.number().min(0).optional() });
 
 const PO_STATUSES = ['Draft', 'Submitted', 'PartiallyReceived', 'Received', 'Closed', 'Cancelled'] as const;
 
@@ -77,10 +77,15 @@ const topSuppliersSchema = z.object({
 
 const grnItemSchema = z.object({
   po_item_id: z.number().int().positive(),
-  qty_received: z.number().int().positive(),
+  qty_received: z.number().positive(),
   batch_no: z.string().min(1, 'Batch number is required'),
   expiry_date: z.coerce.date(),
   manufacture_date: z.coerce.date().optional(),
+  received_unit: z.string().min(1, 'Received unit is required'),
+  units_per_pack: z.number().positive(),
+  purchase_price_per_pack: z.number().min(0).optional(), // defaults to the PO line's estimated unit_cost if omitted
+  selling_price_per_pack: z.number().min(0).optional(),
+  selling_price_per_base_unit: z.number().min(0).optional(),
 });
 
 const receiveGrnSchema = z.object({

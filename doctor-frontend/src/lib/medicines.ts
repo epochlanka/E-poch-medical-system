@@ -8,7 +8,7 @@ export interface Medicine {
   category: string | null;
   form: string | null;
   strength: string | null;
-  unit: string;
+  base_unit: string;
   unit_price: number;
   barcode: string | null;
   is_active: boolean;

@@ -40,7 +40,7 @@ const Payments = () => {
   const [searchInput, setSearchInput] = useState('');
   const [filters, setFilters] = useState<ListPaymentsParams>({ page: 1, limit: 10 });
   const [method, setMethod] = useState<string>('all');
-  const [methods, setMethods] = useState<string[]>(['Cash', 'Card', 'Mobile']);
+  const [methods, setMethods] = useState<string[]>(['Cash', 'Card', 'Mobile', 'Bank Transfer', 'Other']);
   const [invoiceStatus, setInvoiceStatus] = useState<'all' | PaymentStatus>('all');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');

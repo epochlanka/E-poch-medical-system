@@ -80,9 +80,19 @@ export const listBatches = async (filters: ListBatchesFilters) => {
     batchNo: b.batch_no,
     medicineId: b.medicine.medicine_id,
     medicineName: b.medicine.name,
+    purchaseDate: b.purchase_date,
     manufactureDate: b.manufacture_date,
     expiryDate: b.expiry_date,
+    receivedUnit: b.received_unit,
+    receivedQty: b.received_qty,
+    unitsPerPack: b.units_per_pack,
+    qtyBaseTotal: b.qty_base_total,
     qtyOnHand: b.qty_on_hand,
+    purchasePricePerPack: b.purchase_price_per_pack,
+    costPerBaseUnit: b.cost_per_base_unit,
+    sellingPricePerPack: b.selling_price_per_pack,
+    sellingPricePerBaseUnit: b.selling_price_per_base_unit,
+    stockValue: b.qty_on_hand * b.cost_per_base_unit,
     location: b.location,
     supplierId: b.supplier?.supplier_id ?? null,
     supplierName: b.supplier?.name ?? null,
@@ -119,6 +129,8 @@ export const getBatchLedger = async (batchId: number, page = 1, limit = 50) => {
       changeQty: e.change_qty,
       balanceAfter: e.balance_after,
       eventType: e.event_type,
+      unitPrice: e.unit_price,
+      unitCost: e.unit_cost,
       referenceType: e.reference_type,
       referenceId: e.reference_id,
       reason: e.reason,
@@ -130,8 +142,12 @@ export const getBatchLedger = async (batchId: number, page = 1, limit = 50) => {
 };
 
 // ---- Manual Adjustment (reason-coded, can never go below zero) ----------------
+// Covers every non-sale, non-GRN stock movement (Section 8): a plain correction as well as a
+// Transfer/Return/Damaged/Expired write-off — all just a signed base-unit delta against one
+// batch, so they share one code path and one StockLedger event_type per kind.
+export type AdjustmentTransactionType = 'Adjustment' | 'Transfer' | 'Return' | 'Damaged' | 'Expired';
 
-export const adjustBatch = async (batchId: number, delta: number, reason: string, actor: Actor) => {
+export const adjustBatch = async (batchId: number, delta: number, reason: string, actor: Actor, transactionType: AdjustmentTransactionType = 'Adjustment') => {
   if (!reason?.trim()) throw new ValidationError('A reason is required for a manual stock adjustment');
   if (delta === 0) throw new ValidationError('Adjustment quantity cannot be zero');
 
@@ -148,7 +164,8 @@ export const adjustBatch = async (batchId: number, delta: number, reason: string
         batch_id: batchId,
         change_qty: delta,
         balance_after: newQty,
-        event_type: 'Adjustment',
+        event_type: transactionType,
+        unit_cost: batch.cost_per_base_unit,
         reason,
         created_by: actor.user_id,
       },

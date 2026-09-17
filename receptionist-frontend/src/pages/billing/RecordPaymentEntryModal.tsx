@@ -12,16 +12,30 @@ interface RecordPaymentEntryModalProps {
   onSelectInvoice: (invoice: Invoice) => void;
 }
 
+const isOutstanding = (inv: Invoice) => inv.payment_status === 'Outstanding' || inv.payment_status === 'PartiallyPaid';
+
 // Step 1 of "Record Payment" from the header (no invoice preselected): search a patient, then
 // pick which of their outstanding invoices to pay — mirrors the admin app's ReceivePaymentModal
 // search-first flow. Hands off to the shared RecordPaymentModal once an invoice is chosen.
+//
+// An unregistered walk-in ("Continue Without Registration") has no Patient row at all, so the
+// patient search above can never find their visit — yet their invoice is fully real and billable
+// (backend already resolves a display name/phone from the visit's temp_patient_* fields). The
+// "Walk-in / Any Invoice" mode below searches invoices directly instead of patients, so that visit
+// can still reach Payment (Section 15/16) — it's the only entry point into this modal, so it's the
+// one place this gap needs fixing.
 const RecordPaymentEntryModal = ({ onClose, onSelectInvoice }: RecordPaymentEntryModalProps) => {
+  const [mode, setMode] = useState<'patient' | 'invoice'>('patient');
   const [searchInput, setSearchInput] = useState('');
   const [results, setResults] = useState<Patient[]>([]);
   const [searching, setSearching] = useState(false);
   const [patient, setPatient] = useState<Patient | null>(null);
   const [outstanding, setOutstanding] = useState<Invoice[]>([]);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
+
+  const [invoiceSearchInput, setInvoiceSearchInput] = useState('');
+  const [invoiceResults, setInvoiceResults] = useState<Invoice[]>([]);
+  const [searchingInvoices, setSearchingInvoices] = useState(false);
 
   useEffect(() => {
     if (searchInput.trim().length < 2) {
@@ -37,13 +51,27 @@ const RecordPaymentEntryModal = ({ onClose, onSelectInvoice }: RecordPaymentEntr
     return () => clearTimeout(t);
   }, [searchInput]);
 
+  useEffect(() => {
+    if (mode !== 'invoice' || invoiceSearchInput.trim().length < 2) {
+      setInvoiceResults([]);
+      return;
+    }
+    setSearchingInvoices(true);
+    const t = setTimeout(() => {
+      listInvoices({ search: invoiceSearchInput, limit: 20 })
+        .then((res) => setInvoiceResults(res.data.filter(isOutstanding)))
+        .finally(() => setSearchingInvoices(false));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [mode, invoiceSearchInput]);
+
   const selectPatient = (p: Patient) => {
     setPatient(p);
     setSearchInput('');
     setResults([]);
     setLoadingInvoices(true);
     listInvoices({ patientId: p.patient_id, limit: 100 })
-      .then((res) => setOutstanding(res.data.filter((inv) => inv.payment_status === 'Outstanding' || inv.payment_status === 'PartiallyPaid')))
+      .then((res) => setOutstanding(res.data.filter(isOutstanding)))
       .finally(() => setLoadingInvoices(false));
   };
 
@@ -54,6 +82,17 @@ const RecordPaymentEntryModal = ({ onClose, onSelectInvoice }: RecordPaymentEntr
         <div className="modal-subtitle">Search a patient, then pick which invoice to pay.</div>
 
         {!patient && (
+          <div className="pat-tabs" style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <button type="button" className={`pat-btn${mode === 'patient' ? ' primary' : ''}`} style={{ fontSize: 12, flex: 1 }} onClick={() => setMode('patient')}>
+              Registered Patient
+            </button>
+            <button type="button" className={`pat-btn${mode === 'invoice' ? ' primary' : ''}`} style={{ fontSize: 12, flex: 1 }} onClick={() => setMode('invoice')}>
+              Walk-in / Any Invoice
+            </button>
+          </div>
+        )}
+
+        {!patient && mode === 'patient' && (
           <>
             <div className="pat-search">
               <SearchIcon />
@@ -73,6 +112,44 @@ const RecordPaymentEntryModal = ({ onClose, onSelectInvoice }: RecordPaymentEntr
                           {p.patient_id}
                         </span>
                       </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {!patient && mode === 'invoice' && (
+          <>
+            <div className="pat-search">
+              <SearchIcon />
+              <input
+                placeholder="Search by walk-in name, phone or invoice no…"
+                value={invoiceSearchInput}
+                onChange={(e) => setInvoiceSearchInput(e.target.value)}
+              />
+            </div>
+            {invoiceSearchInput.trim().length >= 2 && (
+              <div className="bk-search-results" style={{ marginTop: 8 }}>
+                {searchingInvoices && <div style={{ padding: 12, fontSize: 13, color: '#94a3b8' }}>Searching…</div>}
+                {!searchingInvoices && invoiceResults.length === 0 && (
+                  <div style={{ padding: 12, fontSize: 13, color: '#94a3b8' }}>No outstanding invoices found.</div>
+                )}
+                {!searchingInvoices &&
+                  invoiceResults.map((inv) => (
+                    <div
+                      key={inv.invoice_id}
+                      className="bk-search-row"
+                      onClick={() => onSelectInvoice(inv)}
+                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                    >
+                      <div>
+                        <div className="pat-name">{inv.patient.full_name}</div>
+                        <span className="pat-muted" style={{ fontSize: 11.5 }}>
+                          {invoiceCode(inv.invoice_id, inv.created_at)} {inv.patient.phone ? `· ${inv.patient.phone}` : ''}
+                        </span>
+                      </div>
+                      <strong>{formatCurrency(inv.total_amount - inv.paid_amount)}</strong>
                     </div>
                   ))}
               </div>

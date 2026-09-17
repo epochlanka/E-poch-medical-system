@@ -55,7 +55,7 @@ describe('Suppliers API', () => {
   let medicineId: number;
 
   it('creates a Draft purchase order and submits it', async () => {
-    const medicine = await prisma.medicine.create({ data: { name: `PO Test Drug ${runId}`, unit: 'tablet', is_active: true, reorder_level: 20 } });
+    const medicine = await prisma.medicine.create({ data: { name: `PO Test Drug ${runId}`, base_unit: 'Tablet', is_active: true, reorder_level: 20 } });
     medicineId = medicine.medicine_id;
 
     const createRes = await request(app)
@@ -86,7 +86,17 @@ describe('Suppliers API', () => {
       .post(`/api/v1/suppliers/purchase-orders/${poId}/grn`)
       .set('Authorization', `Bearer ${pharmacistToken}`)
       .send({
-        items: [{ po_item_id: poItemId, qty_received: 50, batch_no: `GRN-EXACT-${runId}`, expiry_date: new Date(Date.now() + 200 * 86400000).toISOString() }],
+        items: [
+          {
+            po_item_id: poItemId,
+            qty_received: 50,
+            batch_no: `GRN-EXACT-${runId}`,
+            expiry_date: new Date(Date.now() + 200 * 86400000).toISOString(),
+            received_unit: 'Tablet',
+            units_per_pack: 1,
+            selling_price_per_base_unit: 8,
+          },
+        ],
       });
     expect(grnRes.status).toBe(201);
     expect(grnRes.body.has_discrepancy).toBe(false);
@@ -116,7 +126,15 @@ describe('Suppliers API', () => {
       .set('Authorization', `Bearer ${pharmacistToken}`)
       .send({
         items: [
-          { po_item_id: discrepancyPoItemId, qty_received: 80, batch_no: `GRN-SHORT-${runId}`, expiry_date: new Date(Date.now() + 200 * 86400000).toISOString() },
+          {
+            po_item_id: discrepancyPoItemId,
+            qty_received: 80,
+            batch_no: `GRN-SHORT-${runId}`,
+            expiry_date: new Date(Date.now() + 200 * 86400000).toISOString(),
+            received_unit: 'Tablet',
+            units_per_pack: 1,
+            selling_price_per_base_unit: 8,
+          },
         ],
       });
     expect(grnRes.status).toBe(201);
@@ -178,7 +196,7 @@ describe('Suppliers API', () => {
   });
 
   it('suggests reorder quantities for low-stock medicines', async () => {
-    const lowStockMedicine = await prisma.medicine.create({ data: { name: `Low Stock Drug ${runId}`, unit: 'tablet', reorder_level: 50, is_active: true } });
+    const lowStockMedicine = await prisma.medicine.create({ data: { name: `Low Stock Drug ${runId}`, base_unit: 'Tablet', reorder_level: 50, is_active: true } });
     await prisma.batch.create({ data: { medicine_id: lowStockMedicine.medicine_id, batch_no: `LOW-${runId}`, expiry_date: new Date(Date.now() + 86400000 * 100), qty_on_hand: 5 } });
 
     const res = await request(app).get('/api/v1/suppliers/purchase-orders/suggest-reorder').set('Authorization', `Bearer ${pharmacistToken}`);
@@ -337,6 +355,9 @@ describe('Suppliers API', () => {
               qty_received: 4,
               batch_no: `OVERDUE-${runId}`,
               expiry_date: new Date(Date.now() + 200 * 86400000).toISOString(),
+              received_unit: 'Tablet',
+              units_per_pack: 1,
+              selling_price_per_base_unit: 15,
             },
           ],
         });

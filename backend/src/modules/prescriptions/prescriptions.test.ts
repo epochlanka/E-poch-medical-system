@@ -100,7 +100,7 @@ describe('Prescriptions API', () => {
 
   it('blocks prescribing a discontinued medicine', async () => {
     const discontinued = await prisma.medicine.create({
-      data: { name: `Discontinued Drug ${runId}`, unit: 'tablet', is_active: false },
+      data: { name: `Discontinued Drug ${runId}`, base_unit: 'Tablet', is_active: false },
     });
     const { consultationId } = await makeDraftConsultation(doctorToken, doctorId);
 
@@ -137,7 +137,7 @@ describe('Prescriptions API', () => {
   let refillPatientId: string;
 
   it('creates a refill that auto-copies items from the original prescription', async () => {
-    const refillMedicine = await prisma.medicine.create({ data: { name: `Refillable Drug ${runId}`, unit: 'tablet', is_active: true } });
+    const refillMedicine = await prisma.medicine.create({ data: { name: `Refillable Drug ${runId}`, base_unit: 'Tablet', is_active: true } });
     refillMedicineId = refillMedicine.medicine_id;
 
     const patient = await makePatient();

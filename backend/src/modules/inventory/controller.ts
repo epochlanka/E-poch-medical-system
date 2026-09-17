@@ -52,8 +52,8 @@ export const getBatchLedger = async (req: Request, res: Response) => {
 
 export const adjustBatch = async (req: Request, res: Response) => {
   try {
-    const { delta, reason } = req.body;
-    const batch = await service.adjustBatch(Number(req.params.batchId), delta, reason, actor(req));
+    const { delta, reason, transactionType } = req.body;
+    const batch = await service.adjustBatch(Number(req.params.batchId), delta, reason, actor(req), transactionType);
     res.status(200).json(batch);
   } catch (error) {
     handleError(req, res, error);

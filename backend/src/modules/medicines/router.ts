@@ -22,6 +22,23 @@ const searchSchema = z.object({
 
 const medicineIdParamsSchema = z.object({ params: z.object({ medicineId: z.coerce.number().int().positive() }) });
 
+// Shared by a brand-new medicine's opening stock and the standalone "Add Stock Batch" action —
+// both ultimately call receiveStockBatch (medicines/service.ts -> suppliers/service.ts).
+const stockBatchSchema = z.object({
+  supplier_id: z.number().int().positive(),
+  batch_no: z.string().min(1, 'Batch number is required'),
+  purchase_date: z.coerce.date().optional(),
+  manufacture_date: z.coerce.date().optional(),
+  expiry_date: z.coerce.date(),
+  received_unit: z.string().min(1, 'Received unit is required'), // Box, Strip, Bottle, Tablet, Capsule, ml, Tube, Piece, Other
+  received_qty: z.number().positive(),
+  units_per_pack: z.number().positive(), // base units per one received_unit
+  purchase_price_per_pack: z.number().min(0),
+  selling_price_per_pack: z.number().min(0).optional(),
+  selling_price_per_base_unit: z.number().min(0).optional(),
+  location: z.string().optional(),
+});
+
 const createSchema = z.object({
   body: z.object({
     name: z.string().min(1, 'Name is required'),
@@ -31,22 +48,17 @@ const createSchema = z.object({
     form: z.string().optional(),
     strength: z.string().optional(),
     manufacturer: z.string().optional(),
-    unit: z.string().min(1, 'Unit is required'),
+    requires_prescription: z.boolean().optional(),
+    base_unit: z.string().min(1, 'Base unit is required'), // Tablet, Capsule, ml, Gram, Piece, ...
+    default_pack_unit: z.string().optional(),
+    default_pack_size: z.number().positive().optional(),
+    default_selling_price: z.number().min(0).optional(),
     reorder_level: z.number().int().min(0).optional(),
     max_stock_level: z.number().int().min(0).optional(),
-    unit_price: z.number().min(0).optional(),
-    buy_price: z.number().min(0).optional(),
     barcode: z.string().optional(),
-    // Optional first batch, created in the same request — the only place a batch can be
-    // created outside the GRN flow, meant for seeding a brand-new medicine's opening stock.
-    initial_stock: z
-      .object({
-        qty: z.number().int().positive(),
-        expiry_date: z.coerce.date(),
-        batch_no: z.string().optional(),
-        location: z.string().optional(),
-      })
-      .optional(),
+    // Optional first batch, created in the same request via the same path as "Add Stock Batch" —
+    // a Medicine Product and its opening Stock Batch stay two separate, auditable records.
+    initial_stock: stockBatchSchema.optional(),
   }),
 });
 
@@ -60,14 +72,21 @@ const updateSchema = z.object({
     form: z.string().optional(),
     strength: z.string().optional(),
     manufacturer: z.string().optional(),
-    unit: z.string().min(1).optional(),
+    requires_prescription: z.boolean().optional(),
+    base_unit: z.string().min(1).optional(),
+    default_pack_unit: z.string().optional(),
+    default_pack_size: z.number().positive().optional(),
+    default_selling_price: z.number().min(0).optional(),
     reorder_level: z.number().int().min(0).optional(),
     max_stock_level: z.number().int().min(0).optional(),
-    unit_price: z.number().min(0).optional(),
-    buy_price: z.number().min(0).optional(),
     barcode: z.string().optional(),
     is_active: z.boolean().optional(),
   }),
+});
+
+const addStockBatchSchema = z.object({
+  params: z.object({ medicineId: z.coerce.number().int().positive() }),
+  body: stockBatchSchema,
 });
 
 const catalogQuerySchema = z.object({
@@ -76,7 +95,10 @@ const catalogQuerySchema = z.object({
     category: z.string().optional(),
     form: z.string().optional(),
     manufacturer: z.string().optional(),
+    brand: z.string().optional(),
+    batchNo: z.string().optional(),
     status: z.enum(['active', 'inactive', 'all']).optional(),
+    stockStatus: z.enum(['in-stock', 'low-stock', 'out-of-stock', 'expiring-soon']).optional(),
     page: z.coerce.number().int().positive().optional(),
     limit: z.coerce.number().int().positive().optional(),
   }),
@@ -104,6 +126,8 @@ const stockQuerySchema = z.object({
   query: z.object({
     search: z.string().optional(),
     category: z.string().optional(),
+    form: z.string().optional(),
+    brand: z.string().optional(),
     status: z.enum(['in-stock', 'low-stock', 'out-of-stock', 'expiring-soon']).optional(),
     supplierId: z.coerce.number().int().positive().optional(),
     page: z.coerce.number().int().positive().optional(),
@@ -123,5 +147,7 @@ router.get('/', requireRole(READ_ROLES), validate(searchSchema), controller.sear
 router.post('/', requireRole(WRITE_ROLES), validate(createSchema), controller.create);
 router.get('/:medicineId', requireRole(READ_ROLES), validate(medicineIdParamsSchema), controller.getById);
 router.put('/:medicineId', requireRole(WRITE_ROLES), validate(updateSchema), controller.update);
+router.get('/:medicineId/batches', requireRole(READ_ROLES), validate(medicineIdParamsSchema), controller.getWithBatches);
+router.post('/:medicineId/stock-batches', requireRole(WRITE_ROLES), validate(addStockBatchSchema), controller.addStockBatch);
 
 export default router;

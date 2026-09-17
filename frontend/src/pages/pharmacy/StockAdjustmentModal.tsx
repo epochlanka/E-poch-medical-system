@@ -4,12 +4,12 @@ import { searchMedicines } from '../../lib/medicines';
 import type { Medicine } from '../../lib/medicines';
 import { listBatches, adjustBatch } from '../../lib/inventory';
 import type { Batch } from '../../lib/inventory';
-import type { MedicineStockRow } from '../../lib/medicines';
+import type { MedicineCatalogRow } from '../../lib/medicines';
 import { formatDate } from './pharmacyUtils';
 import { SearchIcon } from '../../components/layout/Icons';
 
 interface StockAdjustmentModalProps {
-  medicine?: MedicineStockRow | null;
+  medicine?: MedicineCatalogRow | null;
   onClose: () => void;
   onSuccess: () => void;
 }

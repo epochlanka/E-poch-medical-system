@@ -302,7 +302,7 @@ describe('Consultations API', () => {
     it("returns a registered patient's finalized visits, each with doctor, diagnosis, prescriptions, and lab test orders — newest first, Draft visits excluded, and excludeAppointmentId honored", async () => {
       const { appointment, patient } = await makeConsultingAppointment(doctorId);
       const medicine = await prisma.medicine.create({
-        data: { name: `History Test Drug ${runId}`, unit: 'tablet', unit_price: 10, is_active: true },
+        data: { name: `History Test Drug ${runId}`, base_unit: 'Tablet', default_selling_price: 10, is_active: true },
       });
 
       const createRes = await request(app)

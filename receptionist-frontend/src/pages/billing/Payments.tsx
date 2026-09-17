@@ -225,7 +225,7 @@ const Payments = () => {
               }}
             >
               <option value="">All Methods</option>
-              {(methods ?? ['Cash', 'Card', 'Mobile']).map((m) => (
+              {(methods ?? ['Cash', 'Card', 'Mobile', 'Bank Transfer', 'Other']).map((m) => (
                 <option key={m} value={m}>
                   {m}
                 </option>
