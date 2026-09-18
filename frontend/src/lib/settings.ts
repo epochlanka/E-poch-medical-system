@@ -51,6 +51,12 @@ export interface UpdateClinicSettingsInput {
 
 export const updateClinicSettings = (input: UpdateClinicSettingsInput) => api.put<ClinicSettings>('/settings', input).then((r) => r.data);
 
+export const uploadClinicLogo = (file: File) => {
+  const form = new FormData();
+  form.append('logo', file);
+  return api.post<ClinicSettings>('/settings/logo', form).then((r) => r.data);
+};
+
 // ---- Backup & Restore -----------------------------------------------------------------------
 
 export interface DbBackup {

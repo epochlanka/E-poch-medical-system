@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useApiData } from '../../hooks/useApiData';
-import { getClinicSettings, updateClinicSettings } from '../../lib/settings';
+import { getClinicSettings, updateClinicSettings, uploadClinicLogo } from '../../lib/settings';
+import { fileUrl } from '../../lib/api';
 import { formatDateTime } from './settingsUtils';
 
 const GeneralTab = () => {
@@ -19,6 +20,9 @@ const GeneralTab = () => {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [logoError, setLogoError] = useState<string | null>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!settings) return;
@@ -37,6 +41,20 @@ const GeneralTab = () => {
   const setField = (key: keyof typeof form, value: string) => {
     setForm((f) => ({ ...f, [key]: value }));
     setSaved(false);
+  };
+
+  const handleLogoFile = async (file: File) => {
+    setLogoError(null);
+    setUploadingLogo(true);
+    try {
+      const updated = await uploadClinicLogo(file);
+      setForm((f) => ({ ...f, logo_url: updated.logo_url ?? '' }));
+      reload();
+    } catch (err: any) {
+      setLogoError(err?.response?.data?.message || 'Failed to upload logo.');
+    } finally {
+      setUploadingLogo(false);
+    }
   };
 
   const handleSave = async () => {
@@ -89,9 +107,39 @@ const GeneralTab = () => {
             <label>Registration Number</label>
             <input value={form.registration_number} onChange={(e) => setField('registration_number', e.target.value)} />
           </div>
-          <div className="modal-field">
-            <label>Logo URL</label>
-            <input value={form.logo_url} onChange={(e) => setField('logo_url', e.target.value)} placeholder="https://…" />
+          <div className="modal-field span-2">
+            <label>Clinic Header / Letterhead Image</label>
+            <span className="card-subtitle" style={{ display: 'block', marginBottom: 8 }}>
+              Upload a scan of your printed prescription pad or letterhead (JPEG/PNG/WEBP, max 5MB). When set, this image
+              is used as the header on printed prescriptions and the External Medicine Slip instead of the typed clinic
+              name above.
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              {form.logo_url ? (
+                <img
+                  src={fileUrl(form.logo_url)}
+                  alt="Clinic header"
+                  style={{ maxWidth: 260, maxHeight: 90, objectFit: 'contain', border: '1px solid #e2e8f0', borderRadius: 6, padding: 4 }}
+                />
+              ) : (
+                <span className="pat-muted" style={{ fontSize: 12.5 }}>No header image uploaded yet.</span>
+              )}
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleLogoFile(file);
+                  e.target.value = '';
+                }}
+              />
+              <button type="button" className="pat-btn" disabled={uploadingLogo} onClick={() => logoInputRef.current?.click()}>
+                {uploadingLogo ? 'Uploading…' : form.logo_url ? 'Replace Image' : 'Upload Image'}
+              </button>
+            </div>
+            {logoError && <div className="modal-error" style={{ marginTop: 8 }}>{logoError}</div>}
           </div>
         </div>
       </div>

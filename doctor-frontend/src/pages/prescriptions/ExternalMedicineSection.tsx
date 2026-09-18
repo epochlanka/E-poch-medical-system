@@ -2,9 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { searchMedicines } from '../../lib/medicines';
 import type { Medicine } from '../../lib/medicines';
 import type { ExternalMedicineInput } from '../../lib/externalMedicines';
-import { listMasterData } from '../../lib/settings';
+import { listMasterData, getClinicSettings } from '../../lib/settings';
+import type { ClinicSettings } from '../../lib/settings';
+import { fileUrl } from '../../lib/api';
+import { calculateAge } from '../../lib/queue';
 import InstructionsPicker from '../../components/InstructionsPicker';
-import { PlusIcon, SearchIcon, EditIcon, TrashIcon, ClockIcon, XIcon, PillIcon } from '../../components/layout/Icons';
+import { PlusIcon, SearchIcon, EditIcon, TrashIcon, ClockIcon, XIcon, PillIcon, PrintIcon } from '../../components/layout/Icons';
 import './externalMedicines.css';
 
 const FREQUENCY_OPTIONS = ['OD - Once Daily', 'BD - Twice Daily', 'TDS - Three times daily', 'QID - Four times daily', 'PRN - As needed', 'STAT', 'HS - At bedtime'];
@@ -90,6 +93,102 @@ const emptyDraft = (key: string): ExternalMedicineDraft => ({
   quantity_unit: '',
   instructionChips: [],
 });
+
+const escapeHtml = (s: string) =>
+  s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
+
+// Built client-side (rather than fetched from the backend PDF endpoint used post-submit) because
+// these are still unsaved drafts — there's no prescription_id to ask the server for yet. Opened in
+// a fresh window and printed via the browser's own print dialog, same "let the browser render the
+// PDF/print surface" convention as downloadExternalPurchaseSlip/previewExternalMedicineSlip.
+const buildExternalSlipHtml = (opts: {
+  clinic: ClinicSettings | null;
+  patient: { fullName: string; patientId: string | null; dob: string | null };
+  doctor: { username: string; registration_number: string | null };
+  items: ExternalMedicineDraft[];
+}) => {
+  const { clinic, patient, doctor, items } = opts;
+  const today = new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  const age = patient.dob ? calculateAge(patient.dob) : null;
+
+  // When the clinic has uploaded its own header/letterhead image (Settings > General), that IS
+  // the header — it already carries the clinic name, doctor and registration details the way a
+  // physical prescription pad prints them. Only fall back to typed clinic details otherwise.
+  const headerHtml = clinic?.logo_url
+    ? `<img src="${escapeHtml(fileUrl(clinic.logo_url))}" class="ext-slip-logo" />`
+    : `<div class="ext-slip-clinic-name">${escapeHtml(clinic?.clinic_name || 'MediCare Clinic & Dispensary')}</div>
+       ${clinic?.clinic_address ? `<div class="ext-slip-clinic-line">${escapeHtml(clinic.clinic_address)}</div>` : ''}
+       ${clinic?.registration_number ? `<div class="ext-slip-clinic-line">Reg No: ${escapeHtml(clinic.registration_number)}</div>` : ''}`;
+
+  const rows = items
+    .map((it, i) => {
+      const generic = [it.generic_name, it.brand_name].filter(Boolean).join(' · ');
+      return `<tr>
+        <td>${i + 1}</td>
+        <td><strong>${escapeHtml(it.medicine_name)}</strong>${generic ? `<br/><span class="muted">${escapeHtml(generic)}</span>` : ''}</td>
+        <td>${escapeHtml(it.dosage_form || '—')}</td>
+        <td>${escapeHtml(it.strength || '—')}</td>
+        <td>${escapeHtml(it.dosage || '—')}</td>
+        <td>${escapeHtml(it.frequency || '—')}</td>
+        <td>${escapeHtml(it.duration || '—')}</td>
+        <td>${escapeHtml(`${it.quantity} ${it.quantity_unit}`)}</td>
+        <td>${escapeHtml(it.instructionChips.join(', ') || '—')}</td>
+      </tr>`;
+    })
+    .join('');
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>External Medicine Slip</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Georgia, 'Times New Roman', serif; color: #111; margin: 24px; }
+  .ext-slip-header { text-align: center; margin-bottom: 12px; }
+  .ext-slip-logo { max-width: 100%; max-height: 130px; object-fit: contain; }
+  .ext-slip-clinic-name { font-size: 19px; font-weight: bold; }
+  .ext-slip-clinic-line { font-size: 12px; color: #444; }
+  .ext-slip-rule { border-top: 1px solid #999; margin: 10px 0 14px; }
+  .ext-slip-meta { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; font-family: Arial, sans-serif; }
+  .ext-slip-title { font-size: 14px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; margin: 16px 0 8px; font-family: Arial, sans-serif; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: Arial, sans-serif; }
+  th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #f1f5f9; font-size: 11px; text-transform: uppercase; }
+  .muted { color: #666; font-size: 11px; }
+  .ext-slip-note { font-size: 11px; color: #555; font-style: italic; margin-top: 10px; font-family: Arial, sans-serif; }
+  .ext-slip-signoff { margin-top: 40px; font-size: 13px; font-family: Arial, sans-serif; }
+  .ext-slip-sign-line { margin-top: 34px; border-top: 1px solid #333; width: 260px; padding-top: 4px; }
+  @media print { body { margin: 8mm; } }
+</style>
+</head>
+<body>
+  <div class="ext-slip-header">${headerHtml}</div>
+  <div class="ext-slip-rule"></div>
+  <div class="ext-slip-meta">
+    <span>Patient: <strong>${escapeHtml(patient.fullName)}</strong></span>
+    <span>Age: <strong>${age !== null ? age : '_______'}</strong></span>
+    <span>Date: <strong>${today}</strong></span>
+  </div>
+  <div class="ext-slip-title">External Medicines</div>
+  <table>
+    <thead>
+      <tr><th>#</th><th>Medicine</th><th>Form</th><th>Strength</th><th>Dosage</th><th>Frequency</th><th>Duration</th><th>Qty</th><th>Instructions</th></tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="ext-slip-note">
+    The above medicines are to be purchased from an external pharmacy or other authorized source and are not being dispensed by the clinic pharmacy.
+  </div>
+  <div class="ext-slip-signoff">
+    <div>Doctor: Dr. ${escapeHtml(doctor.username)}</div>
+    ${doctor.registration_number ? `<div>Registration No: ${escapeHtml(doctor.registration_number)}</div>` : ''}
+    <div class="ext-slip-sign-line">Signature</div>
+  </div>
+  <script>window.onload = function () { window.print(); };</script>
+</body>
+</html>`;
+};
 
 type Step = 'search' | 'manual' | 'details';
 
@@ -382,20 +481,35 @@ const ExternalMedicineSection = ({
   onChange,
   prefillRequest,
   onPrefillConsumed,
+  patient,
+  doctor,
 }: {
   items: ExternalMedicineDraft[];
   onChange: (items: ExternalMedicineDraft[]) => void;
   prefillRequest: ShortfallPrefill | null;
   onPrefillConsumed: () => void;
+  patient: { fullName: string; patientId: string | null; dob: string | null };
+  doctor: { username: string; registration_number: string | null };
 }) => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [dosageForms, setDosageForms] = useState<string[]>([]);
+  const [clinicSettings, setClinicSettings] = useState<ClinicSettings | null>(null);
   const consumedRef = useRef(false);
 
   useEffect(() => {
     listMasterData('DosageForm').then((rows) => setDosageForms(rows.map((r) => r.value)));
+    getClinicSettings().then(setClinicSettings).catch(() => {});
   }, []);
+
+  const printSlip = () => {
+    const html = buildExternalSlipHtml({ clinic: clinicSettings, patient, doctor, items });
+    const win = window.open('', '_blank', 'width=850,height=920');
+    if (!win) return;
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+  };
 
   useEffect(() => {
     if (prefillRequest && !consumedRef.current) {
@@ -429,9 +543,21 @@ const ExternalMedicineSection = ({
         <div className="cons-box-title" style={{ margin: 0 }}>
           External Medicines
         </div>
-        <button type="button" className="pat-btn primary" style={{ fontSize: 12.5, padding: '7px 12px' }} onClick={() => setModalOpen(true)}>
-          <PlusIcon /> Add External Medicine
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            type="button"
+            className="pat-btn"
+            style={{ fontSize: 12.5, padding: '7px 12px' }}
+            disabled={items.length === 0}
+            onClick={printSlip}
+            title={items.length === 0 ? 'Add an external medicine first' : 'Print the external medicine slip for the doctor to sign'}
+          >
+            <PrintIcon /> Print
+          </button>
+          <button type="button" className="pat-btn primary" style={{ fontSize: 12.5, padding: '7px 12px' }} onClick={() => setModalOpen(true)}>
+            <PlusIcon /> Add External Medicine
+          </button>
+        </div>
       </div>
 
       <table className="rxb-table">

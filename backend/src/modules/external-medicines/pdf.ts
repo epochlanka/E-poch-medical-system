@@ -1,15 +1,20 @@
 import PDFDocument from 'pdfkit';
 import { Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 
-const CLINIC_NAME = 'MediCare Clinic & Dispensary';
-const CLINIC_ADDRESS = '123 Galle Road, Colombo 03';
-const CLINIC_PHONE = '+94 11 234 5678';
+const DEFAULT_CLINIC_NAME = 'MediCare Clinic & Dispensary';
 
 // A dedicated, doctor-facing "buy these outside the clinic" document — distinct from the older
 // External Purchase Slip (which prints PrescriptionItem.external_qty lines, a different concept,
 // see the ExternalPrescriptionMedicine schema comment). Modeled on a traditional handwritten
 // prescription slip: clinic header, patient block, numbered medicine list, doctor sign-off.
-export const streamExternalMedicineSlipPdf = (prescription: any, res: Response) => {
+//
+// `clinicSettings` is the admin-configured ClinicSettings row (Settings > General). When a logo
+// has been uploaded there (e.g. a scan of the clinic's own printed letterhead/prescription pad),
+// that image IS the header — it already carries the clinic name, doctor and registration details
+// the way the physical pad prints them. Only falls back to a plain text header when no logo is set.
+export const streamExternalMedicineSlipPdf = (prescription: any, clinicSettings: any, res: Response) => {
   const doc = new PDFDocument({ size: 'A5', margin: 36 });
   doc.pipe(res);
 
@@ -17,11 +22,19 @@ export const streamExternalMedicineSlipPdf = (prescription: any, res: Response) 
   const doctor = prescription.consultation.appointment.doctor;
   const rxCode = `RX${String(prescription.prescription_id).padStart(6, '0')}`;
 
-  doc.fontSize(15).font('Helvetica-Bold').text('EPOCH MEDICAL SYSTEM', { align: 'center' });
-  doc.fontSize(10).font('Helvetica').fillColor('#555').text(CLINIC_NAME, { align: 'center' });
-  doc.text(CLINIC_ADDRESS, { align: 'center' });
-  doc.text(`Tel: ${CLINIC_PHONE}`, { align: 'center' });
-  doc.fillColor('black');
+  const logoPath = clinicSettings?.logo_url ? path.join(__dirname, '..', '..', '..', clinicSettings.logo_url) : null;
+
+  if (logoPath && fs.existsSync(logoPath)) {
+    const contentWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    doc.image(logoPath, doc.page.margins.left, doc.y, { fit: [contentWidth, 100], align: 'center' });
+    doc.y += 100;
+  } else {
+    doc.fontSize(15).font('Helvetica-Bold').text(clinicSettings?.clinic_name || DEFAULT_CLINIC_NAME, { align: 'center' });
+    doc.fontSize(10).font('Helvetica').fillColor('#555');
+    if (clinicSettings?.clinic_address) doc.text(clinicSettings.clinic_address, { align: 'center' });
+    if (clinicSettings?.registration_number) doc.text(`Reg No: ${clinicSettings.registration_number}`, { align: 'center' });
+    doc.fillColor('black');
+  }
 
   doc.moveDown(0.5);
   doc.moveTo(doc.page.margins.left, doc.y).lineTo(doc.page.width - doc.page.margins.right, doc.y).strokeColor('#cbd5e1').stroke();

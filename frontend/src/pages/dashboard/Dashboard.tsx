@@ -11,7 +11,7 @@ import StockAlerts from './StockAlerts';
 import QuickActions from './QuickActions';
 import './dashboard.css';
 
-const formatCurrency = (n: number) => n.toLocaleString(undefined, { style: 'currency', currency: 'USD' });
+const formatCurrency = (n: number) => `LKR ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const Dashboard = () => {
   const { user } = useAuth();

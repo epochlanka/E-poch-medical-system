@@ -1,5 +1,8 @@
-import { Router } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 import { validate } from '../../middlewares/validate';
 import { requireAuth, requireRole } from '../../middlewares/auth';
 import { MASTER_DATA_TYPES } from './service';
@@ -11,6 +14,36 @@ router.use(requireAuth);
 
 const READ_ROLES = ['Admin', 'Receptionist', 'Doctor', 'Pharmacist'];
 const ADMIN_ONLY = ['Admin'];
+
+// ---- Clinic logo upload (Multer) --------------------------------------------
+// Stored on disk like the patient-photo upload above it in the module list — same convention,
+// served back out via the app-wide /uploads static handler (backend/src/app.ts).
+
+const logoUploadsDir = path.join(__dirname, '..', '..', '..', 'uploads', 'settings');
+fs.mkdirSync(logoUploadsDir, { recursive: true });
+
+const ALLOWED_LOGO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+const logoUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, logoUploadsDir),
+    filename: (_req, file, cb) => cb(null, `logo-${Date.now()}${path.extname(file.originalname).toLowerCase()}`),
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (!ALLOWED_LOGO_TYPES.includes(file.mimetype)) {
+      return cb(new Error('Only JPEG, PNG, or WEBP images are allowed'));
+    }
+    cb(null, true);
+  },
+});
+
+const uploadLogoMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  logoUpload.single('logo')(req, res, (err: unknown) => {
+    if (err) return res.status(400).json({ message: err instanceof Error ? err.message : 'Upload failed' });
+    next();
+  });
+};
 
 const updateSettingsSchema = z.object({
   body: z.object({
@@ -27,6 +60,7 @@ const updateSettingsSchema = z.object({
 
 router.get('/', requireRole(READ_ROLES), controller.getSettings);
 router.put('/', requireRole(ADMIN_ONLY), validate(updateSettingsSchema), controller.updateSettings);
+router.post('/logo', requireRole(ADMIN_ONLY), uploadLogoMiddleware, controller.uploadLogo);
 
 const masterDataListSchema = z.object({
   query: z.object({ type: z.enum(MASTER_DATA_TYPES).optional(), includeInactive: z.string().optional() }),

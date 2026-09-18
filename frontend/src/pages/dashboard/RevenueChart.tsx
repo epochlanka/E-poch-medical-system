@@ -2,7 +2,7 @@ import { useApiData } from '../../hooks/useApiData';
 import { getRevenueTrend } from '../../lib/dashboard';
 
 const formatCurrency = (n: number) =>
-  n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+  `LKR ${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
 const formatAxisDate = (iso: string) => {
   const d = new Date(`${iso}T00:00:00`);

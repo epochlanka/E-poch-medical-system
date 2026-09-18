@@ -870,6 +870,8 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
             onChange={setExternalItems}
             prefillRequest={shortfallPrefill}
             onPrefillConsumed={() => setShortfallPrefill(null)}
+            patient={{ fullName: patient.fullName, patientId: patient.patientId, dob: patient.dob }}
+            doctor={context.appointment.doctor}
           />
 
           <div className="rxp-footer">

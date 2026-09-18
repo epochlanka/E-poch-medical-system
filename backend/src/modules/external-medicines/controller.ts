@@ -3,6 +3,7 @@ import * as service from './service';
 import { streamExternalMedicineSlipPdf } from './pdf';
 import { NotFoundError, ValidationError, ForbiddenError } from './errors';
 import { respondWithServerError } from '../../errors';
+import { prisma } from '../../lib/prisma';
 
 const actor = (req: Request) => req.user as any as { user_id: number; role: string };
 
@@ -74,9 +75,10 @@ export const getSlip = async (req: Request, res: Response) => {
     if (prescription.external_medicines.length === 0) {
       return res.status(400).json({ message: 'This prescription has no external medicines to print' });
     }
+    const clinicSettings = await prisma.clinicSettings.findUnique({ where: { id: 1 } });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="RX${String(prescription.prescription_id).padStart(6, '0')}-external-medicine-slip.pdf"`);
-    streamExternalMedicineSlipPdf(prescription, res);
+    streamExternalMedicineSlipPdf(prescription, clinicSettings, res);
   } catch (error) {
     handleError(req, res, error);
   }

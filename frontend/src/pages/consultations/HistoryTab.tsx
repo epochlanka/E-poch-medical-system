@@ -22,7 +22,7 @@ const summarize = (event: any): string => {
     case 'prescription':
       return `Prescription (${event.items.length} item${event.items.length === 1 ? '' : 's'}) — ${event.status}`;
     case 'invoice':
-      return `Invoice — ${event.paymentStatus} (${event.totalAmount.toLocaleString(undefined, { style: 'currency', currency: 'USD' })})`;
+      return `Invoice — ${event.paymentStatus} (LKR ${event.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`;
     case 'document':
       return `Document uploaded — ${event.originalName}`;
     case 'vitals':

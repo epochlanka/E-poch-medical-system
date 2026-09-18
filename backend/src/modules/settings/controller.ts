@@ -29,6 +29,16 @@ export const updateSettings = async (req: Request, res: Response) => {
   }
 };
 
+export const uploadLogo = async (req: Request, res: Response) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No logo file provided' });
+    const logo_url = `/uploads/settings/${req.file.filename}`;
+    res.status(200).json(await service.updateClinicSettings({ logo_url }, actor(req)));
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
 // ---- Master Data ----
 
 export const listMasterData = async (req: Request, res: Response) => {

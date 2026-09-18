@@ -3,6 +3,9 @@ import { api } from './api';
 export interface ClinicSettings {
   id: number;
   clinic_name: string;
+  clinic_address: string | null;
+  registration_number: string | null;
+  logo_url: string | null;
   default_consultation_fee: number;
 }
 
