@@ -1,8 +1,8 @@
-import { PrismaClient, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { prisma } from '../../lib/prisma';
 import { NotFoundError, ValidationError, ForbiddenError, AllergyConflictError } from './errors';
 import { computeExpectedQty } from './qtyCalc';
 
-const prisma = new PrismaClient();
 
 interface Actor {
   user_id: number;

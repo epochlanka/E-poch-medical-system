@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../../lib/prisma';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -18,7 +18,6 @@ import {
 } from './placeholderData';
 import { convertDocxToPdf } from './libreoffice';
 
-const prisma = new PrismaClient();
 
 // uploads/letter-templates holds every uploaded template version; uploads/issued-letters holds
 // the frozen .docx + .pdf of each issued letter. Both are served ONLY through the authenticated

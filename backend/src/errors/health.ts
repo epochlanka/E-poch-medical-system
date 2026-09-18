@@ -1,11 +1,9 @@
 import { RequestHandler } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../lib/prisma';
 import { APP_VERSION, ENVIRONMENT } from './logger';
 
 // A lightweight liveness/readiness probe. No auth, no rate limiting, no secrets in the payload —
 // safe for a Docker HEALTHCHECK or an uptime monitor to poll.
-
-const prisma = new PrismaClient();
 
 export const checkDatabase = async (timeoutMs = 2000): Promise<'up' | 'down'> => {
   try {

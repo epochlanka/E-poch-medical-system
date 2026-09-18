@@ -10,11 +10,8 @@ services:
     volumes:
       - ./backend:/usr/src/app
       - /usr/src/app/node_modules
-      - sqlite_data:/usr/src/app/prisma
-    environment:
-      - DATABASE_URL=file:./dev.db
-      # Error-monitoring / SMTP settings are read from backend/.env (bind-mounted above) via
-      # dotenv — see backend/.env.example. Nothing secret is set here.
+    # DATABASE_URL / DIRECT_URL (Supabase Postgres) plus error-monitoring / SMTP settings
+    # are read from backend/.env (bind-mounted above) via dotenv — see backend/.env.example.
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000/health"]
       interval: 30s
@@ -36,6 +33,3 @@ services:
       - CHOKIDAR_USEPOLLING=true
     depends_on:
       - backend
-
-volumes:
-  sqlite_data:

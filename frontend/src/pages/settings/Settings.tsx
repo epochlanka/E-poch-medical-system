@@ -1,18 +1,18 @@
 import { useState } from 'react';
 import GeneralTab from './GeneralTab';
 import MasterDataTab from './MasterDataTab';
-import BackupTab from './BackupTab';
 import '../dashboard/dashboard.css';
 import '../patients/patients.css';
 import '../users/users.css';
 import './settings.css';
 
-type SettingsTab = 'general' | 'masterData' | 'backup';
+// Backup & Restore tab is disabled after the migration to Supabase (Postgres) — the old
+// implementation copied the local SQLite file directly and has no Postgres equivalent yet.
+type SettingsTab = 'general' | 'masterData';
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: 'general', label: 'General' },
   { key: 'masterData', label: 'Master Data' },
-  { key: 'backup', label: 'Backup & Restore' },
 ];
 
 const Settings = () => {
@@ -37,7 +37,6 @@ const Settings = () => {
 
       {activeTab === 'general' && <GeneralTab />}
       {activeTab === 'masterData' && <MasterDataTab />}
-      {activeTab === 'backup' && <BackupTab />}
     </div>
   );
 };

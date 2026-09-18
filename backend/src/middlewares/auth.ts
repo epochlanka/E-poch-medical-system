@@ -2,10 +2,8 @@ import { hasRoleAccess } from '../config/roles';
 import passport from 'passport';
 import { Strategy as JwtStrategy, ExtractJwt } from 'passport-jwt';
 import { Request, Response, NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../lib/prisma';
 import { AUTH_COOKIE_NAME, JWT_ALGORITHM, JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET } from '../config/auth';
-
-const prisma = new PrismaClient();
 
 const fromAuthCookie = (req: Request): string | null => {
   const rawCookies = req.headers.cookie;

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { api } from '../lib/api';
+import { api, authState } from '../lib/api';
 import { commonLoginUrl, type UserRole } from '../config/roleRoutes';
 
 export interface AuthUser {
@@ -22,6 +22,12 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Keep the api layer's view of "who this tab thinks it is" current, so its 403 handler can
+  // tell a stale/swapped session (see lib/api.ts) apart from a genuine permission error.
+  useEffect(() => {
+    authState.role = user?.role ?? null;
+  }, [user]);
 
   useEffect(() => {
     let active = true;

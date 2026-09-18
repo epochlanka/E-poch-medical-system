@@ -1,8 +1,7 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../../lib/prisma';
 import bcrypt from 'bcrypt';
 import { NotFoundError, ValidationError } from './errors';
 
-const prisma = new PrismaClient();
 
 export const ROLES = ['Admin', 'Receptionist', 'Doctor', 'Pharmacist', 'FrontDesk'] as const;
 export type Role = (typeof ROLES)[number];

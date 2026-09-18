@@ -1,9 +1,9 @@
 import { PrismaClient } from '@prisma/client';
+import { prisma } from '../../lib/prisma';
 import fs from 'fs';
 import path from 'path';
 import { NotFoundError, ValidationError } from './errors';
 
-const prisma = new PrismaClient();
 
 // backend/prisma/dev.db, resolved from this file's own location rather than process.cwd() —
 // DATABASE_URL="file:./dev.db" resolves relative to prisma/schema.prisma's directory, a

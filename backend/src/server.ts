@@ -1,6 +1,7 @@
 import http from 'http';
 import { Server } from 'socket.io';
 import app from './app';
+import { prisma } from './lib/prisma';
 import { libreOfficeStatus } from './modules/letters/libreoffice';
 import { installProcessErrorHandlers, verifyEmailTransport, emailStatus, logger } from './errors';
 
@@ -59,3 +60,14 @@ server.listen(PORT, () => {
     );
   }
 });
+
+// Release the Postgres connection pool on restart/shutdown instead of leaving it to the OS —
+// nodemon/PM2/Docker all stop the process this way, and against a pooled remote database
+// (Supabase) an unreleased pool can hold connections until the pooler times them out.
+const shutdown = async (signal: string) => {
+  console.log(`${signal} received, shutting down...`);
+  await prisma.$disconnect();
+  server.close(() => process.exit(0));
+};
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGINT', () => void shutdown('SIGINT'));

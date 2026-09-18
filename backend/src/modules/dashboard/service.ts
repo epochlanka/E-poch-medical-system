@@ -1,6 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma';
 
 const ACTIVE_QUEUE_STATUSES = ['Waiting', 'Called', 'Consulting'];
 const QUEUE_STATUSES = ['Waiting', 'Called', 'Consulting', 'Completed', 'Skipped'] as const;

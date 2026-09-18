@@ -19,8 +19,10 @@ export interface Classification {
 const GENERIC_5XX = 'Something went wrong. Please try again.';
 const DB_DOWN = 'Unable to connect to the database. Please try again later.';
 
-// Prisma engine codes that mean "cannot reach / talk to the database".
-const DB_CONNECTIVITY_CODES = new Set(['P1000', 'P1001', 'P1002', 'P1008', 'P1010', 'P1011', 'P1017']);
+// Prisma engine codes that mean "cannot reach / talk to the database". P2024 is the client-side
+// connection-pool-exhausted timeout (distinct from the P1xxx server-unreachable codes) — also a
+// connectivity/capacity problem from the caller's point of view, so it gets the same treatment.
+const DB_CONNECTIVITY_CODES = new Set(['P1000', 'P1001', 'P1002', 'P1008', 'P1010', 'P1011', 'P1017', 'P2024']);
 
 const asRecord = (e: unknown): Record<string, unknown> =>
   e && typeof e === 'object' ? (e as Record<string, unknown>) : {};

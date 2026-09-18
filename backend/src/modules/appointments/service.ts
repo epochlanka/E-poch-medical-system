@@ -1,7 +1,7 @@
-import { PrismaClient, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { prisma } from '../../lib/prisma';
 import { NotFoundError, ForbiddenError, ValidationError } from './errors';
 
-const prisma = new PrismaClient();
 
 interface Actor {
   user_id: number;

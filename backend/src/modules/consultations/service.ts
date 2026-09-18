@@ -1,4 +1,5 @@
-import { PrismaClient, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { prisma } from '../../lib/prisma';
 import fs from 'fs';
 import path from 'path';
 import { NotFoundError, ValidationError, ForbiddenError } from './errors';
@@ -7,7 +8,6 @@ import { logger } from '../../errors';
 
 const FALLBACK_CONSULTATION_FEE = 500;
 
-const prisma = new PrismaClient();
 export const uploadsDir = path.join(__dirname, '..', '..', '..', 'uploads', 'consultations');
 
 interface Actor {

@@ -1,8 +1,8 @@
-import { PrismaClient, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { prisma } from '../../lib/prisma';
 import { NotFoundError, ValidationError } from './errors';
 import { ReportColumn } from './csv';
 
-const prisma = new PrismaClient();
 
 const DEFAULT_RANGE_DAYS = 30;
 const DEFAULT_EXPIRY_THRESHOLD_DAYS = 90;

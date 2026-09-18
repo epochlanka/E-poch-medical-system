@@ -1,8 +1,8 @@
 import path from 'path';
-import { PrismaClient, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { prisma } from '../../lib/prisma';
 import { NotFoundError, ValidationError, ForbiddenError } from './errors';
 
-const prisma = new PrismaClient();
 
 export const uploadsDir = path.join(__dirname, '..', '..', '..', 'uploads', 'lab-reports');
 

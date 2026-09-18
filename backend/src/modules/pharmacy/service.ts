@@ -1,9 +1,9 @@
-import { PrismaClient, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { prisma } from '../../lib/prisma';
 import { NotFoundError, ValidationError } from './errors';
 import { ensureInvoiceForConsultation } from '../billing/service';
 import { logger } from '../../errors';
 
-const prisma = new PrismaClient();
 
 interface Actor {
   user_id: number;

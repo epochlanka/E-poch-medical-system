@@ -1,5 +1,4 @@
 import { Request, Response } from 'express';
-import path from 'path';
 import * as service from './service';
 import { NotFoundError, ValidationError } from './errors';
 import { respondWithServerError } from '../../errors';
@@ -67,46 +66,16 @@ export const deleteMasterDataItem = async (req: Request, res: Response) => {
 };
 
 // ---- Backup & Restore ----
+// Disabled after the migration to Supabase (Postgres): the old implementation worked by
+// copying the local SQLite file directly (see settings/service.ts), which has no equivalent
+// against a networked Postgres database. Rework with pg_dump/pg_restore (or rely on Supabase's
+// own backups) before re-enabling.
 
-export const createBackup = async (req: Request, res: Response) => {
-  try {
-    res.status(201).json(await service.createBackup(actor(req)));
-  } catch (error) {
-    handleError(req, res, error);
-  }
-};
+const backupUnavailable = (_req: Request, res: Response) =>
+  res.status(503).json({ message: 'Backup & restore is unavailable since the move to Supabase (Postgres).' });
 
-export const listBackups = async (req: Request, res: Response) => {
-  try {
-    res.status(200).json(await service.listBackups());
-  } catch (error) {
-    handleError(req, res, error);
-  }
-};
-
-export const verifyBackup = async (req: Request, res: Response) => {
-  try {
-    res.status(200).json(await service.verifyBackup(Number(req.params.backupId)));
-  } catch (error) {
-    handleError(req, res, error);
-  }
-};
-
-export const restoreBackup = async (req: Request, res: Response) => {
-  try {
-    res.status(200).json(await service.restoreBackup(Number(req.params.backupId), actor(req)));
-  } catch (error) {
-    handleError(req, res, error);
-  }
-};
-
-export const downloadBackup = async (req: Request, res: Response) => {
-  try {
-    const backups = await service.listBackups();
-    const backup = backups.find((b) => b.backup_id === Number(req.params.backupId));
-    if (!backup) return res.status(404).json({ message: 'Backup not found' });
-    res.download(path.resolve(__dirname, '../../../backups', backup.filename), backup.filename);
-  } catch (error) {
-    handleError(req, res, error);
-  }
-};
+export const createBackup = backupUnavailable;
+export const listBackups = backupUnavailable;
+export const verifyBackup = backupUnavailable;
+export const restoreBackup = backupUnavailable;
+export const downloadBackup = backupUnavailable;

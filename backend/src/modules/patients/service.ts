@@ -1,8 +1,8 @@
-import { Prisma, PrismaClient, Patient } from '@prisma/client';
+import { Prisma, Patient } from '@prisma/client';
+import { prisma } from '../../lib/prisma';
 import { isFuzzyNameMatch, stringSimilarityPct } from './nameMatch';
 import { NotFoundError, ValidationError, DuplicatePatientError } from './errors';
 
-const prisma = new PrismaClient();
 
 type PrismaTx = Prisma.TransactionClient;
 

@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { toFriendlyError, type FriendlyError } from './errorMessage';
-import { commonLoginUrl } from '../config/roleRoutes';
+import { commonLoginUrl, isUserRole, redirectToRoleHome } from '../config/roleRoutes';
 
 // Keep the API on the same computer that served the UI. This makes the default work both on
 // localhost and when another clinic PC opens the app through this computer's LAN address.
@@ -20,12 +20,34 @@ const emitAppError = (friendly: FriendlyError) => {
   }
 };
 
+// The role this tab last saw itself signed in as, kept current by AuthContext. All four portals
+// (Admin/Doctor/Receptionist/Pharmacist, on different ports) call this same backend origin, so
+// they share one browser cookie jar — logging into a different portal (or the same portal in
+// another tab) silently swaps the session under any other open tab, which never re-fetches
+// /auth/me on its own. That tab keeps showing its old role's UI until an action 403s. The
+// interceptor below tells that apart from a genuine same-role permission error: only redirect
+// when the role has actually changed underneath this tab.
+export const authState: { role: string | null } = { role: null };
+
 api.interceptors.response.use(
   (res) => res,
-  (error) => {
+  async (error) => {
     if (error.response?.status === 401 && !window.location.pathname.startsWith('/login')) {
       window.location.replace(commonLoginUrl());
       return Promise.reject(error);
+    }
+
+    if (error.response?.status === 403 && !window.location.pathname.startsWith('/login')) {
+      try {
+        const { data } = await axios.get(`${API_BASE_URL}/api/v1/auth/me`, { withCredentials: true });
+        const actualRole = data?.user?.role;
+        if (actualRole && actualRole !== authState.role && isUserRole(actualRole)) {
+          redirectToRoleHome(actualRole);
+          return new Promise(() => {}); // navigation is in flight; nothing else should run
+        }
+      } catch {
+        // /auth/me failed too (e.g. fully logged out) — fall through to the normal error path.
+      }
     }
 
     const friendly = toFriendlyError(error);

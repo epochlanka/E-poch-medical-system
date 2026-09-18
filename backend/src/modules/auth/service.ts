@@ -1,11 +1,10 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../../lib/prisma';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { AccountLockedError, InvalidCredentialsError, InvalidTotpError, TotpRequiredError, ValidationError } from './errors';
 import { buildOtpauthUrl, generateTotpSecret, verifyTotpToken } from './totp';
 import { JWT_ALGORITHM, JWT_AUDIENCE, JWT_EXPIRES_IN, JWT_ISSUER, JWT_SECRET } from '../../config/auth';
 
-const prisma = new PrismaClient();
 const FAILED_ATTEMPTS_LIMIT = 5;
 
 interface Actor {

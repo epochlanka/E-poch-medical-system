@@ -1,8 +1,7 @@
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { prisma } from '../../lib/prisma';
 import * as patientsService from '../patients/service';
 import { NotFoundError, ValidationError } from './errors';
-
-const prisma = new PrismaClient();
 
 // ---- Family Directory --------------------------------------------------------
 
