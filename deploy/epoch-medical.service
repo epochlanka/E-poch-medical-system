@@ -1,0 +1,29 @@
+## systemd unit — makes the system come up on its own when the pharmacy PC boots,
+## with no one needing to open a terminal or double-click anything.
+##
+## Install (Linux pharmacy PC):
+##   sudo cp deploy/epoch-medical.service /etc/systemd/system/
+##   sudo sed -i "s#__REPO_PATH__#$(pwd)#" /etc/systemd/system/epoch-medical.service
+##   sudo systemctl daemon-reload
+##   sudo systemctl enable --now epoch-medical.service
+##
+## After that: reboot the machine at any time — the stack comes back on its own once
+## Docker starts. Containers also carry `restart: always`, so a container crash (not just
+## a reboot) recovers without this unit's help.
+
+[Unit]
+Description=E-Poch Medical System (Docker Compose, production)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=__REPO_PATH__
+ExecStart=/usr/bin/docker compose -f docker-compose.prod.yml up -d
+ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

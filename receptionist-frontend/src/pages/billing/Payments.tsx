@@ -34,7 +34,7 @@ const isoDaysAgo = (n: number) => {
   return d.toISOString().slice(0, 10);
 };
 
-const csvEscape = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+const csvEscape = (v: string | null) => (v && /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v ?? '');
 
 const toCsv = (rows: PaymentRow[]) => {
   const header = ['Date & Time', 'Invoice No.', 'Patient', 'Patient ID', 'Method', 'Amount', 'Discount', 'Amount Received', 'Status', 'Received By'];

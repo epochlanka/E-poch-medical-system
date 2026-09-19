@@ -2,13 +2,13 @@ import { Request, Response } from 'express';
 import * as service from './service';
 import { AccountLockedError, InvalidCredentialsError, InvalidTotpError, TotpRequiredError, ValidationError } from './errors';
 import { respondWithServerError } from '../../errors';
-import { AUTH_COOKIE_MAX_AGE_MS, AUTH_COOKIE_NAME } from '../../config/auth';
+import { AUTH_COOKIE_MAX_AGE_MS, AUTH_COOKIE_NAME, AUTH_COOKIE_SECURE } from '../../config/auth';
 
 const actor = (req: Request) => req.user as any as { user_id: number; role: string; username: string; sessionId?: number };
 
 const authCookieOptions = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
+  secure: AUTH_COOKIE_SECURE,
   sameSite: 'lax' as const,
   path: '/',
 };

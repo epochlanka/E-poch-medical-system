@@ -35,3 +35,12 @@ export const JWT_EXPIRES_IN = '1d';
 
 export const AUTH_COOKIE_NAME = 'epoch_session';
 export const AUTH_COOKIE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+// A `Secure` cookie is refused by the browser over plain HTTP, which is a real constraint
+// for a LAN-only deployment (e.g. a doctor's PC reaching a front-desk PC by IP with no TLS
+// in front of it). Defaults to Secure in production; COOKIE_SECURE=false is an explicit,
+// deliberate opt-out for exactly that case — the session cookie then travels unencrypted on
+// the local network, so only set this when that network is private and trusted.
+export const AUTH_COOKIE_SECURE = process.env.COOKIE_SECURE !== undefined
+  ? process.env.COOKIE_SECURE === 'true'
+  : process.env.NODE_ENV === 'production';
