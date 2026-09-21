@@ -1,0 +1,272 @@
+.ph-dash-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+.ph-dash-header h1 {
+  font-size: 22px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 4px;
+}
+.ph-dash-header p {
+  color: #64748b;
+  font-size: 14px;
+  margin: 0;
+}
+.ph-dash-header-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ph-date-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: white;
+  border: 1px solid #e7ebf3;
+  border-radius: 10px;
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #334155;
+  white-space: nowrap;
+}
+.ph-branch-chip {
+  border: 1px solid #e7ebf3;
+  border-radius: 10px;
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  background: white;
+}
+
+.ph-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 16px;
+  margin-bottom: 20px;
+}
+@media (max-width: 1300px) {
+  .ph-kpi-row {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.ph-kpi-sub {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 6px;
+}
+.ph-kpi-sub.warn {
+  color: #b45309;
+  font-weight: 600;
+}
+.ph-kpi-delta {
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 6px;
+}
+.ph-kpi-delta.up {
+  color: #16a34a;
+}
+.ph-kpi-delta.down {
+  color: #dc2626;
+}
+
+.ph-row-3 {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+  align-items: stretch;
+}
+@media (max-width: 1200px) {
+  .ph-row-3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- Donut (reused shape from admin app's StockOverviewDonut) ---- */
+.ph-donut-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.ph-donut-wrap {
+  position: relative;
+  width: 170px;
+  height: 170px;
+}
+.ph-donut-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.ph-donut-total {
+  font-size: 22px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.ph-donut-total-label {
+  font-size: 11.5px;
+  color: #94a3b8;
+  font-weight: 500;
+}
+.ph-donut-legend {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ph-donut-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.ph-donut-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.ph-donut-legend-label {
+  flex: 1;
+  color: #334155;
+  font-weight: 500;
+}
+.ph-donut-legend-value {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+/* ---- Line chart (reused shape from doctor-frontend's ConsultationsChart) ---- */
+.ph-line-chart {
+  width: 100%;
+  height: 200px;
+}
+.ph-line-grid {
+  stroke: #f1f5f9;
+  stroke-width: 1;
+}
+.ph-line-path {
+  stroke: #2563eb;
+  stroke-width: 2.5;
+}
+.ph-line-dot {
+  fill: white;
+  stroke: #2563eb;
+  stroke-width: 2.5;
+}
+.ph-line-dot.today {
+  fill: #2563eb;
+  r: 5.5;
+}
+.ph-line-value {
+  font-size: 11px;
+  font-weight: 700;
+  fill: #334155;
+}
+.ph-line-axis {
+  font-size: 11px;
+  fill: #94a3b8;
+}
+.ph-line-axis.today {
+  fill: #2563eb;
+  font-weight: 700;
+}
+.ph-trend-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: #64748b;
+  margin-top: 8px;
+}
+.ph-trend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2563eb;
+}
+
+/* ---- Alerts panel ---- */
+.ph-alert-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+.ph-alert-row:last-child {
+  border-bottom: none;
+}
+.ph-alert-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.ph-alert-icon.red {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.ph-alert-icon.amber {
+  background: #fef3c7;
+  color: #b45309;
+}
+.ph-alert-icon.blue {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.ph-alert-icon.purple {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+.ph-alert-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #0f172a;
+}
+.ph-alert-sub {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+.ph-alert-count {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.ph-alert-count.red {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.ph-alert-count.amber {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.ph-dash-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 4px;
+  font-size: 12.5px;
+  color: #94a3b8;
+  flex-wrap: wrap;
+  gap: 8px;
+}

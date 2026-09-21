@@ -1,0 +1,31 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "frontend"],
+      "port": 5173
+    },
+    {
+      "name": "doctor-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "doctor-frontend"],
+      "port": 5174,
+      "autoPort": true
+    },
+    {
+      "name": "receptionist-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "receptionist-frontend"],
+      "port": 5175,
+      "autoPort": true
+    },
+    {
+      "name": "pharmacist-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "pharmacist-frontend"],
+      "port": 5176
+    }
+  ]
+}

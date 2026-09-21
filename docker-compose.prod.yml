@@ -1,0 +1,81 @@
+# Production stack: compiled backend + static (nginx-served) frontend builds.
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Requires backend/.env to exist first (see backend/.env.example), with:
+#   NODE_ENV=production
+#   FRONTEND_URLS=http://<host>:5173,http://<host>:5174,http://<host>:5175,http://<host>:5176
+# where <host> is exactly how each portal is reached (localhost for a kiosk on this same
+# machine, or this machine's LAN IP/hostname for the doctor's own device) — production CORS
+# is a strict allow-list with no dev-time loopback bypass.
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    env_file:
+      - ./backend/.env
+    environment:
+      - NODE_ENV=production
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./backend/uploads:/usr/src/app/uploads
+      - ./backend/backups:/usr/src/app/backups
+      - ./backend/logs:/usr/src/app/logs
+    restart: always
+    healthcheck:
+      # timeout here must exceed checkDatabase's own timeout (backend/src/errors/health.ts) or
+      # wget cuts the request off before the app even finishes answering.
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    ports:
+      - "5173:80"
+    restart: always
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  doctor-frontend:
+    build:
+      context: ./doctor-frontend
+      dockerfile: Dockerfile.prod
+    ports:
+      - "5174:80"
+    restart: always
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  receptionist-frontend:
+    build:
+      # Repo root, not ./receptionist-frontend — this build also needs pharmacist-frontend/src
+      # (see receptionist-frontend/Dockerfile.prod's header comment for why).
+      context: .
+      dockerfile: receptionist-frontend/Dockerfile.prod
+    ports:
+      - "5175:80"
+    restart: always
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  pharmacist-frontend:
+    build:
+      context: ./pharmacist-frontend
+      dockerfile: Dockerfile.prod
+    ports:
+      - "5176:80"
+    restart: always
+    depends_on:
+      backend:
+        condition: service_healthy

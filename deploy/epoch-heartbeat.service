@@ -1,0 +1,19 @@
+## Runs deploy/heartbeat.sh once. Triggered on a schedule by epoch-heartbeat.timer, not run
+## directly. Needs HEARTBEAT_URL — set it in Environment= below after getting a ping URL from
+## your monitor (e.g. https://healthchecks.io).
+##
+## Install alongside epoch-medical.service:
+##   sudo cp deploy/epoch-heartbeat.service deploy/epoch-heartbeat.timer /etc/systemd/system/
+##   sudo sed -i "s#__REPO_PATH__#$(pwd)#" /etc/systemd/system/epoch-heartbeat.service
+##   sudo sed -i "s#__HEARTBEAT_URL__#<your ping URL>#" /etc/systemd/system/epoch-heartbeat.service
+##   sudo systemctl daemon-reload
+##   sudo systemctl enable --now epoch-heartbeat.timer
+
+[Unit]
+Description=E-Poch Medical System heartbeat ping (one-shot, run by epoch-heartbeat.timer)
+
+[Service]
+Type=oneshot
+WorkingDirectory=__REPO_PATH__
+Environment=HEARTBEAT_URL=__HEARTBEAT_URL__
+ExecStart=__REPO_PATH__/deploy/heartbeat.sh

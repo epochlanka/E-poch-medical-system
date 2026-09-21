@@ -1,0 +1,19 @@
+# Applies only to `docker build -f receptionist-frontend/Dockerfile.prod .` (repo-root context,
+# needed because that build also reads pharmacist-frontend/src — see the Dockerfile's comment).
+# Keeps the build context to just the two frontends' source, not the whole monorepo.
+**/node_modules
+**/dist
+**/build
+**/.env
+**/.env.*
+!**/.env.example
+.git
+backend
+frontend
+doctor-frontend
+docs
+firmware
+deploy
+*.pdf
+*.md
+.claude

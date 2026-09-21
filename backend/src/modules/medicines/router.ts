@@ -1,0 +1,153 @@
+import { Router, Request, Response, NextFunction } from 'express';
+import { z } from 'zod';
+import multer from 'multer';
+import { validate } from '../../middlewares/validate';
+import { requireAuth, requireRole } from '../../middlewares/auth';
+import * as controller from './controller';
+
+const router = Router();
+
+router.use(requireAuth);
+
+const READ_ROLES = ['Admin', 'Receptionist', 'Doctor', 'Pharmacist'];
+const WRITE_ROLES = ['Admin', 'Pharmacist'];
+
+const searchSchema = z.object({
+  query: z.object({
+    search: z.string().optional(),
+    category: z.string().optional(),
+    includeInactive: z.string().optional(),
+  }),
+});
+
+const medicineIdParamsSchema = z.object({ params: z.object({ medicineId: z.coerce.number().int().positive() }) });
+
+// Shared by a brand-new medicine's opening stock and the standalone "Add Stock Batch" action —
+// both ultimately call receiveStockBatch (medicines/service.ts -> suppliers/service.ts).
+const stockBatchSchema = z.object({
+  supplier_id: z.number().int().positive(),
+  batch_no: z.string().min(1, 'Batch number is required'),
+  purchase_date: z.coerce.date().optional(),
+  manufacture_date: z.coerce.date().optional(),
+  expiry_date: z.coerce.date(),
+  received_unit: z.string().min(1, 'Received unit is required'), // Box, Strip, Bottle, Tablet, Capsule, ml, Tube, Piece, Other
+  received_qty: z.number().positive(),
+  units_per_pack: z.number().positive(), // base units per one received_unit
+  purchase_price_per_pack: z.number().min(0),
+  selling_price_per_pack: z.number().min(0).optional(),
+  selling_price_per_base_unit: z.number().min(0).optional(),
+  location: z.string().optional(),
+});
+
+const createSchema = z.object({
+  body: z.object({
+    name: z.string().min(1, 'Name is required'),
+    generic_name: z.string().optional(),
+    brand_name: z.string().optional(),
+    category: z.string().optional(),
+    form: z.string().optional(),
+    strength: z.string().optional(),
+    manufacturer: z.string().optional(),
+    requires_prescription: z.boolean().optional(),
+    base_unit: z.string().min(1, 'Base unit is required'), // Tablet, Capsule, ml, Gram, Piece, ...
+    default_pack_unit: z.string().optional(),
+    default_pack_size: z.number().positive().optional(),
+    default_selling_price: z.number().min(0).optional(),
+    reorder_level: z.number().int().min(0).optional(),
+    max_stock_level: z.number().int().min(0).optional(),
+    barcode: z.string().optional(),
+    // Optional first batch, created in the same request via the same path as "Add Stock Batch" —
+    // a Medicine Product and its opening Stock Batch stay two separate, auditable records.
+    initial_stock: stockBatchSchema.optional(),
+  }),
+});
+
+const updateSchema = z.object({
+  params: z.object({ medicineId: z.coerce.number().int().positive() }),
+  body: z.object({
+    name: z.string().min(1).optional(),
+    generic_name: z.string().optional(),
+    brand_name: z.string().optional(),
+    category: z.string().optional(),
+    form: z.string().optional(),
+    strength: z.string().optional(),
+    manufacturer: z.string().optional(),
+    requires_prescription: z.boolean().optional(),
+    base_unit: z.string().min(1).optional(),
+    default_pack_unit: z.string().optional(),
+    default_pack_size: z.number().positive().optional(),
+    default_selling_price: z.number().min(0).optional(),
+    reorder_level: z.number().int().min(0).optional(),
+    max_stock_level: z.number().int().min(0).optional(),
+    barcode: z.string().optional(),
+    is_active: z.boolean().optional(),
+  }),
+});
+
+const addStockBatchSchema = z.object({
+  params: z.object({ medicineId: z.coerce.number().int().positive() }),
+  body: stockBatchSchema,
+});
+
+const catalogQuerySchema = z.object({
+  query: z.object({
+    search: z.string().optional(),
+    category: z.string().optional(),
+    form: z.string().optional(),
+    manufacturer: z.string().optional(),
+    brand: z.string().optional(),
+    batchNo: z.string().optional(),
+    status: z.enum(['active', 'inactive', 'all']).optional(),
+    stockStatus: z.enum(['in-stock', 'low-stock', 'out-of-stock', 'expiring-soon']).optional(),
+    page: z.coerce.number().int().positive().optional(),
+    limit: z.coerce.number().int().positive().optional(),
+  }),
+});
+
+const csvUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype !== 'text/csv' && !file.originalname.toLowerCase().endsWith('.csv')) {
+      return cb(new Error('Only CSV files are allowed'));
+    }
+    cb(null, true);
+  },
+});
+
+const uploadCsvMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  csvUpload.single('file')(req, res, (err: unknown) => {
+    if (err) return res.status(400).json({ message: err instanceof Error ? err.message : 'Upload failed' });
+    next();
+  });
+};
+
+const stockQuerySchema = z.object({
+  query: z.object({
+    search: z.string().optional(),
+    category: z.string().optional(),
+    form: z.string().optional(),
+    brand: z.string().optional(),
+    status: z.enum(['in-stock', 'low-stock', 'out-of-stock', 'expiring-soon']).optional(),
+    supplierId: z.coerce.number().int().positive().optional(),
+    page: z.coerce.number().int().positive().optional(),
+    limit: z.coerce.number().int().positive().optional(),
+  }),
+});
+
+// Static-segment routes (/stats, /stock) must be registered before the generic /:medicineId
+// catch-all, or Express will swallow them as if they were a medicine id.
+router.get('/stats', requireRole(READ_ROLES), controller.stats);
+router.get('/stock', requireRole(READ_ROLES), validate(stockQuerySchema), controller.listStock);
+router.get('/catalog-meta', requireRole(READ_ROLES), controller.catalogMeta);
+router.get('/catalog', requireRole(READ_ROLES), validate(catalogQuerySchema), controller.listCatalog);
+router.post('/import', requireRole(WRITE_ROLES), uploadCsvMiddleware, controller.importMedicines);
+
+router.get('/', requireRole(READ_ROLES), validate(searchSchema), controller.search);
+router.post('/', requireRole(WRITE_ROLES), validate(createSchema), controller.create);
+router.get('/:medicineId', requireRole(READ_ROLES), validate(medicineIdParamsSchema), controller.getById);
+router.put('/:medicineId', requireRole(WRITE_ROLES), validate(updateSchema), controller.update);
+router.get('/:medicineId/batches', requireRole(READ_ROLES), validate(medicineIdParamsSchema), controller.getWithBatches);
+router.post('/:medicineId/stock-batches', requireRole(WRITE_ROLES), validate(addStockBatchSchema), controller.addStockBatch);
+
+export default router;

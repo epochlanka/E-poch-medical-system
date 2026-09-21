@@ -1,0 +1,84 @@
+.po-received-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 4px;
+}
+.po-progress {
+  height: 6px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  overflow: hidden;
+}
+.po-progress-bar {
+  height: 100%;
+  background: #22c55e;
+  border-radius: 4px;
+  transition: width 0.2s ease;
+}
+.po-progress-bar.cancelled {
+  background: #cbd5e1;
+}
+
+.po-summary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.po-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.po-summary-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.po-summary-icon.blue {
+  background: #eaf1fe;
+  color: #2563eb;
+}
+.po-summary-icon.green {
+  background: #dcfce7;
+  color: #16a34a;
+}
+.po-summary-icon.purple {
+  background: #ede9fe;
+  color: #7c3aed;
+}
+.po-summary-icon.amber {
+  background: #fef3c7;
+  color: #b45309;
+}
+.po-summary-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+@media print {
+  .shell-sidebar,
+  .shell-topbar,
+  .shell-backdrop,
+  .pat-header-actions,
+  .dash-kpi-row,
+  .pat-filter-bar,
+  .pat-pagination,
+  .ph-layout > div:last-child {
+    display: none !important;
+  }
+  .shell-content {
+    padding: 0 !important;
+  }
+  .ph-layout {
+    display: block !important;
+  }
+}

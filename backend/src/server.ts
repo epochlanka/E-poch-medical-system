@@ -1,6 +1,12 @@
 import http from 'http';
 import { Server } from 'socket.io';
 import app from './app';
+import { prisma } from './lib/prisma';
+import { libreOfficeStatus } from './modules/letters/libreoffice';
+import { installProcessErrorHandlers, verifyEmailTransport, emailStatus, logger } from './errors';
+
+// Catch stray promise rejections / uncaught exceptions before anything else starts.
+installProcessErrorHandlers();
 
 const PORT = process.env.PORT || 3000;
 
@@ -34,4 +40,34 @@ app.set('io', io);
 
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+
+  const mail = emailStatus();
+  logger.info(
+    { emailConfigured: mail.configured, alertRecipient: mail.to },
+    mail.configured
+      ? `Error-alert email enabled -> ${mail.to}`
+      : 'Error-alert email NOT configured (set SMTP_HOST / SMTP_USER / SMTP_PASS) — errors will be logged only'
+  );
+  void verifyEmailTransport();
+
+  const lo = libreOfficeStatus();
+  if (lo.ok) {
+    console.log(`LibreOffice (letter PDF rendering) found at: ${lo.path}`);
+  } else {
+    console.warn(
+      'WARNING: LibreOffice was not found. Letter preview/issue will fail with 503 until ' +
+        'LibreOffice is installed or LIBREOFFICE_PATH is set.'
+    );
+  }
 });
+
+// Release the Postgres connection pool on restart/shutdown instead of leaving it to the OS —
+// nodemon/PM2/Docker all stop the process this way, and against a pooled remote database
+// (Supabase) an unreleased pool can hold connections until the pooler times them out.
+const shutdown = async (signal: string) => {
+  console.log(`${signal} received, shutting down...`);
+  await prisma.$disconnect();
+  server.close(() => process.exit(0));
+};
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGINT', () => void shutdown('SIGINT'));

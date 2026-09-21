@@ -1,6 +1,7 @@
 # Dependency directories
 node_modules/
-
+newkey
+start.sh
 # Environment variables
 .env
 .env.*
@@ -13,6 +14,12 @@ build/
 # Prisma SQLite database
 *.db
 *.db-journal
+
+# User-uploaded files (patient photos, etc.)
+uploads/
+
+# Local SQLite backup dumps (Settings > Backup & Restore)
+backend/backups/
 
 # Logs
 logs

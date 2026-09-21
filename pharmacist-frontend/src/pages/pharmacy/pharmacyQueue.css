@@ -1,0 +1,26 @@
+.pq-flow { display: flex; flex-wrap: wrap; gap: 24px; margin: 0 0 22px; font-size: 14px; color: #426258; }
+.pq-flow span { display: flex; align-items: center; gap: 8px; }
+.pq-flow b { display: grid; place-items: center; border-radius: 50%; width: 26px; height: 26px; background: #deeee7; color: #137453; }
+.pq-search-label { display: block; font-size: 14px; font-weight: 750; margin-bottom: 9px; }
+.pq-search-line { display: flex; gap: 10px; }
+.pq-search-line input { width: 100%; min-width: 0; font-size: 16px; padding: 14px; }
+.pq-view-filters { display: flex; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid #e3ebe8; padding: 20px 0 15px; }
+.pq-view-filters button { font: inherit; font-size: 13px; font-weight: 700; border: 1px solid #e0e8e5; background: white; border-radius: 9px; padding: 10px 12px; cursor: pointer; color: #526b66; }
+.pq-view-filters button.active { background: #e6f5ed; border-color: #69b997; color: #0c674b; }
+.pq-view-filters span { display: inline-block; margin-left: 8px; background: #edf2f0; border-radius: 5px; padding: 2px 6px; }
+.pq-list-caption { display: flex; justify-content: space-between; gap: 14px; font-size: 12px; color: #62776f; padding: 16px 0; }
+.pq-patient-list { display: grid; gap: 10px; }
+.pq-patient-row { display: grid; grid-template-columns: minmax(0,1.1fr) minmax(0,1fr) auto; align-items: center; gap: 20px; border: 1px solid #dde8e2; padding: 18px; border-radius: 12px; }
+.pq-patient-row:hover { background: #fafdfa; border-color: #a7cbb7; }
+.pq-patient-row h2 { font-size: 18px; margin: 0 0 6px; overflow-wrap: anywhere; }
+.pq-patient-row p { margin: 5px 0; font-size: 13px; color: #3e5f55; overflow-wrap: anywhere; }
+.pq-patient-row small { font-size: 12px; color: #62776f; line-height: 1.6; overflow-wrap: anywhere; }
+.pq-status { display: inline-block; font-size: 11px; font-weight: 750; padding: 4px 8px; border-radius: 6px; background: #fff1d2; color: #856012; }
+.pq-status.preparing { background: #e7effd; color: #315e9e; }
+.pq-status.dispensed { background: #dff5e7; color: #176544; }
+.pq-status.collected { background: #edf0f3; color: #526174; }
+.pq-empty { padding: 40px 20px; text-align: center; color: #536d61; }
+.pq-empty p { font-size: 14px; }
+.pq-worklist :focus-visible { outline: 3px solid #129b76; outline-offset: 3px; }
+@media (max-width: 1100px) { .pq-patient-row { grid-template-columns: minmax(0,1fr) minmax(0,1fr); } .pq-patient-row > a { grid-column: 1 / -1; justify-self: start; } }
+@media (max-width: 600px) { .pq-patient-row { grid-template-columns: minmax(0,1fr); } .pq-list-caption { flex-direction: column; } .pq-flow { gap: 10px; font-size: 12px; } .pq-search-line { flex-wrap: wrap; } .pq-patient-row > a { width: 100%; } }

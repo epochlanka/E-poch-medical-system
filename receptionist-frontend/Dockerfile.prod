@@ -1,0 +1,31 @@
+# Production image: static Vite build served by nginx.
+# Dev keeps using ./Dockerfile (vite dev server) — this is only for real deployment.
+#
+# receptionist-frontend/src/frontDesk/PharmacyRoutes.tsx imports pages directly from
+# ../../../pharmacist-frontend/src (see that project's vite.config.ts `fs.allow: ['..']` —
+# a deliberate, existing coupling, not something introduced here). A normal per-directory
+# build context can't see that sibling, so this build must run with the REPO ROOT as its
+# context:
+#   docker build -f receptionist-frontend/Dockerfile.prod -t epoch-receptionist-frontend-prod .
+
+FROM node:20-alpine AS builder
+WORKDIR /usr/src/app
+
+COPY pharmacist-frontend/package*.json ./pharmacist-frontend/
+RUN cd pharmacist-frontend && npm ci
+COPY pharmacist-frontend/src ./pharmacist-frontend/src
+
+COPY receptionist-frontend/package*.json ./receptionist-frontend/
+RUN cd receptionist-frontend && npm ci
+COPY receptionist-frontend ./receptionist-frontend
+
+WORKDIR /usr/src/app/receptionist-frontend
+RUN npm run build
+
+# ---
+
+FROM nginx:1.27-alpine
+COPY --from=builder /usr/src/app/receptionist-frontend/dist /usr/share/nginx/html
+COPY receptionist-frontend/nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80

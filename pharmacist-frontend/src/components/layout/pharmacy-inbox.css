@@ -1,0 +1,11 @@
+.ph-inbox-link { display: inline-flex; align-items: center; gap: 9px; min-height: 38px; padding: 5px 7px 5px 12px; border: 1px solid #b9dfd0; border-radius: 10px; background: #effaf4; color: #106c50; text-decoration: none; font-size: 12px; font-weight: 750; white-space: nowrap; }
+.ph-inbox-link:hover { background: #ddf4e7; }
+.ph-inbox-count { display: inline-grid; place-items: center; min-width: 27px; height: 27px; padding: 0 5px; border-radius: 7px; background: #0d8f6b; color: #fff; font-size: 12px; }
+.ph-new-rx { position: absolute; right: 24px; top: 60px; z-index: 60; display: flex; align-items: center; gap: 13px; width: min(370px, calc(100vw - 35px)); background: #fff; border: 1px solid #b7ddc8; border-left: 4px solid #0d8f6b; border-radius: 11px; box-shadow: 0 14px 35px #183a4c2d; padding: 13px; color: #1a3c4c; }
+.ph-new-rx > div { flex: 1; min-width: 0; }
+.ph-new-rx strong, .ph-new-rx span { display: block; }
+.ph-new-rx strong { font-size: 13px; }
+.ph-new-rx span { margin-top: 3px; color: #567184; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ph-new-rx a { color: #087657; font-size: 13px; font-weight: 800; }
+.ph-new-rx button { border: 0; background: none; color: #64798b; font-size: 22px; cursor: pointer; }
+@media (max-width: 700px) { .ph-inbox-label { display: none; } .ph-inbox-link { padding: 5px; } .ph-new-rx { right: 8px; } }

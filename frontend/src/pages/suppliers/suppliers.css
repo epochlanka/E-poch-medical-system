@@ -1,0 +1,18 @@
+@media print {
+  .shell-sidebar,
+  .shell-topbar,
+  .shell-backdrop,
+  .pat-header-actions,
+  .dash-kpi-row,
+  .pat-filter-bar,
+  .pat-pagination,
+  .ph-layout > div:last-child {
+    display: none !important;
+  }
+  .shell-content {
+    padding: 0 !important;
+  }
+  .ph-layout {
+    display: block !important;
+  }
+}
