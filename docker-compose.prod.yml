@@ -26,9 +26,11 @@ services:
       - ./backend/logs:/usr/src/app/logs
     restart: always
     healthcheck:
+      # timeout here must exceed checkDatabase's own timeout (backend/src/errors/health.ts) or
+      # wget cuts the request off before the app even finishes answering.
       test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
       start_period: 40s
 

@@ -1,14 +1,11 @@
-import { PrismaClient } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import fs from 'fs';
 import path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { NotFoundError, ValidationError } from './errors';
 
-
-// backend/prisma/dev.db, resolved from this file's own location rather than process.cwd() —
-// DATABASE_URL="file:./dev.db" resolves relative to prisma/schema.prisma's directory, a
-// recurring gotcha (backend/dev.db is NOT the real file).
-const DEV_DB_PATH = path.resolve(__dirname, '../../../prisma/dev.db');
+const execFileAsync = promisify(execFile);
 const BACKUPS_DIR = path.resolve(__dirname, '../../../backups');
 
 interface Actor {
@@ -137,15 +134,28 @@ const ensureBackupsDir = () => {
   if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
 };
 
-const timestampedFilename = (prefix: string) => `${prefix}-${new Date().toISOString().replace(/[:.]/g, '-')}.db`;
+const timestampedFilename = (prefix: string) => `${prefix}-${new Date().toISOString().replace(/[:.]/g, '-')}.dump`;
+
+// DIRECT_URL, not DATABASE_URL — pg_dump/pg_restore parse the URL as a plain libpq connection
+// string, which doesn't understand Prisma-only query params like DATABASE_URL's
+// `connection_limit` and errors out on them.
+const pgConnectionString = () => {
+  const url = process.env.DIRECT_URL;
+  if (!url) throw new ValidationError('DIRECT_URL is not configured — cannot back up or restore the database');
+  return url;
+};
 
 export const createBackup = async (actor: Actor) => {
   ensureBackupsDir();
-  if (!fs.existsSync(DEV_DB_PATH)) throw new ValidationError('No database file found to back up');
 
   const filename = timestampedFilename('backup');
   const destPath = path.join(BACKUPS_DIR, filename);
-  await fs.promises.copyFile(DEV_DB_PATH, destPath);
+
+  // Custom format (-Fc): compressed, and the only format pg_restore can selectively inspect
+  // (--list) or replay (--clean) against a live database — a plain SQL dump can't do either.
+  await execFileAsync('pg_dump', ['--format=custom', '--file', destPath, pgConnectionString()], {
+    maxBuffer: 1024 * 1024 * 64,
+  });
   const { size } = await fs.promises.stat(destPath);
 
   const backup = await prisma.dbBackup.create({
@@ -160,8 +170,8 @@ export const listBackups = async () => {
   return prisma.dbBackup.findMany({ orderBy: { created_at: 'desc' }, include: { creator: { select: { username: true } } } });
 };
 
-// Opens the backup file (not the live DB) as its own SQLite datasource and runs SQLite's
-// built-in integrity check — a backup file existing on disk is not itself proof it's restorable.
+// Reads the custom-format archive's table of contents without touching any database — a backup
+// file existing on disk is not itself proof it's a valid, restorable archive.
 export const verifyBackup = async (backupId: number) => {
   const backup = await prisma.dbBackup.findUnique({ where: { backup_id: backupId } });
   if (!backup) throw new NotFoundError('Backup not found');
@@ -169,24 +179,22 @@ export const verifyBackup = async (backupId: number) => {
   const backupPath = path.join(BACKUPS_DIR, backup.filename);
   if (!fs.existsSync(backupPath)) throw new ValidationError('Backup file is missing from disk');
 
-  const checkClient = new PrismaClient({ datasources: { db: { url: `file:${backupPath}` } } });
   let ok = false;
   try {
-    const result = await checkClient.$queryRawUnsafe<{ integrity_check: string }[]>('PRAGMA integrity_check');
-    ok = result.length === 1 && result[0].integrity_check === 'ok';
+    const { stdout } = await execFileAsync('pg_restore', ['--list', backupPath], { maxBuffer: 1024 * 1024 * 64 });
+    ok = stdout.trim().length > 0;
   } catch {
     ok = false;
-  } finally {
-    await checkClient.$disconnect();
   }
 
   return prisma.dbBackup.update({ where: { backup_id: backupId }, data: { verified: ok, verified_at: new Date() } });
 };
 
-// Restores by atomic rename (write to a temp file on the same volume, then rename over the
-// live DB) rather than an in-place copy — minimizes the window where a concurrent reader could
-// see a half-written file. Always takes a fresh pre-restore safety backup first, since restore
-// is the one operation here with no undo once complete.
+// Restores in place against the live database: drops existing objects first (--clean --if-exists)
+// so pg_restore doesn't fail on "already exists", and skips ownership statements (--no-owner)
+// since the pooled connection user isn't a superuser and can't reassign roles. Always takes a
+// fresh pre-restore safety backup first, since restore is the one operation here with no undo
+// once complete.
 export const restoreBackup = async (backupId: number, actor: Actor) => {
   const backup = await prisma.dbBackup.findUnique({ where: { backup_id: backupId } });
   if (!backup) throw new NotFoundError('Backup not found');
@@ -195,18 +203,31 @@ export const restoreBackup = async (backupId: number, actor: Actor) => {
   if (!fs.existsSync(backupPath)) throw new ValidationError('Backup file is missing from disk');
 
   const safetyBackup = await createBackup(actor);
-  await prisma.dbBackup.update({ where: { backup_id: safetyBackup.backup_id }, data: { filename: safetyBackup.filename.replace('backup-', 'pre-restore-') } });
-  await fs.promises.rename(path.join(BACKUPS_DIR, safetyBackup.filename), path.join(BACKUPS_DIR, safetyBackup.filename.replace('backup-', 'pre-restore-')));
+  const preRestoreFilename = safetyBackup.filename.replace('backup-', 'pre-restore-');
+  await prisma.dbBackup.update({ where: { backup_id: safetyBackup.backup_id }, data: { filename: preRestoreFilename } });
+  await fs.promises.rename(path.join(BACKUPS_DIR, safetyBackup.filename), path.join(BACKUPS_DIR, preRestoreFilename));
 
-  const tmpPath = `${DEV_DB_PATH}.restoring`;
-  await fs.promises.copyFile(backupPath, tmpPath);
-  await fs.promises.rename(tmpPath, DEV_DB_PATH);
+  await execFileAsync(
+    'pg_restore',
+    ['--clean', '--if-exists', '--no-owner', '--dbname', pgConnectionString(), backupPath],
+    { maxBuffer: 1024 * 1024 * 64 }
+  );
 
   await prisma.auditLog.create({ data: { user_id: actor.user_id, action: 'RESTORE', entity: 'DbBackup', entity_id: String(backupId) } });
 
   return {
     restoredFromBackupId: backupId,
     restoredFilename: backup.filename,
-    warning: 'The database file has been replaced on disk. Restart the backend process for all connections to see the restored state consistently.',
+    warning: 'The live database has been replaced. Restart the backend process so every connection in its pool picks up the restored state consistently.',
   };
+};
+
+export const getBackupFile = async (backupId: number) => {
+  const backup = await prisma.dbBackup.findUnique({ where: { backup_id: backupId } });
+  if (!backup) throw new NotFoundError('Backup not found');
+
+  const backupPath = path.join(BACKUPS_DIR, backup.filename);
+  if (!fs.existsSync(backupPath)) throw new ValidationError('Backup file is missing from disk');
+
+  return { path: backupPath, filename: backup.filename };
 };

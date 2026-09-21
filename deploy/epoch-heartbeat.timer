@@ -1,0 +1,12 @@
+## Fires epoch-heartbeat.service every 5 minutes. Match this period (or its multiple) to the
+## check's expected schedule on your monitor's dashboard so it doesn't false-alarm.
+
+[Unit]
+Description=Run the E-Poch heartbeat ping every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

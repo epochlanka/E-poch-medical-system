@@ -76,16 +76,49 @@ export const deleteMasterDataItem = async (req: Request, res: Response) => {
 };
 
 // ---- Backup & Restore ----
-// Disabled after the migration to Supabase (Postgres): the old implementation worked by
-// copying the local SQLite file directly (see settings/service.ts), which has no equivalent
-// against a networked Postgres database. Rework with pg_dump/pg_restore (or rely on Supabase's
-// own backups) before re-enabling.
+// Reworked for Supabase (Postgres) using pg_dump/pg_restore — the original implementation
+// copied a local SQLite file directly, which has no equivalent against a networked Postgres
+// database. This is a second, independent copy alongside Supabase's own managed backups
+// (different failure modes: this survives a Supabase account/project issue, theirs survives
+// this machine's disk failing).
 
-const backupUnavailable = (_req: Request, res: Response) =>
-  res.status(503).json({ message: 'Backup & restore is unavailable since the move to Supabase (Postgres).' });
+export const createBackup = async (req: Request, res: Response) => {
+  try {
+    res.status(201).json(await service.createBackup(actor(req)));
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
 
-export const createBackup = backupUnavailable;
-export const listBackups = backupUnavailable;
-export const verifyBackup = backupUnavailable;
-export const restoreBackup = backupUnavailable;
-export const downloadBackup = backupUnavailable;
+export const listBackups = async (req: Request, res: Response) => {
+  try {
+    res.status(200).json(await service.listBackups());
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const verifyBackup = async (req: Request, res: Response) => {
+  try {
+    res.status(200).json(await service.verifyBackup(Number(req.params.backupId)));
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const restoreBackup = async (req: Request, res: Response) => {
+  try {
+    res.status(200).json(await service.restoreBackup(Number(req.params.backupId), actor(req)));
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const downloadBackup = async (req: Request, res: Response) => {
+  try {
+    const { path, filename } = await service.getBackupFile(Number(req.params.backupId));
+    res.download(path, filename);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
