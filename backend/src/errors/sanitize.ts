@@ -15,7 +15,7 @@ const SENSITIVE_KEY_PATTERNS: RegExp[] = [
   /access[-_]?key/i,
   /private[-_]?key/i,
   /session[-_]?id/i,
-  /totp/i,
+  /totp/i, // also covers totp_secret and totp_pending_secret
   /otp/i,
   /credential/i,
   /connection[-_]?string/i,

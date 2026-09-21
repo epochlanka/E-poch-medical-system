@@ -1,4 +1,4 @@
-import { api } from './api';
+import { api, BACKGROUND_REQUEST } from './api';
 
 export interface Doctor {
   user_id: number;
@@ -125,7 +125,8 @@ export interface QueueBoardParams {
   date?: string;
 }
 
-export const getQueueBoard = (params?: QueueBoardParams) => api.get<QueueBoard>('/appointments/board', { params }).then((r) => r.data);
+export const getQueueBoard = (params?: QueueBoardParams, background = false) =>
+  api.get<QueueBoard>('/appointments/board', { params, ...(background === true ? BACKGROUND_REQUEST : {}) }).then((r) => r.data);
 
 export interface QueueLogEntry {
   log_id: number;

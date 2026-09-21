@@ -16,18 +16,21 @@ const filters = [
 type Filter = typeof filters[number]['key'];
 
 export default function PharmacyQueue() {
-  const { data: board, loading, error, reload } = useApiData(getPharmacyQueue);
+  const { data: board, loading, error, reload, reloadInBackground } = useApiData(({ background }) => getPharmacyQueue(background));
   const [params, setParams] = useSearchParams();
   const search = params.get('q') || '';
   const filter: Filter = filters.find(item => item.key === params.get('view'))?.key || 'waiting';
   const [updated, setUpdated] = useState<Date | null>(null);
   useEffect(() => { if (board) setUpdated(new Date()); }, [board]);
   useEffect(() => {
-    const refresh = () => { if (!document.hidden) reload(); };
-    const timer = window.setInterval(refresh, 15_000);
-    document.addEventListener('visibilitychange', refresh);
-    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', refresh); };
-  }, [reload]);
+    // The timer refresh is background traffic (must not keep an unattended session alive); a tab
+    // becoming visible again is a person, so that one counts as activity.
+    const onTimer = () => { if (!document.hidden) reloadInBackground(); };
+    const onVisible = () => { if (!document.hidden) reload(); };
+    const timer = window.setInterval(onTimer, 15_000);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
+  }, [reload, reloadInBackground]);
   const groups = useMemo(() => {
     const waiting = [...(board?.Pending || []), ...(board?.Preparing || [])].sort((a, b) => Date.parse(a.issuedAt) - Date.parse(b.issuedAt));
     const ready = board?.Dispensed || [];

@@ -1,10 +1,11 @@
 import path from 'path';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { UPLOADS_DIR } from '../../config/paths';
 import { NotFoundError, ValidationError, ForbiddenError } from './errors';
 
 
-export const uploadsDir = path.join(__dirname, '..', '..', '..', 'uploads', 'lab-reports');
+export const uploadsDir = path.join(UPLOADS_DIR, 'lab-reports');
 
 interface Actor {
   user_id: number;
@@ -122,10 +123,10 @@ export const listLabTestOrders = async (filters: ListLabTestOrdersFilters) => {
   if (filters.search) {
     const term = filters.search.trim();
     where.OR = [
-      { test_name: { contains: term } },
-      { request_number: { contains: term } },
-      { patient: { full_name: { contains: term } } },
-      { patient: { patient_id: { contains: term } } },
+      { test_name: { contains: term, mode: 'insensitive' } },
+      { request_number: { contains: term, mode: 'insensitive' } },
+      { patient: { full_name: { contains: term, mode: 'insensitive' } } },
+      { patient: { patient_id: { contains: term, mode: 'insensitive' } } },
     ];
   }
 
@@ -155,7 +156,7 @@ export const searchLabTestCatalog = (search?: string) => {
   const where: Prisma.LabTestCatalogWhereInput = { is_active: true };
   if (search) {
     const term = search.trim();
-    where.OR = [{ test_name: { contains: term } }, { test_code: { contains: term } }, { category: { contains: term } }, { abbreviation: { contains: term } }];
+    where.OR = [{ test_name: { contains: term, mode: 'insensitive' } }, { test_code: { contains: term, mode: 'insensitive' } }, { category: { contains: term, mode: 'insensitive' } }, { abbreviation: { contains: term, mode: 'insensitive' } }];
   }
   return prisma.labTestCatalog.findMany({ where, orderBy: { test_name: 'asc' } });
 };

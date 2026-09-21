@@ -195,7 +195,7 @@ export const getFollowUpsList = async (filters: { doctorId?: number; bucket?: 'a
         ? {
             appointment: {
               ...(filters.doctorId ? { doctor_id: filters.doctorId } : {}),
-              OR: [{ patient: { full_name: { contains: filters.search } } }, { patient: { patient_id: { contains: filters.search } } }],
+              OR: [{ patient: { full_name: { contains: filters.search, mode: 'insensitive' } } }, { patient: { patient_id: { contains: filters.search, mode: 'insensitive' } } }],
             },
           }
         : {}),

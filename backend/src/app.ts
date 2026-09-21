@@ -5,10 +5,10 @@ import rateLimit from 'express-rate-limit';
 import pinoHttp from 'pino-http';
 import dotenv from 'dotenv';
 import passport from 'passport';
-import path from 'path';
 import { randomBytes } from 'crypto';
 
-import { logger, healthHandler, notFoundHandler, globalErrorHandler } from './errors';
+import { logger, httpSerializers, healthHandler, notFoundHandler, globalErrorHandler } from './errors';
+import { uploadsHandler } from './middlewares/uploadsAccess';
 
 import authRouter from './modules/auth/router';
 import dashboardRouter from './modules/dashboard/router';
@@ -44,7 +44,16 @@ app.use(helmet());
 const developmentOrigins = process.env.NODE_ENV === 'production'
   ? ''
   : 'http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176';
-const allowedOrigins = new Set(`${process.env.FRONTEND_URLS || developmentOrigins},${process.env.FRONTEND_URL || ''}`
+// Deployment shortcut: SITE_HOST is the address workstations type into the browser (the server's
+// LAN IP or hostname). The four portals are always on 5173-5176, so their origins follow from it —
+// nobody has to hand-maintain a FRONTEND_URLS list. `localhost` is included for the browser on the
+// server itself; another PC's "localhost" points at that PC, never at this server, so it grants
+// nothing. FRONTEND_URLS still works for anything unusual (extra hostnames, a TLS front end).
+const PORTAL_PORTS = [5173, 5174, 5175, 5176];
+const siteHostOrigins = process.env.SITE_HOST
+  ? [process.env.SITE_HOST, 'localhost'].flatMap((host) => PORTAL_PORTS.map((port) => `http://${host}:${port}`)).join(',')
+  : '';
+const allowedOrigins = new Set(`${process.env.FRONTEND_URLS || developmentOrigins},${process.env.FRONTEND_URL || ''},${siteHostOrigins}`
   .split(',')
   .map((origin) => origin.trim().replace(/\/$/, ''))
   .filter(Boolean));
@@ -70,6 +79,7 @@ const isAllowedDevelopmentOrigin = (origin: string) => {
 app.use(
   cors({
     credentials: true,
+    maxAge: 600, // portals send a custom header on background polls; let browsers cache the preflight
     origin: (origin, callback) => {
       if (!origin || allowedOrigins.has(origin.replace(/\/$/, '')) || isAllowedDevelopmentOrigin(origin)) {
         return callback(null, true);
@@ -93,6 +103,7 @@ app.get('/health', healthHandler);
 app.use(
   pinoHttp({
     logger,
+    serializers: httpSerializers,
     genReqId: (req, res) => {
       const id = `REQ-${randomBytes(4).toString('hex').toUpperCase()}`;
       res.setHeader('X-Request-Id', id);
@@ -115,19 +126,10 @@ app.use('/api', limiter);
 // Initialize Passport
 app.use(passport.initialize());
 
-// Serve uploaded patient photos (frontend runs on a different origin/port in dev,
-// so relax Cross-Origin-Resource-Policy for this path only — the images aren't sensitive).
-app.use(
-  '/uploads',
-  (req: Request, res: Response, next: NextFunction) => {
-    // Letter templates and issued letters are patient documents — they are only ever served
-    // through the authenticated /api/v1/letters routes, never statically.
-    if (/^\/(letter-templates|issued-letters)\//.test(req.path)) return res.status(404).end();
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    next();
-  },
-  express.static(path.join(__dirname, '..', 'uploads'))
-);
+// Uploaded files. Patient photos, consultation attachments and lab reports are PHI, so they are
+// served only to an authenticated session with an appropriate role (see middlewares/uploadsAccess.ts);
+// letter templates and issued letters are never served here at all.
+app.use('/uploads', uploadsHandler);
 
 // Setup API Routes
 app.use('/api/v1/auth', authRouter);

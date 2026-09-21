@@ -1,4 +1,4 @@
-import { api } from './api';
+import { api, BACKGROUND_REQUEST } from './api';
 
 // Real state transition (Pending -> Preparing) backing the "Start Dispensing" action — the
 // actual dispense/batch-allocation screen is a separate not-yet-built page (Dispensing).
@@ -31,7 +31,8 @@ export type QueueBoard = Record<QueueStatus, QueueItem[]>;
 // Full board (all four statuses) — the pharmacy Queue page's data source; small enough in
 // practice that client-side search/filter over the fetched board is simpler than adding
 // server-side query params for what's essentially a same-day working queue.
-export const getPharmacyQueue = () => api.get<QueueBoard>('/pharmacy/queue').then((r) => r.data);
+export const getPharmacyQueue = (background = false) =>
+  api.get<QueueBoard>('/pharmacy/queue', background === true ? BACKGROUND_REQUEST : undefined).then((r) => r.data);
 
 export interface BatchOption {
   batchId: number;

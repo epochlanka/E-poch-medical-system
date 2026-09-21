@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { TX_OPTIONS, lockBatches, lockPrescription } from '../../lib/rowLocks';
 import { NotFoundError, ValidationError } from './errors';
 import { ensureInvoiceForConsultation } from '../billing/service';
 import { logger } from '../../errors';
@@ -125,13 +126,21 @@ interface DispenseItemInput {
 export const dispense = async (prescriptionId: number, items: DispenseItemInput[], actor: Actor) => {
   if (items.length === 0) throw new ValidationError('At least one item must be selected to dispense');
 
-  const prescription = await prisma.prescription.findUnique({ where: { prescription_id: prescriptionId } });
-  if (!prescription) throw new NotFoundError('Prescription not found');
-  if (!['Pending', 'Preparing'].includes(prescription.status)) {
-    throw new ValidationError(`Cannot dispense a prescription with status ${prescription.status}`);
-  }
-
   return prisma.$transaction(async (tx) => {
+    // Serialize every dispense of this prescription, then re-read EVERYTHING under the lock. Without
+    // this two confirmations of the same item both read the same old dispensed_qty and both draw
+    // stock. Batches are locked next (ascending id, so two prescriptions sharing batches can't
+    // deadlock) so the availability check and the decrement below are one atomic step.
+    await lockPrescription(tx, prescriptionId);
+
+    const prescription = await tx.prescription.findUnique({ where: { prescription_id: prescriptionId } });
+    if (!prescription) throw new NotFoundError('Prescription not found');
+    if (!['Pending', 'Preparing'].includes(prescription.status)) {
+      throw new ValidationError(`Cannot dispense a prescription with status ${prescription.status}`);
+    }
+
+    await lockBatches(tx, items.map((i) => i.batch_id).filter((id): id is number => typeof id === 'number'));
+
     for (const dispenseItem of items) {
       const rxItem = await tx.prescriptionItem.findUnique({ where: { rx_item_id: dispenseItem.rx_item_id } });
       if (!rxItem || rxItem.prescription_id !== prescriptionId) {
@@ -195,7 +204,16 @@ export const dispense = async (prescriptionId: number, items: DispenseItemInput[
         throw new ValidationError(`Batch ${batch.batch_no} is not the earliest-expiry batch for this medicine — an override reason is required`);
       }
 
-      const updatedBatch = await tx.batch.update({ where: { batch_id: batch.batch_id }, data: { qty_on_hand: { decrement: requestedQty } } });
+      // Guarded decrement: the row lock above already makes the check above trustworthy, and this
+      // condition means the stock can never go negative even if a future code path forgets the lock.
+      const decremented = await tx.batch.updateMany({
+        where: { batch_id: batch.batch_id, qty_on_hand: { gte: requestedQty } },
+        data: { qty_on_hand: { decrement: requestedQty } },
+      });
+      if (decremented.count !== 1) {
+        throw new ValidationError(`Batch ${batch.batch_no} has insufficient stock for item ${dispenseItem.rx_item_id}`);
+      }
+      const updatedBatch = await tx.batch.findUniqueOrThrow({ where: { batch_id: batch.batch_id } });
 
       // Dispensing is the primary producer of the stock ledger — the deduction and its
       // ledger row land in the same transaction as the status update (never two separately-failable steps).
@@ -257,7 +275,7 @@ export const dispense = async (prescriptionId: number, items: DispenseItemInput[
       data: { status: newStatus },
       include: { items: { include: { medicine: true, batch: true } } },
     });
-  }).then(async (result) => {
+  }, TX_OPTIONS).then(async (result) => {
     // Every dispense (partial or the item/prescription's final one) can make the invoice stale —
     // either it doesn't exist yet (created once the consultation is finalized) or it's missing the
     // line(s) this call just completed. Best-effort, same as the finalize-time trigger — must never

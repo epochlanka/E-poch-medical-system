@@ -16,11 +16,11 @@ export default function Topbar({ onMenuClick }: { title: string; onMenuClick: ()
   useEffect(() => {
     if (!workspace.canPharmacy) return;
     let active = true, pending = false;
-    const refresh = async () => {
+    const load = async (background: boolean) => {
       if (pending || document.hidden) return;
       pending = true;
       try {
-        const board = await getPharmacyQueue();
+        const board = await getPharmacyQueue(background);
         if (!active) return;
         if (known.current) {
           const incoming = board.Pending.filter(item => !known.current!.has(item.prescriptionId));
@@ -32,10 +32,12 @@ export default function Topbar({ onMenuClick }: { title: string; onMenuClick: ()
       } catch { if (active) setUnavailable(true); }
       finally { pending = false; }
     };
-    void refresh();
-    const timer = window.setInterval(refresh, 15_000);
-    document.addEventListener('visibilitychange', refresh);
-    return () => { active = false; clearInterval(timer); document.removeEventListener('visibilitychange', refresh); };
+    const onTimer = () => { void load(true); };
+    const onVisible = () => { void load(false); };
+    void load(false);
+    const timer = window.setInterval(onTimer, 15_000);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { active = false; clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
   }, [workspace.canPharmacy]);
   useEffect(() => { document.title = `${queue?.prepare ? `(${queue.prepare} prescriptions) ` : ''}E-POCH Front Desk`; }, [queue]);
   const path = (location: typeof workspace.receptionLocation) => location.pathname + location.search + location.hash;

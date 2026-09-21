@@ -94,21 +94,33 @@ export const changePassword = async (actor: Actor, currentPassword: string, newP
 
 // ---- Two-Factor Authentication (Admin accounts, FR-008) ------------------------------------
 
-// Secret is stored immediately but totp_enabled stays false until /2fa/verify proves the
-// authenticator app is actually in sync with it — otherwise an Admin could lock themselves
-// out by enabling 2FA against a secret their app never successfully scanned.
-export const setupTotp = async (actor: Actor) => {
+// Enrolment is two steps and never touches an ACTIVE second factor until the replacement is proven:
+//   1. /2fa/setup  — reauthenticate with the password, get a new secret. It is stored as PENDING;
+//      totp_secret / totp_enabled are left exactly as they were. (Previously this set
+//      totp_enabled=false unconditionally, so anyone holding an admin session could switch off an
+//      account's 2FA with one call and no password — the disable endpoint at least asks for one.)
+//   2. /2fa/verify — a valid code from the authenticator proves it is in sync; only then does the
+//      pending secret replace the old one and 2FA become (or stay) enabled. This also still
+//      prevents an Admin locking themselves out with a secret their app never scanned.
+export const setupTotp = async (actor: Actor, password: string) => {
+  const user = await prisma.user.findUniqueOrThrow({ where: { user_id: actor.user_id } });
+  const isValid = await bcrypt.compare(password, user.password_hash);
+  if (!isValid) throw new InvalidCredentialsError('Password is incorrect');
+
   const secret = generateTotpSecret();
-  await prisma.user.update({ where: { user_id: actor.user_id }, data: { totp_secret: secret, totp_enabled: false } });
+  await prisma.user.update({ where: { user_id: actor.user_id }, data: { totp_pending_secret: secret } });
   return { secret, otpauthUrl: buildOtpauthUrl(secret, actor.username) };
 };
 
 export const verifyTotpSetup = async (actor: Actor, token: string) => {
   const user = await prisma.user.findUniqueOrThrow({ where: { user_id: actor.user_id } });
-  if (!user.totp_secret) throw new ValidationError('Call /2fa/setup first to generate a secret');
-  if (!verifyTotpToken(user.totp_secret, token, user.username)) throw new InvalidTotpError('Invalid authentication code');
+  if (!user.totp_pending_secret) throw new ValidationError('Call /2fa/setup first to generate a secret');
+  if (!verifyTotpToken(user.totp_pending_secret, token, user.username)) throw new InvalidTotpError('Invalid authentication code');
 
-  await prisma.user.update({ where: { user_id: actor.user_id }, data: { totp_enabled: true } });
+  await prisma.user.update({
+    where: { user_id: actor.user_id },
+    data: { totp_secret: user.totp_pending_secret, totp_pending_secret: null, totp_enabled: true },
+  });
   return { totpEnabled: true };
 };
 
@@ -117,6 +129,6 @@ export const disableTotp = async (actor: Actor, password: string) => {
   const isValid = await bcrypt.compare(password, user.password_hash);
   if (!isValid) throw new InvalidCredentialsError('Password is incorrect');
 
-  await prisma.user.update({ where: { user_id: actor.user_id }, data: { totp_enabled: false, totp_secret: null } });
+  await prisma.user.update({ where: { user_id: actor.user_id }, data: { totp_enabled: false, totp_secret: null, totp_pending_secret: null } });
   return { totpEnabled: false };
 };

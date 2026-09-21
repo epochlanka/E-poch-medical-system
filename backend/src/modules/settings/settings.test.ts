@@ -1,9 +1,20 @@
 import request from 'supertest';
+import fs from 'fs';
+import path from 'path';
+import { execFileSync } from 'child_process';
+import { PrismaClient } from '@prisma/client';
 import app from '../../app';
+import { BACKUPS_DIR, UPLOADS_DIR } from '../../config/paths';
+
+const prisma = new PrismaClient();
 
 const runId = Date.now();
 
 describe('Settings API', () => {
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
   let adminToken: string;
   let doctorToken: string;
 
@@ -138,12 +149,23 @@ describe('Settings API', () => {
       expect(res.status).toBe(403);
     });
 
-    it('creates a backup of the live database', async () => {
+    it('creates a backup archive holding the database AND the uploaded files', async () => {
+      fs.mkdirSync(path.join(UPLOADS_DIR, 'patients'), { recursive: true });
+      fs.writeFileSync(path.join(UPLOADS_DIR, 'patients', 'backup-probe.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+
       const res = await request(app).post('/api/v1/settings/backups').set('Authorization', `Bearer ${adminToken}`);
       expect(res.status).toBe(201);
-      expect(res.body.filename).toMatch(/^backup-.*\.db$/);
+      expect(res.body.filename).toMatch(/^backup-.*\.tar$/);
       expect(res.body.size_bytes).toBeGreaterThan(0);
       backupId = res.body.backup_id;
+
+      const listing = execFileSync('tar', ['-tf', path.join(BACKUPS_DIR, res.body.filename)]).toString();
+      expect(listing).toMatch(/(^|\n)(\.\/)?database\.dump\n/);
+      expect(listing).toContain('uploads/patients/backup-probe.jpg'); // was: database only, files silently lost
+    });
+
+    it('never leaves a half-written archive behind', async () => {
+      expect(fs.readdirSync(BACKUPS_DIR).filter((f) => f.endsWith('.partial'))).toEqual([]);
     });
 
     it('lists backups newest first', async () => {
@@ -152,17 +174,37 @@ describe('Settings API', () => {
       expect(res.body.some((b: any) => b.backup_id === backupId)).toBe(true);
     });
 
-    it('verifies a backup passes SQLite integrity check', async () => {
+    it('verifies an intact archive by reading its database dump', async () => {
       const res = await request(app).post(`/api/v1/settings/backups/${backupId}/verify`).set('Authorization', `Bearer ${adminToken}`);
       expect(res.status).toBe(200);
       expect(res.body.verified).toBe(true);
       expect(res.body.verified_at).toBeTruthy();
     });
 
+    it('fails verification for a truncated / corrupt archive instead of trusting that the file exists', async () => {
+      const made = await request(app).post('/api/v1/settings/backups').set('Authorization', `Bearer ${adminToken}`);
+      expect(made.status).toBe(201);
+      fs.truncateSync(path.join(BACKUPS_DIR, made.body.filename), 200);
+
+      const res = await request(app).post(`/api/v1/settings/backups/${made.body.backup_id}/verify`).set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.verified).toBe(false);
+    });
+
+    it('still verifies a database-only .dump made before uploads were included', async () => {
+      const filename = `backup-legacy-${Date.now()}.dump`;
+      execFileSync('pg_dump', ['--format=custom', '--file', path.join(BACKUPS_DIR, filename), process.env.DIRECT_URL as string]);
+      const admin = await prisma.user.findUniqueOrThrow({ where: { username: 'admin' } });
+      const legacy = await prisma.dbBackup.create({ data: { filename, size_bytes: 1, created_by: admin.user_id } });
+
+      const res = await request(app).post(`/api/v1/settings/backups/${legacy.backup_id}/verify`).set('Authorization', `Bearer ${adminToken}`);
+      expect(res.body.verified).toBe(true);
+    });
+
     it('downloads a backup file', async () => {
       const res = await request(app).get(`/api/v1/settings/backups/${backupId}/download`).set('Authorization', `Bearer ${adminToken}`);
       expect(res.status).toBe(200);
-      expect(res.headers['content-disposition']).toContain('.db');
+      expect(res.headers['content-disposition']).toContain('.tar');
     });
 
     it('returns 404 verifying a non-existent backup', async () => {
@@ -170,18 +212,20 @@ describe('Settings API', () => {
       expect(res.status).toBe(404);
     });
 
-    // Restore actually swaps the live SQLite file on disk — deliberately NOT exercised end-to-end
-    // here since this suite runs against the same shared dev.db every other module's tests use.
-    // Authorization/not-found are still verified; the copy/rename logic itself is covered by
-    // manual verification (see PR/commit notes) rather than an automated destructive test.
+    // Restoring rewrites the live database, so it is not something the running application does:
+    // it is a controlled maintenance procedure (deploy/restore.sh), exercised as a drill against an
+    // isolated database. The endpoint stays only to tell an old client why nothing happened.
     it('rejects a non-admin from restoring a backup', async () => {
       const res = await request(app).post(`/api/v1/settings/backups/${backupId}/restore`).set('Authorization', `Bearer ${doctorToken}`);
       expect(res.status).toBe(403);
     });
 
-    it('returns 404 restoring a non-existent backup', async () => {
-      const res = await request(app).post('/api/v1/settings/backups/999999/restore').set('Authorization', `Bearer ${adminToken}`);
-      expect(res.status).toBe(404);
+    it('refuses in-place restore even for an admin, and changes nothing', async () => {
+      const before = await prisma.user.count();
+      const res = await request(app).post(`/api/v1/settings/backups/${backupId}/restore`).set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(501);
+      expect(res.body.message).toMatch(/restore\.sh/);
+      expect(await prisma.user.count()).toBe(before);
     });
   });
 });

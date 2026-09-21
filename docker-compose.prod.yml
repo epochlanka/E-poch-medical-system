@@ -1,13 +1,19 @@
-# Production stack: compiled backend + static (nginx-served) frontend builds.
-# Usage:
-#   docker compose -f docker-compose.prod.yml up -d --build
+# Production stack: compiled backend + static (nginx-served) portal builds, plain HTTP on the clinic LAN.
 #
-# Requires backend/.env to exist first (see backend/.env.example), with:
-#   NODE_ENV=production
-#   FRONTEND_URLS=http://<host>:5173,http://<host>:5174,http://<host>:5175,http://<host>:5176
-# where <host> is exactly how each portal is reached (localhost for a kiosk on this same
-# machine, or this machine's LAN IP/hostname for the doctor's own device) — production CORS
-# is a strict allow-list with no dev-time loopback bypass.
+# Usage:
+#   cp .env.example .env                    # repo root: set SITE_HOST (the server's fixed LAN IP)
+#   cp backend/.env.example backend/.env    # fill in secrets; NODE_ENV=production
+#   ./deploy/launch.sh
+#
+# Workstations open the portals at http://<SITE_HOST>:5173 (front desk), :5174 (doctor),
+# :5175 (receptionist), :5176 (pharmacist). The API is on :3000. Allowed browser origins are derived
+# from SITE_HOST, so there is no origin list to maintain.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
 
 services:
   backend:
@@ -18,6 +24,14 @@ services:
       - ./backend/.env
     environment:
       - NODE_ENV=production
+      # The address workstations use; the backend allows portal origins on it (see backend/src/app.ts).
+      - SITE_HOST=${SITE_HOST:-localhost}
+      # Plain HTTP on a private LAN: a "Secure" cookie would never be sent back and nobody could log
+      # in. Set to true only if TLS is put in front of the portals.
+      - COOKIE_SECURE=false
+      # The clinic is in Sri Lanka. Day boundaries (daily reconciliation, "today's" appointments and
+      # reports) are computed in the process's local time, so this must be the clinic's zone, not UTC.
+      - TZ=Asia/Colombo
     ports:
       - "3000:3000"
     volumes:
@@ -25,6 +39,7 @@ services:
       - ./backend/backups:/usr/src/app/backups
       - ./backend/logs:/usr/src/app/logs
     restart: always
+    logging: *logging
     healthcheck:
       # timeout here must exceed checkDatabase's own timeout (backend/src/errors/health.ts) or
       # wget cuts the request off before the app even finishes answering.
@@ -32,7 +47,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 60s
 
   frontend:
     build:
@@ -41,9 +56,15 @@ services:
     ports:
       - "5173:80"
     restart: always
+    logging: *logging
     depends_on:
       backend:
         condition: service_healthy
+    healthcheck: &portal-health
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   doctor-frontend:
     build:
@@ -52,9 +73,11 @@ services:
     ports:
       - "5174:80"
     restart: always
+    logging: *logging
     depends_on:
       backend:
         condition: service_healthy
+    healthcheck: *portal-health
 
   receptionist-frontend:
     build:
@@ -65,9 +88,11 @@ services:
     ports:
       - "5175:80"
     restart: always
+    logging: *logging
     depends_on:
       backend:
         condition: service_healthy
+    healthcheck: *portal-health
 
   pharmacist-frontend:
     build:
@@ -76,6 +101,8 @@ services:
     ports:
       - "5176:80"
     restart: always
+    logging: *logging
     depends_on:
       backend:
         condition: service_healthy
+    healthcheck: *portal-health

@@ -49,12 +49,12 @@ export const listSuppliers = async (filters: ListSuppliersFilters) => {
   if (filters.search) {
     const term = filters.search.trim();
     where.OR = [
-      { name: { contains: term } },
-      { contact_person: { contains: term } },
-      { phone: { contains: term } },
-      { email: { contains: term } },
-      { city: { contains: term } },
-      { contact: { contains: term } },
+      { name: { contains: term, mode: 'insensitive' } },
+      { contact_person: { contains: term, mode: 'insensitive' } },
+      { phone: { contains: term, mode: 'insensitive' } },
+      { email: { contains: term, mode: 'insensitive' } },
+      { city: { contains: term, mode: 'insensitive' } },
+      { contact: { contains: term, mode: 'insensitive' } },
     ];
   }
 
@@ -188,8 +188,8 @@ export const listPurchaseOrders = async (filters: ListPoFilters) => {
     const term = filters.search.trim();
     const asId = Number(term.replace(/^PO-?/i, ''));
     where.OR = [
-      { supplier: { name: { contains: term } } },
-      { items: { some: { medicine: { name: { contains: term } } } } },
+      { supplier: { name: { contains: term, mode: 'insensitive' } } },
+      { items: { some: { medicine: { name: { contains: term, mode: 'insensitive' } } } } },
       ...(Number.isFinite(asId) && asId > 0 ? [{ po_id: asId }] : []),
     ];
   }

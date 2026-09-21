@@ -172,3 +172,26 @@ describe('Error handling — HTTP integration', () => {
     expect(a.body.errorId).not.toBe(b.body.errorId);
   });
 });
+
+describe('database health assessment', () => {
+  // Imported here so the pre-existing suite above is untouched.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { assessDatabase, FAILURES_BEFORE_DEGRADED } = require('./health');
+  const state = (over: Partial<{ checkedAt: number; lastOkAt: number; consecutiveFailures: number; latencyMs: number | null }>) => ({
+    checkedAt: 1, lastOkAt: 1, consecutiveFailures: 0, latencyMs: 100, ...over,
+  });
+
+  it('is unknown before the first probe has completed', () => {
+    expect(assessDatabase(state({ checkedAt: 0 }))).toBe('unknown');
+  });
+
+  it('stays up through isolated failures — one slow moment must not flip the container unhealthy', () => {
+    expect(assessDatabase(state({ consecutiveFailures: 1 }))).toBe('up');
+    expect(assessDatabase(state({ consecutiveFailures: FAILURES_BEFORE_DEGRADED - 1 }))).toBe('up');
+  });
+
+  it('reports down only after several failures in a row, and recovers on the next success', () => {
+    expect(assessDatabase(state({ consecutiveFailures: FAILURES_BEFORE_DEGRADED }))).toBe('down');
+    expect(assessDatabase(state({ consecutiveFailures: 0 }))).toBe('up');
+  });
+});

@@ -1,0 +1,19 @@
+## Runs deploy/backup.sh once (triggered daily by epoch-backup.timer). Needs BACKUP_DEST etc. in the
+## repo-root .env — see deploy/backup.sh.
+##
+## Install alongside the other units:
+##   sudo cp deploy/epoch-backup.service deploy/epoch-backup.timer /etc/systemd/system/
+##   sudo sed -i "s#__REPO_PATH__#$(pwd)#" /etc/systemd/system/epoch-backup.service
+##   sudo systemctl daemon-reload
+##   sudo systemctl enable --now epoch-backup.timer
+
+[Unit]
+Description=E-Poch Medical System backup (one-shot, run by epoch-backup.timer)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=__REPO_PATH__
+ExecStart=__REPO_PATH__/deploy/backup.sh
+TimeoutStartSec=3600

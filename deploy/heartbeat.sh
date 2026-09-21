@@ -12,6 +12,7 @@
 #   2. Put its ping URL in HEARTBEAT_URL below (or export it before calling this script).
 #   3. Install the systemd timer (see deploy/epoch-heartbeat.timer).
 set -e
+cd "$(dirname "$0")/.."
 
 HEARTBEAT_URL="${HEARTBEAT_URL:-}"
 if [ -z "$HEARTBEAT_URL" ]; then
@@ -19,9 +20,19 @@ if [ -z "$HEARTBEAT_URL" ]; then
   exit 1
 fi
 
-if curl -fsS -m 10 http://localhost:3000/health | grep -q '"status":"healthy"'; then
-  curl -fsS -m 10 "$HEARTBEAT_URL" >/dev/null
-else
-  # Ping the monitor's /fail endpoint so it alerts immediately instead of waiting out the period.
-  curl -fsS -m 10 "$HEARTBEAT_URL/fail" >/dev/null
-fi
+fail() { curl -fsS -m 10 "$HEARTBEAT_URL/fail" >/dev/null || true; exit 1; }
+
+# 1. The app answers and its database is reachable.
+HEALTH_URL="${HEALTH_URL:-http://localhost:3000/health}"
+curl -fsS -m 10 "$HEALTH_URL" | grep -q '"status":"healthy"' || fail
+
+# 2. The disk is not about to fill (a full disk stops the database client, uploads and logging).
+#    Checked on the filesystem holding this project and Docker's data.
+USED="$(df -P . | awk 'NR==2 { gsub("%", "", $5); print $5 }')"
+[ "${USED:-0}" -lt "${DISK_ALERT_PERCENT:-90}" ] || fail
+
+# 3. Every container that should be running is running.
+DOWN="$(docker compose -f docker-compose.prod.yml ps --status exited --status restarting --status dead -q 2>/dev/null | wc -l)"
+[ "$DOWN" -eq 0 ] || fail
+
+curl -fsS -m 10 "$HEARTBEAT_URL" >/dev/null

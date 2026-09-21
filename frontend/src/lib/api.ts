@@ -27,6 +27,11 @@ const emitAppError = (friendly: FriendlyError) => {
 // /auth/me on its own. That tab keeps showing its old role's UI until an action 403s. The
 // interceptor below tells that apart from a genuine same-role permission error: only redirect
 // when the role has actually changed underneath this tab.
+// Timer-driven refreshes (live queue boards, sidebar counters) send this so the server does not
+// count them as human activity. Without it, a queue board left open on an unattended workstation
+// polls every 10-15s, keeps the session "active", and the idle timeout can never fire.
+export const BACKGROUND_REQUEST = { headers: { 'X-Epoch-Background': '1' } } as const;
+
 export const authState: { role: string | null } = { role: null };
 
 api.interceptors.response.use(

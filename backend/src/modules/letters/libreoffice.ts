@@ -29,17 +29,36 @@ const CANDIDATES = [
 
 let cachedBin: string | null | undefined;
 
+const isExecutableFile = (file: string): boolean => {
+  try {
+    fs.accessSync(file, fs.constants.X_OK);
+    return fs.statSync(file).isFile();
+  } catch {
+    return false;
+  }
+};
+
+// A bare command name ("soffice") is only "found" if it really resolves to an executable somewhere
+// on PATH. It used to be accepted unchecked, so a server with no LibreOffice at all reported
+// "found at: soffice" at startup and then failed on the first letter.
+const resolveOnPath = (command: string): string | null => {
+  const exts = WIN ? (process.env.PATHEXT || '.COM;.EXE').split(';') : [''];
+  for (const dir of (process.env.PATH || '').split(path.delimiter).filter(Boolean)) {
+    for (const ext of exts) {
+      const candidate = path.join(dir, command.endsWith(ext) ? command : command + ext);
+      if (isExecutableFile(candidate)) return candidate;
+    }
+  }
+  return null;
+};
+
 /** Resolve the LibreOffice binary once. Returns null if none is found. */
 export const findLibreOffice = (): string | null => {
   if (cachedBin !== undefined) return cachedBin;
   for (const c of CANDIDATES) {
-    // A bare command name (no separator) is left for the OS PATH lookup to resolve.
-    if (!c.includes(path.sep) && !c.includes('/')) {
-      cachedBin = c;
-      return cachedBin;
-    }
-    if (fs.existsSync(c)) {
-      cachedBin = c;
+    const resolved = !c.includes(path.sep) && !c.includes('/') ? resolveOnPath(c) : isExecutableFile(c) ? c : null;
+    if (resolved) {
+      cachedBin = resolved;
       return cachedBin;
     }
   }
@@ -52,6 +71,20 @@ export const libreOfficeStatus = (): { ok: boolean; path: string | null } => {
   const bin = findLibreOffice();
   return { ok: !!bin, path: bin };
 };
+
+/**
+ * Proves the binary actually starts (a file can exist and still be unusable — missing shared
+ * libraries, wrong architecture). Resolves with the version string, rejects with the reason.
+ */
+export const verifyLibreOffice = (): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const bin = findLibreOffice();
+    if (!bin) return reject(new Error('LibreOffice was not found'));
+    execFile(bin, ['--version'], { timeout: 30_000, windowsHide: true }, (error, stdout, stderr) => {
+      if (error) return reject(new Error(`LibreOffice at ${bin} does not start: ${error.message || stderr}`));
+      resolve(stdout.trim());
+    });
+  });
 
 export const convertDocxToPdf = (docx: Buffer): Promise<Buffer> => {
   const bin = findLibreOffice();

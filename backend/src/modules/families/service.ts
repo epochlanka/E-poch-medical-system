@@ -29,10 +29,10 @@ export const listFamilies = async (filters: ListFamiliesFilters) => {
   if (filters.search) {
     const term = filters.search.trim();
     where.OR = [
-      { family_name: { contains: term } },
-      { address: { contains: term } },
-      { contact_no: { contains: term } },
-      { head_patient: { full_name: { contains: term } } },
+      { family_name: { contains: term, mode: 'insensitive' } },
+      { address: { contains: term, mode: 'insensitive' } },
+      { contact_no: { contains: term, mode: 'insensitive' } },
+      { head_patient: { full_name: { contains: term, mode: 'insensitive' } } },
     ];
   }
 

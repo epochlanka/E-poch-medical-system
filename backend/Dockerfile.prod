@@ -1,7 +1,9 @@
-# Production image: compiled JS, production-only node_modules, non-root user.
+# Production image: compiled JS, production-only node_modules, unprivileged runtime user.
 # Dev keeps using ./Dockerfile (ts-node + hot reload) — this is only for real deployment.
+#
+# Node 24 (Active LTS). Node 20 reached end-of-life and no longer receives security fixes.
 
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 WORKDIR /usr/src/app
 RUN apk add --no-cache openssl
 
@@ -10,15 +12,29 @@ RUN npm ci
 
 COPY . .
 RUN npx prisma generate
+# tsc + copy of non-TypeScript assets (the blank letter template) into dist/
 RUN npm run build
 
 # ---
 
-FROM node:20-alpine
+FROM node:24-alpine
 WORKDIR /usr/src/app
-RUN apk add --no-cache openssl wget su-exec postgresql17-client
 
-ENV NODE_ENV=production
+# openssl        - Prisma's query engine
+# wget           - the container HEALTHCHECK
+# su-exec        - drop root after fixing bind-mount ownership (docker-entrypoint.sh)
+# tzdata         - so TZ=Asia/Colombo actually selects the clinic's timezone
+# postgresql17-client, tar - backups (pg_dump / archive of uploads); client matches the server major
+# libreoffice-writer + fonts - letter PDFs are rendered by LibreOffice. Liberation/Carlito are the
+#                  metric-compatible stand-ins for Arial/Times/Calibri (so a Word layout keeps its
+#                  page breaks); Noto Sinhala/Tamil cover local-language letters.
+RUN apk add --no-cache \
+      openssl wget su-exec tzdata tar postgresql17-client \
+      libreoffice-writer font-liberation font-carlito font-dejavu font-noto-sinhala font-noto-tamil \
+    && fc-cache -f
+
+ENV NODE_ENV=production \
+    TZ=Asia/Colombo
 
 COPY package*.json ./
 RUN npm ci --omit=dev
@@ -27,6 +43,8 @@ COPY --from=builder /usr/src/app/dist ./dist
 COPY --from=builder /usr/src/app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /usr/src/app/node_modules/@prisma ./node_modules/@prisma
 COPY prisma ./prisma
+# Operational scripts that must run inside the image (plain JS, production dependencies only).
+COPY scripts/check-db-security.js scripts/bootstrap-production.js ./scripts/
 
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh

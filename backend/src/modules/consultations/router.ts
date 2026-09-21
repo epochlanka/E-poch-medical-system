@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import multer from 'multer';
+import { enforceUploadedFileType } from '../../middlewares/uploadValidation';
 import path from 'path';
 import fs from 'fs';
 import { validate } from '../../middlewares/validate';
@@ -104,10 +105,7 @@ const ALLOWED_DOC_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
 const upload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, uploadsDir),
-    filename: (req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase();
-      cb(null, `${req.params.consultationId}-${Date.now()}${ext}`);
-    },
+    filename: (req, _file, cb) => cb(null, `${req.params.consultationId}-${Date.now()}.tmp`),
   }),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
@@ -119,7 +117,7 @@ const upload = multer({
 const uploadDocMiddleware = (req: Request, res: Response, next: NextFunction) => {
   upload.single('file')(req, res, (err: unknown) => {
     if (err) return res.status(400).json({ message: err instanceof Error ? err.message : 'Upload failed' });
-    next();
+    enforceUploadedFileType(['pdf', 'jpeg', 'png'])(req, res, next);
   });
 };
 

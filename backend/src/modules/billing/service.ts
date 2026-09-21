@@ -1,6 +1,8 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
-import { NotFoundError, ValidationError } from './errors';
+import { NotFoundError, ValidationError, InvoiceAlreadyExistsError } from './errors';
+import { TX_OPTIONS, lockInvoice } from '../../lib/rowLocks';
+import { logger } from '../../errors';
 
 
 interface Actor {
@@ -105,12 +107,13 @@ const buildMedicineLine = (dispense: DispenseForBilling, rxItemId: number): Line
 // lines. "Not yet billed" is decided by InvoiceItem.source_dispense_id (unique), not by whether an
 // invoice exists yet — the same lookup safely powers both a brand-new invoice and a top-up of an
 // existing one.
-const collectUnbilledMedicineLines = (
-  items: { rx_item_id: number; dispensed_at: Date | null; dispenses: DispenseForBilling[] }[]
-): LineItemDraft[] =>
-  items
-    .filter((item) => !!item.dispensed_at)
-    .flatMap((item) => item.dispenses.filter((d) => !d.invoice_item).map((d) => buildMedicineLine(d, item.rx_item_id)));
+//
+// Deliberately NOT filtered on the parent line being complete (dispensed_at): a partial draw hands
+// real stock to the patient immediately, so it must be billed immediately. Filtering on the parent
+// meant a line dispensed 5 of 10 units produced no invoice line at all, and if the remainder was
+// never collected those supplied units were never billed.
+const collectUnbilledMedicineLines = (items: { rx_item_id: number; dispenses: DispenseForBilling[] }[]): LineItemDraft[] =>
+  items.flatMap((item) => item.dispenses.filter((d) => !d.invoice_item).map((d) => buildMedicineLine(d, item.rx_item_id)));
 
 // One invoice per visit — closes the "two separate bills" gap. `createdVia` distinguishes a
 // system-generated invoice (fired from ensureInvoiceForConsultation below) from one reception
@@ -166,25 +169,35 @@ export const createInvoice = async (input: CreateInvoiceInput, actor: Actor, cre
   const totalAmount = subtotal - discountTotal;
   if (totalAmount < 0) throw new ValidationError('Discounts cannot exceed the invoice subtotal');
 
-  const created = await prisma.$transaction(async (tx) => {
-    const invoice = await tx.invoice.create({
-      data: {
-        patient_id: patientId,
-        consultation_id: consultation.consultation_id,
-        subtotal,
-        discount_total: discountTotal,
-        total_amount: totalAmount,
-        created_by: actor.user_id,
-        created_via: createdVia,
-      },
-    });
+  let created;
+  try {
+    created = await prisma.$transaction(async (tx) => {
+      const invoice = await tx.invoice.create({
+        data: {
+          patient_id: patientId,
+          consultation_id: consultation.consultation_id,
+          subtotal,
+          discount_total: discountTotal,
+          total_amount: totalAmount,
+          created_by: actor.user_id,
+          created_via: createdVia,
+        },
+      });
 
-    await tx.invoiceItem.createMany({
-      data: [...lineItems, ...discountItems].map((i) => ({ invoice_id: invoice.invoice_id, ...i })),
-    });
+      await tx.invoiceItem.createMany({
+        data: [...lineItems, ...discountItems].map((i) => ({ invoice_id: invoice.invoice_id, ...i })),
+      });
 
-    return invoice;
-  });
+      return invoice;
+    }, TX_OPTIONS);
+  } catch (err) {
+    // The pre-check above is a friendly early exit, not a guarantee: two requests can both pass it.
+    // The partial unique index "Invoice_one_active_per_consultation" is the real guard, and it
+    // (or the unique source_dispense_id, if a concurrent top-up already billed a dispense) is what
+    // rejects the loser here.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') throw new InvoiceAlreadyExistsError();
+    throw err;
+  }
 
   return getInvoiceById(created.invoice_id);
 };
@@ -197,18 +210,25 @@ export const createInvoice = async (input: CreateInvoiceInput, actor: Actor, cre
 // Idempotent: a dispense already linked to an invoice item (source_dispense_id) is never re-billed,
 // so calling this repeatedly as dispensing progresses is always safe.
 export const syncDispensedItemsToInvoice = async (consultationId: number, actor: Actor) => {
-  const invoice = await prisma.invoice.findFirst({ where: { consultation_id: consultationId, payment_status: { not: 'Voided' } } });
-  if (!invoice) return null;
-
-  const items = await prisma.prescriptionItem.findMany({
-    where: { prescription: { consultation_id: consultationId }, dispensed_at: { not: null } },
-    include: dispensableItemInclude,
-  });
-
-  const newLines = collectUnbilledMedicineLines(items);
-  if (newLines.length === 0) return getInvoiceById(invoice.invoice_id);
+  const existing = await prisma.invoice.findFirst({ where: { consultation_id: consultationId, payment_status: { not: 'Voided' } } });
+  if (!existing) return null;
 
   await prisma.$transaction(async (tx) => {
+    // Lock the invoice, THEN read what is unbilled and what has been paid: doing either before the
+    // lock lets a concurrent payment or a concurrent top-up make this transaction's picture stale
+    // (a stale paid_amount here would compute the wrong Paid/PartiallyPaid status).
+    await lockInvoice(tx, existing.invoice_id);
+    const invoice = await tx.invoice.findUniqueOrThrow({ where: { invoice_id: existing.invoice_id } });
+    if (invoice.payment_status === 'Voided') return;
+
+    const items = await tx.prescriptionItem.findMany({
+      where: { prescription: { consultation_id: consultationId } },
+      include: dispensableItemInclude,
+    });
+
+    const newLines = collectUnbilledMedicineLines(items);
+    if (newLines.length === 0) return;
+
     await tx.invoiceItem.createMany({ data: newLines.map((l) => ({ invoice_id: invoice.invoice_id, ...l })) });
 
     const allItems = await tx.invoiceItem.findMany({ where: { invoice_id: invoice.invoice_id } });
@@ -221,9 +241,9 @@ export const syncDispensedItemsToInvoice = async (consultationId: number, actor:
       where: { invoice_id: invoice.invoice_id },
       data: { subtotal, discount_total: discountTotal, total_amount: totalAmount, payment_status: paymentStatus },
     });
-  });
+  }, TX_OPTIONS);
 
-  return getInvoiceById(invoice.invoice_id);
+  return getInvoiceById(existing.invoice_id);
 };
 
 // Single entry point for keeping a consultation's invoice honest as its billable facts change —
@@ -242,7 +262,74 @@ export const ensureInvoiceForConsultation = async (consultationId: number, actor
   if (!consultation || consultation.status !== 'Finalized') return null;
 
   if (consultation.invoices.length > 0) return syncDispensedItemsToInvoice(consultationId, actor);
-  return createInvoice({ consultation_id: consultationId }, actor, 'Auto');
+  try {
+    return await createInvoice({ consultation_id: consultationId }, actor, 'Auto');
+  } catch (err) {
+    // Lost a race with another request that created the invoice first (finalize vs. dispense) —
+    // that invoice exists now, so just top it up instead of failing.
+    if (err instanceof InvoiceAlreadyExistsError) return syncDispensedItemsToInvoice(consultationId, actor);
+    throw err;
+  }
+};
+
+// ---- Reconciliation of failed invoice syncs --------------------------------------------------
+// Dispensing succeeds even if the follow-up invoice sync fails (a billing hiccup must never block
+// handing a patient their medicine) — so those failures must not stay silent. This lists every
+// dispense that has been handed out but never landed on an invoice, and reconcileBilling() retries
+// them. It runs on a timer (server.ts) and is exposed read-only to admins/receptionists.
+export const findUnbilledDispenses = () =>
+  prisma.prescriptionItemDispense.findMany({
+    where: { invoice_item: null, item: { prescription: { consultation: { status: 'Finalized' } } } },
+    select: {
+      dispense_id: true,
+      rx_item_id: true,
+      qty: true,
+      unit_price: true,
+      dispensed_at: true,
+      dispensed_by: true,
+      item: { select: { prescription: { select: { prescription_id: true, consultation_id: true } } } },
+    },
+    orderBy: { dispensed_at: 'asc' },
+  });
+
+export const reconcileBilling = async () => {
+  const result = { checked: 0, fixed: 0, skipped: 0, failed: 0 };
+  const byConsultation = new Map<number, number>(); // consultation_id -> a user id to attribute the invoice to
+
+  for (const d of await findUnbilledDispenses()) {
+    byConsultation.set(d.item.prescription.consultation_id, byConsultation.get(d.item.prescription.consultation_id) ?? d.dispensed_by);
+  }
+
+  // A finalized visit that has no invoice AT ALL (finalize-time creation failed) also needs one —
+  // recent visits only, so long-closed historical records are never invoiced retroactively.
+  const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+  const uninvoiced = await prisma.consultation.findMany({
+    where: { status: 'Finalized', finalized_at: { gte: cutoff }, invoices: { none: {} } },
+    select: { consultation_id: true, appointment: { select: { doctor_id: true } } },
+  });
+  for (const c of uninvoiced) {
+    if (!byConsultation.has(c.consultation_id) && c.appointment?.doctor_id) byConsultation.set(c.consultation_id, c.appointment.doctor_id);
+  }
+
+  for (const [consultationId, userId] of byConsultation) {
+    result.checked++;
+    const invoices = await prisma.invoice.findMany({ where: { consultation_id: consultationId }, select: { payment_status: true } });
+    // Every invoice voided on purpose: recreating one here would bill the visit a second time.
+    if (invoices.length > 0 && invoices.every((i) => i.payment_status === 'Voided')) {
+      result.skipped++;
+      continue;
+    }
+    try {
+      await ensureInvoiceForConsultation(consultationId, { user_id: userId, role: 'System' });
+      result.fixed++;
+    } catch (err) {
+      result.failed++;
+      logger.error({ err, consultationId }, 'Billing reconciliation failed for consultation');
+    }
+  }
+
+  if (result.fixed > 0 || result.failed > 0) logger.warn(result, 'Billing reconciliation ran');
+  return result;
 };
 
 // Additive nested include used by both getInvoiceById and listInvoices — pulls the visit's
@@ -338,13 +425,13 @@ export const listInvoices = async (filters: ListInvoicesFilters) => {
     const term = filters.search.trim();
     const asId = Number(term.replace(/^INV-?/i, ''));
     where.OR = [
-      { patient: { full_name: { contains: term } } },
-      { patient: { phone: { contains: term } } },
-      { patient_id: { contains: term } },
+      { patient: { full_name: { contains: term, mode: 'insensitive' } } },
+      { patient: { phone: { contains: term, mode: 'insensitive' } } },
+      { patient_id: { contains: term, mode: 'insensitive' } },
       // An unregistered walk-in's invoice has no Patient row to match against above — search its
       // visit's captured temp_patient_* fields instead, or it would never be findable at all.
-      { consultation: { appointment: { temp_patient_name: { contains: term } } } },
-      { consultation: { appointment: { temp_patient_phone: { contains: term } } } },
+      { consultation: { appointment: { temp_patient_name: { contains: term, mode: 'insensitive' } } } },
+      { consultation: { appointment: { temp_patient_phone: { contains: term, mode: 'insensitive' } } } },
       ...(Number.isFinite(asId) && asId > 0 ? [{ invoice_id: asId }] : []),
     ];
   }
@@ -420,57 +507,86 @@ const assertValidPaymentMethod = async (method: string) => {
   }
 };
 
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+const invoiceWithPayments = (tx: Prisma.TransactionClient | typeof prisma, invoiceId: number) =>
+  tx.invoice.findUnique({
+    where: { invoice_id: invoiceId },
+    include: { items: true, payments: { include: { receiver: { select: { username: true } } } } },
+  });
+
 export const recordPayments = async (invoiceId: number, payments: PaymentInput[], actor: Actor) => {
   if (payments.length === 0) throw new ValidationError('At least one payment is required');
+  if (payments.some((p) => !(p.amount > 0))) throw new ValidationError('Payment amount must be positive');
 
-  const invoice = await prisma.invoice.findUnique({ where: { invoice_id: invoiceId } });
-  if (!invoice) throw new NotFoundError('Invoice not found');
-  if (invoice.payment_status === 'Voided') throw new ValidationError('Cannot record a payment against a voided invoice');
-  if (invoice.payment_status === 'Paid') throw new ValidationError('Invoice is already fully paid');
-
-  // A request replayed with the same idempotency key (double-click, network retry) returns the
-  // invoice unchanged instead of double-charging — checked before any validation so a retry of an
-  // already-accepted request never fails even if the invoice has since moved on (e.g. now Paid).
-  const keys = payments.map((p) => p.idempotency_key).filter((k): k is string => !!k);
-  if (keys.length > 0) {
-    const existing = await prisma.payment.findFirst({ where: { idempotency_key: { in: keys } } });
-    if (existing) {
-      return prisma.invoice.findUnique({
-        where: { invoice_id: invoiceId },
-        include: { items: true, payments: { include: { receiver: { select: { username: true } } } } },
-      });
-    }
-  }
-
+  // Validated against the live PaymentMethod list — configuration, not invoice state, so this is
+  // safe to check before taking the invoice lock.
   for (const method of new Set(payments.map((p) => p.method))) await assertValidPaymentMethod(method);
 
+  const keys = payments.map((p) => p.idempotency_key).filter((k): k is string => !!k);
   const totalNew = payments.reduce((sum, p) => sum + p.amount, 0);
-  if (totalNew <= 0) throw new ValidationError('Payment amount must be positive');
-  if (invoice.paid_amount + totalNew > invoice.total_amount + 0.01) {
-    throw new ValidationError(`Payment of ${totalNew} exceeds the outstanding balance of ${invoice.total_amount - invoice.paid_amount}`);
+
+  const attempt = () =>
+    prisma.$transaction(async (tx) => {
+      // Everything below reads the invoice's balance, so the lock comes first: with the read done
+      // before the transaction (the previous code), two simultaneous payments of 60 against a 100
+      // invoice both saw "0 paid", both passed the balance check, and paid_amount ended up 60 while
+      // the payment rows summed to 120.
+      await lockInvoice(tx, invoiceId);
+
+      const invoice = await tx.invoice.findUnique({ where: { invoice_id: invoiceId } });
+      if (!invoice) throw new NotFoundError('Invoice not found');
+
+      // A request replayed with the same idempotency key (double-click, network retry) returns the
+      // invoice unchanged instead of double-charging — checked before status/balance validation so
+      // a retry of an already-accepted request never fails just because the invoice has since
+      // moved on (e.g. it is now Paid).
+      if (keys.length > 0) {
+        const replay = await tx.payment.findFirst({ where: { idempotency_key: { in: keys } } });
+        if (replay) {
+          if (replay.invoice_id !== invoiceId) throw new ValidationError('This idempotency key was already used for a different invoice');
+          return invoiceWithPayments(tx, invoiceId);
+        }
+      }
+
+      if (invoice.payment_status === 'Voided') throw new ValidationError('Cannot record a payment against a voided invoice');
+      if (invoice.payment_status === 'Paid') throw new ValidationError('Invoice is already fully paid');
+
+      // The recorded payments are the source of truth for what has been paid, not a running total
+      // that a previous request may have computed from stale data.
+      const paidSoFar = (await tx.payment.aggregate({ _sum: { amount: true }, where: { invoice_id: invoiceId } }))._sum.amount ?? 0;
+      const outstanding = round2(invoice.total_amount - paidSoFar);
+      if (totalNew > outstanding + 0.01) {
+        throw new ValidationError(`Payment of ${totalNew} exceeds the outstanding balance of ${outstanding}`);
+      }
+
+      await tx.payment.createMany({
+        data: payments.map((p) => ({
+          invoice_id: invoiceId,
+          method: p.method,
+          amount: p.amount,
+          received_by: actor.user_id,
+          idempotency_key: p.idempotency_key,
+        })),
+      });
+
+      const newPaidAmount = round2(paidSoFar + totalNew);
+      const newStatus = newPaidAmount >= invoice.total_amount - 0.01 ? 'Paid' : 'PartiallyPaid';
+      await tx.invoice.update({ where: { invoice_id: invoiceId }, data: { paid_amount: newPaidAmount, payment_status: newStatus } });
+
+      return invoiceWithPayments(tx, invoiceId);
+    }, TX_OPTIONS);
+
+  try {
+    return await attempt();
+  } catch (err) {
+    // Two requests carrying the same idempotency key that raced past each other still cannot both
+    // insert (the key is unique) — the loser is a replay, so answer it as one.
+    if (keys.length > 0 && err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      return invoiceWithPayments(prisma, invoiceId);
+    }
+    throw err;
   }
-
-  return prisma.$transaction(async (tx) => {
-    await tx.payment.createMany({
-      data: payments.map((p) => ({
-        invoice_id: invoiceId,
-        method: p.method,
-        amount: p.amount,
-        received_by: actor.user_id,
-        idempotency_key: p.idempotency_key,
-      })),
-    });
-
-    const newPaidAmount = invoice.paid_amount + totalNew;
-    const newStatus = newPaidAmount >= invoice.total_amount - 0.01 ? 'Paid' : 'PartiallyPaid';
-
-    await tx.invoice.update({ where: { invoice_id: invoiceId }, data: { paid_amount: newPaidAmount, payment_status: newStatus } });
-
-    return tx.invoice.findUnique({
-      where: { invoice_id: invoiceId },
-      include: { items: true, payments: { include: { receiver: { select: { username: true } } } } },
-    });
-  });
 };
 
 // ---- Void / Refund (Admin-approved) --------------------------------------------------------
@@ -486,39 +602,53 @@ interface RefundInput {
 // still just flags dispensed medicine for manual clinical/stock review, same as before.
 export const voidInvoice = async (invoiceId: number, reason: string, actor: Actor, refunds: RefundInput[] = []) => {
   if (!reason?.trim()) throw new ValidationError('A void reason is required');
+  if (refunds.some((r) => !(r.amount > 0))) throw new ValidationError('Refund amounts must be positive');
 
-  const invoice = await prisma.invoice.findUnique({
-    where: { invoice_id: invoiceId },
-    include: { items: { where: { item_type: 'Medicine' } } },
-  });
-  if (!invoice) throw new NotFoundError('Invoice not found');
-  if (invoice.payment_status === 'Voided') throw new ValidationError('Invoice is already voided');
+  for (const method of new Set(refunds.map((r) => r.method))) await assertValidPaymentMethod(method);
 
-  if (invoice.paid_amount > 0) {
-    if (refunds.length === 0) {
+  const { updated, needsReview } = await prisma.$transaction(async (tx) => {
+    // Same lock as recording a payment: a void racing a payment must see (and be seen by) it.
+    await lockInvoice(tx, invoiceId);
+
+    const invoice = await tx.invoice.findUnique({
+      where: { invoice_id: invoiceId },
+      include: { items: { where: { item_type: 'Medicine' } } },
+    });
+    if (!invoice) throw new NotFoundError('Invoice not found');
+    if (invoice.payment_status === 'Voided') throw new ValidationError('Invoice is already voided');
+
+    // What can still be handed back is measured against the payments that ACTUALLY exist (and any
+    // refund already issued), never a cached total — and it applies whether or not any refund lines
+    // were supplied. Previously the bounds were only checked when paid_amount > 0, so a refund could
+    // be recorded against an invoice nobody had paid.
+    const paid = (await tx.payment.aggregate({ _sum: { amount: true }, where: { invoice_id: invoiceId } }))._sum.amount ?? 0;
+    const alreadyRefunded = (await tx.refund.aggregate({ _sum: { amount: true }, where: { invoice_id: invoiceId } }))._sum.amount ?? 0;
+    const refundable = round2(paid - alreadyRefunded);
+    const totalRefund = refunds.reduce((sum, r) => sum + r.amount, 0);
+
+    if (refundable > 0.009 && refunds.length === 0) {
       throw new ValidationError('This invoice has payments recorded against it — specify how the paid amount is being refunded');
     }
-    const totalRefund = refunds.reduce((sum, r) => sum + r.amount, 0);
-    if (refunds.some((r) => r.amount <= 0)) throw new ValidationError('Refund amounts must be positive');
-    if (totalRefund > invoice.paid_amount + 0.01) {
-      throw new ValidationError(`Refund total of ${totalRefund} exceeds the ${invoice.paid_amount} actually paid on this invoice`);
+    if (refunds.length > 0 && refundable <= 0.009) {
+      throw new ValidationError('There is nothing to refund on this invoice — no payment has been recorded against it');
     }
-    for (const method of new Set(refunds.map((r) => r.method))) await assertValidPaymentMethod(method);
-  }
+    if (totalRefund > refundable + 0.01) {
+      throw new ValidationError(`Refund total of ${totalRefund} exceeds the ${refundable} that is actually refundable on this invoice`);
+    }
 
-  const updated = await prisma.$transaction(async (tx) => {
     if (refunds.length > 0) {
       await tx.refund.createMany({
         data: refunds.map((r) => ({ invoice_id: invoiceId, method: r.method, amount: r.amount, reason, issued_by: actor.user_id })),
       });
     }
-    return tx.invoice.update({
+    const updated = await tx.invoice.update({
       where: { invoice_id: invoiceId },
       data: { payment_status: 'Voided', void_reason: reason, voided_by: actor.user_id, voided_at: new Date() },
     });
-  });
+    return { updated, needsReview: invoice.items.length > 0 };
+  }, TX_OPTIONS);
 
-  return { ...updated, dispensedItemsNeedingReview: invoice.items.length > 0 };
+  return { ...updated, dispensedItemsNeedingReview: needsReview };
 };
 
 // ---- Payments Ledger (flat, cross-invoice view) --------------------------------------------
@@ -551,11 +681,11 @@ export const listPayments = async (filters: ListPaymentsFilters) => {
     const term = filters.search.trim();
     const asId = Number(term.replace(/^PAY-?/i, ''));
     where.OR = [
-      { invoice: { patient: { full_name: { contains: term } } } },
-      { invoice: { patient: { phone: { contains: term } } } },
-      { invoice: { patient_id: { contains: term } } },
-      { invoice: { consultation: { appointment: { temp_patient_name: { contains: term } } } } },
-      { invoice: { consultation: { appointment: { temp_patient_phone: { contains: term } } } } },
+      { invoice: { patient: { full_name: { contains: term, mode: 'insensitive' } } } },
+      { invoice: { patient: { phone: { contains: term, mode: 'insensitive' } } } },
+      { invoice: { patient_id: { contains: term, mode: 'insensitive' } } },
+      { invoice: { consultation: { appointment: { temp_patient_name: { contains: term, mode: 'insensitive' } } } } },
+      { invoice: { consultation: { appointment: { temp_patient_phone: { contains: term, mode: 'insensitive' } } } } },
       ...(Number.isFinite(asId) && asId > 0 ? [{ payment_id: asId }, { invoice_id: asId }] : []),
     ];
   }

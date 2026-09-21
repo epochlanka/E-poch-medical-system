@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import { fileUrl } from '../../lib/api';
+import { draftKey as scopedDraftKey } from '../../lib/drafts';
 import { searchMedicines } from '../../lib/medicines';
 import type { Medicine } from '../../lib/medicines';
 import { getPrescriptionContext, createPrescription } from '../../lib/prescriptions';
@@ -29,7 +30,7 @@ interface DraftItem {
   qty: string;
 }
 
-const draftKey = (consultationId: number) => `epoch_rx_draft_${consultationId}`;
+const draftKey = (consultationId: number) => scopedDraftKey(`rx_${consultationId}`);
 
 const NewPrescription = () => {
   const { consultationId } = useParams();

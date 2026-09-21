@@ -1,3 +1,4 @@
+import { draftKey } from '../../lib/drafts';
 export const BLOOD_GROUP_LETTERS = ['A', 'B', 'AB', 'O'];
 export const RH_FACTORS = [
   { value: '+', label: 'Positive (+)' },
@@ -72,7 +73,7 @@ export const emptyRegisterForm: RegisterFormState = {
   currentMedications: '',
 };
 
-export const DRAFT_KEY = 'epoch_reception_patient_draft';
+export const DRAFT_KEY = () => draftKey('patient');
 
 export const calculateAgeFromDob = (dob: string) => {
   if (!dob) return null;

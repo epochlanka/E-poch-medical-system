@@ -46,11 +46,11 @@ const Topbar = ({ title, onMenuClick }: TopbarProps) => {
   useEffect(() => {
     let active = true;
     let inFlight = false;
-    const updateWaiting = async () => {
+    const updateWaiting = async (background = false) => {
       if (inFlight) return;
       inFlight = true;
       try {
-        const board = await getPharmacyQueue();
+        const board = await getPharmacyQueue(background);
         if (!active) return;
         const pending = board.Pending;
         if (knownPendingIds.current) {
@@ -69,7 +69,7 @@ const Topbar = ({ title, onMenuClick }: TopbarProps) => {
       } finally { inFlight = false; }
     };
     void updateWaiting();
-    const timer = window.setInterval(() => { void updateWaiting(); }, 15_000);
+    const timer = window.setInterval(() => { void updateWaiting(true); }, 15_000);
     const onVisible = () => { if (!document.hidden) void updateWaiting(); };
     document.addEventListener('visibilitychange', onVisible);
     return () => { active = false; window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };

@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { NotFoundError, ValidationError, ForbiddenError, AllergyConflictError } from './errors';
-import { computeExpectedQty } from './qtyCalc';
+import { computeExpectedQty, scheduledDoseCount } from './qtyCalc';
 
 
 interface Actor {
@@ -23,6 +23,8 @@ interface PrescriptionItemInput {
   route?: string;
   instructions?: string;
   qty: number;
+  dose_qty?: number;
+  qty_manual?: boolean;
   external_qty?: number;
 }
 
@@ -74,6 +76,8 @@ export const createPrescription = async (input: CreatePrescriptionInput, actor: 
         route: i.route ?? undefined,
         instructions: i.instructions ?? undefined,
         qty: i.qty,
+        dose_qty: i.dose_qty ?? undefined,
+        qty_manual: i.qty_manual,
       }));
     }
   }
@@ -98,13 +102,25 @@ export const createPrescription = async (input: CreatePrescriptionInput, actor: 
     );
   }
 
-  // Authoritative qty check — only enforced when frequency/duration are both mechanically
-  // calculable (e.g. "BD" + "5 Days"); free text or PRN/"Ongoing" is left to the doctor's entry.
+  // Authoritative qty check. When frequency + duration form a calculable schedule (e.g. "BD" +
+  // "5 Days") the quantity is units-per-dose x doses — so the units per dose must be stated
+  // explicitly (never assumed to be 1), unless the clinician deliberately confirms a manual
+  // quantity. PRN / "Ongoing" / free-text schedules can't be calculated and are the clinician's entry.
   for (const i of items) {
-    const expectedQty = computeExpectedQty(i.frequency, i.duration);
-    if (expectedQty !== null && expectedQty !== i.qty) {
-      const name = medicineById.get(i.medicine_id)!.name;
-      throw new ValidationError(`Qty for ${name} should be ${expectedQty} for ${i.frequency} × ${i.duration} (got ${i.qty})`);
+    const med = medicineById.get(i.medicine_id)!;
+    const doses = scheduledDoseCount(i.frequency, i.duration);
+    if (doses !== null && !i.qty_manual) {
+      if (i.dose_qty == null) {
+        throw new ValidationError(
+          `Specify how many ${med.base_unit} ${med.name} is taken per dose (dose_qty), or confirm the quantity manually — it cannot be calculated from ${i.frequency} × ${i.duration} alone`
+        );
+      }
+      const expectedQty = computeExpectedQty(i.frequency, i.duration, i.dose_qty)!;
+      if (expectedQty !== i.qty) {
+        throw new ValidationError(
+          `Qty for ${med.name} should be ${expectedQty} ${med.base_unit} for ${i.dose_qty} × ${i.frequency} × ${i.duration} (got ${i.qty})`
+        );
+      }
     }
     const externalQty = i.external_qty ?? 0;
     if (externalQty < 0 || externalQty > i.qty) {
@@ -151,6 +167,8 @@ export const createPrescription = async (input: CreatePrescriptionInput, actor: 
             route: i.route,
             instructions: i.instructions,
             qty: i.qty,
+            dose_qty: i.dose_qty,
+            qty_manual: !!i.qty_manual,
             external_qty: i.external_qty ?? 0,
           })),
         },
@@ -226,7 +244,7 @@ export const listPrescriptions = async (filters: ListPrescriptionsFilters) => {
         ...(filters.doctorId ? { doctor_id: filters.doctorId } : {}),
         ...(filters.consultationType ? { consultation_type: filters.consultationType } : {}),
         ...(filters.search
-          ? { OR: [{ patient: { full_name: { contains: filters.search } } }, { patient: { patient_id: { contains: filters.search } } }] }
+          ? { OR: [{ patient: { full_name: { contains: filters.search, mode: 'insensitive' } } }, { patient: { patient_id: { contains: filters.search, mode: 'insensitive' } } }] }
           : {}),
       },
     };

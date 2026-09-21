@@ -20,16 +20,51 @@ function readPackageVersion(): string {
   }
 }
 
-export const logger = pino({
+// Query-string VALUES are dropped (patient search terms, NICs, phone numbers live there); only
+// the parameter names survive, which is enough to debug a request without keeping PHI in logs.
+export const sanitizeUrl = (url = ''): string => {
+  const [pathname, query] = url.split('?');
+  if (!query) return pathname;
+  const keys = [...new Set(query.split('&').map((pair) => pair.split('=')[0]).filter(Boolean))];
+  return `${pathname}?${keys.map((k) => `${k}=[REDACTED]`).join('&')}`;
+};
+
+// Allow-list serializers for pino-http. The default ones dump every request header, the query
+// object and EVERY response header — including `Set-Cookie`, i.e. a live session token written
+// to the logs on each login. Log only what is needed to trace a request.
+export const httpSerializers = {
+  req: (req: any) => ({
+    id: req.id,
+    method: req.method,
+    url: sanitizeUrl(req.url),
+    remoteAddress: req.remoteAddress ?? req.socket?.remoteAddress,
+  }),
+  res: (res: any) => ({ statusCode: res.statusCode }),
+};
+
+export const loggerOptions: pino.LoggerOptions = {
   level: process.env.LOG_LEVEL || 'info',
   base: { service: SERVICE_NAME },
-  // pino already redacts by path; our own redactSensitive() handles nested/unknown shapes before
-  // anything reaches here, but keep a cheap top-level guard too.
+  // Second layer behind the allow-list serializers above: even if a serializer is loosened later,
+  // credentials in headers still never reach a log line.
   redact: {
-    paths: ['req.headers.authorization', 'req.headers.cookie', 'password', '*.password', 'token', '*.token'],
+    paths: [
+      'req.headers.authorization',
+      'req.headers.cookie',
+      'req.headers["proxy-authorization"]',
+      'req.headers["x-api-key"]',
+      'res.headers["set-cookie"]',
+      'res.headers.authorization',
+      'password',
+      '*.password',
+      'token',
+      '*.token',
+    ],
     censor: '[REDACTED]',
   },
-});
+};
+
+export const logger = pino(loggerOptions);
 
 export interface StructuredErrorEntry {
   errorId: string | null;
@@ -61,6 +96,31 @@ try {
   fileLoggingReady = false;
 }
 
+// The error log was append-only: on a machine that runs for years it grows until the disk fills,
+// taking the whole system down with it. Rotate by size, keep a few generations.
+const MAX_LOG_BYTES = 20 * 1024 * 1024;
+const KEEP_GENERATIONS = 3;
+let approxLogBytes = (() => {
+  try {
+    return fs.statSync(ERROR_LOG_FILE).size;
+  } catch {
+    return 0;
+  }
+})();
+
+const rotateErrorLog = () => {
+  try {
+    fs.rmSync(`${ERROR_LOG_FILE}.${KEEP_GENERATIONS}`, { force: true });
+    for (let i = KEEP_GENERATIONS - 1; i >= 1; i--) {
+      if (fs.existsSync(`${ERROR_LOG_FILE}.${i}`)) fs.renameSync(`${ERROR_LOG_FILE}.${i}`, `${ERROR_LOG_FILE}.${i + 1}`);
+    }
+    fs.renameSync(ERROR_LOG_FILE, `${ERROR_LOG_FILE}.1`);
+    approxLogBytes = 0;
+  } catch {
+    /* never let logging break a request */
+  }
+};
+
 export const writeStructuredError = (entry: StructuredErrorEntry): void => {
   const safe = redactSensitive(entry);
   if (entry.severity === 'CRITICAL' || entry.severity === 'ERROR') logger.error(safe, `[${entry.kind}] ${entry.message}`);
@@ -69,7 +129,10 @@ export const writeStructuredError = (entry: StructuredErrorEntry): void => {
 
   if (fileLoggingReady) {
     try {
-      fs.appendFile(ERROR_LOG_FILE, JSON.stringify(safe) + '\n', () => undefined);
+      const line = JSON.stringify(safe) + '\n';
+      if (approxLogBytes + line.length > MAX_LOG_BYTES) rotateErrorLog();
+      approxLogBytes += line.length;
+      fs.appendFile(ERROR_LOG_FILE, line, () => undefined);
     } catch {
       /* never let logging break a request */
     }

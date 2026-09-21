@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../lib/api';
+import { api, BACKGROUND_REQUEST } from '../lib/api';
 
 interface Appointment {
   appointment_id: number;
@@ -33,10 +33,10 @@ const QueueDashboard: React.FC = () => {
   const [editingTimeId, setEditingTimeId] = useState<number | null>(null);
   const [editTimeValue, setEditTimeValue] = useState('');
 
-  const fetchQueue = async () => {
+  const fetchQueue = async (background = false) => {
     setLoading(true);
     try {
-      const res = await api.get('/appointments/queue');
+      const res = await api.get('/appointments/queue', background === true ? BACKGROUND_REQUEST : undefined);
       setQueue(res.data);
       setError('');
     } catch (err: any) {
@@ -48,7 +48,7 @@ const QueueDashboard: React.FC = () => {
 
   useEffect(() => {
     fetchQueue();
-    const interval = setInterval(fetchQueue, 10000);
+    const interval = setInterval(() => fetchQueue(true), 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -135,7 +135,7 @@ const QueueDashboard: React.FC = () => {
     <div style={styles.container}>
       <div style={styles.header}>
         <h2 style={styles.title}>Live Consultation Queue</h2>
-        <button style={styles.refreshBtn} onClick={fetchQueue} disabled={loading}>
+        <button style={styles.refreshBtn} onClick={() => fetchQueue()} disabled={loading}>
           {loading ? 'Refreshing...' : 'Refresh Now'}
         </button>
       </div>

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { draftKey } from '../../lib/drafts';
 import { Link, useNavigate } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import { fileUrl } from '../../lib/api';
@@ -29,7 +30,7 @@ import '../patients/register.css';
 import './bookAppointment.css';
 
 const STEPS = ['Patient', 'Appointment Details', 'Confirm & Notes', 'Review & Save'];
-const DRAFT_KEY = 'epoch_reception_appointment_draft';
+const DRAFT_KEY = () => draftKey('appointment');
 
 interface BookingState {
   patientMode: 'existing' | 'new';
@@ -57,7 +58,7 @@ const emptyBooking: BookingState = {
 
 const loadDraft = (): BookingState | null => {
   try {
-    const raw = localStorage.getItem(DRAFT_KEY);
+    const raw = localStorage.getItem(DRAFT_KEY());
     return raw ? { ...emptyBooking, ...JSON.parse(raw) } : null;
   } catch {
     return null;
@@ -83,7 +84,7 @@ const BookAppointment = () => {
   const doctorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(booking));
+    localStorage.setItem(DRAFT_KEY(), JSON.stringify(booking));
   }, [booking]);
 
   useEffect(() => {
@@ -154,7 +155,7 @@ const BookAppointment = () => {
   const goBack = () => setStep((s) => Math.max(1, s - 1));
 
   const handleSaveDraft = () => {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(booking));
+    localStorage.setItem(DRAFT_KEY(), JSON.stringify(booking));
     navigate('/dashboard');
   };
 
@@ -171,7 +172,7 @@ const BookAppointment = () => {
         consultation_type: booking.consultationType || undefined,
         visit_type: booking.visitType,
       });
-      localStorage.removeItem(DRAFT_KEY);
+      localStorage.removeItem(DRAFT_KEY());
       setCreatedId(result.appointment_id);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to book appointment.');

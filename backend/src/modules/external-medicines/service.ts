@@ -178,9 +178,9 @@ export const listByPatient = async (patientId: string, search?: string) => {
       ...(search
         ? {
             OR: [
-              { medicine_name: { contains: search } },
-              { generic_name: { contains: search } },
-              { brand_name: { contains: search } },
+              { medicine_name: { contains: search, mode: 'insensitive' } },
+              { generic_name: { contains: search, mode: 'insensitive' } },
+              { brand_name: { contains: search, mode: 'insensitive' } },
             ],
           }
         : {}),

@@ -84,13 +84,13 @@ export const searchMedicines = async (params: SearchMedicinesParams) => {
   if (params.search) {
     const term = params.search.trim();
     where.OR = [
-      { name: { contains: term } },
-      { generic_name: { contains: term } },
-      { brand_name: { contains: term } },
-      { category: { contains: term } },
-      { form: { contains: term } },
-      { strength: { contains: term } },
-      { barcode: { contains: term } },
+      { name: { contains: term, mode: 'insensitive' } },
+      { generic_name: { contains: term, mode: 'insensitive' } },
+      { brand_name: { contains: term, mode: 'insensitive' } },
+      { category: { contains: term, mode: 'insensitive' } },
+      { form: { contains: term, mode: 'insensitive' } },
+      { strength: { contains: term, mode: 'insensitive' } },
+      { barcode: { contains: term, mode: 'insensitive' } },
     ];
   }
 
@@ -148,11 +148,11 @@ export const listMedicineStock = async (params: ListMedicineStockParams) => {
   if (params.search) {
     const term = params.search.trim();
     where.OR = [
-      { name: { contains: term } },
-      { generic_name: { contains: term } },
-      { brand_name: { contains: term } },
-      { category: { contains: term } },
-      { barcode: { contains: term } },
+      { name: { contains: term, mode: 'insensitive' } },
+      { generic_name: { contains: term, mode: 'insensitive' } },
+      { brand_name: { contains: term, mode: 'insensitive' } },
+      { category: { contains: term, mode: 'insensitive' } },
+      { barcode: { contains: term, mode: 'insensitive' } },
     ];
   }
   // A medicine has no direct supplier — it's sourced through whichever batches were received
@@ -363,14 +363,14 @@ export const listMedicineCatalog = async (params: ListCatalogParams) => {
   if (params.form) where.form = params.form;
   if (params.manufacturer) where.manufacturer = params.manufacturer;
   if (params.brand) where.brand_name = params.brand;
-  if (params.batchNo) where.batches = { some: { batch_no: { contains: params.batchNo } } };
+  if (params.batchNo) where.batches = { some: { batch_no: { contains: params.batchNo, mode: 'insensitive' } } };
   if (params.search) {
     const term = params.search.trim();
     where.OR = [
-      { name: { contains: term } },
-      { generic_name: { contains: term } },
-      { brand_name: { contains: term } },
-      { barcode: { contains: term } },
+      { name: { contains: term, mode: 'insensitive' } },
+      { generic_name: { contains: term, mode: 'insensitive' } },
+      { brand_name: { contains: term, mode: 'insensitive' } },
+      { barcode: { contains: term, mode: 'insensitive' } },
     ];
   }
 

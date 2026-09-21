@@ -2,22 +2,25 @@ import { useState } from 'react';
 import { useApiData } from '../../hooks/useApiData';
 import { listBackups, createBackup, verifyBackup, downloadBackup } from '../../lib/settings';
 import type { DbBackup } from '../../lib/settings';
-import { PlusIcon, DownloadIcon, CheckCircleIcon, RefreshIcon } from '../../components/layout/Icons';
+import { PlusIcon, DownloadIcon, CheckCircleIcon } from '../../components/layout/Icons';
 import { formatBytes, formatDateTime } from './settingsUtils';
-import RestoreConfirmModal from './RestoreConfirmModal';
 
 const BackupTab = () => {
   const { data: backups, loading, error, reload } = useApiData(listBackups);
   const [creating, setCreating] = useState(false);
   const [verifyingId, setVerifyingId] = useState<number | null>(null);
-  const [restoreTarget, setRestoreTarget] = useState<DbBackup | null>(null);
-  const [restoreWarning, setRestoreWarning] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const messageOf = (err: unknown, fallback: string) => (err as { response?: { data?: { message?: string } } })?.response?.data?.message || fallback;
 
   const handleCreate = async () => {
     setCreating(true);
+    setActionError(null);
     try {
       await createBackup();
       reload();
+    } catch (err) {
+      setActionError(messageOf(err, 'The backup could not be created.'));
     } finally {
       setCreating(false);
     }
@@ -25,9 +28,12 @@ const BackupTab = () => {
 
   const handleVerify = async (backup: DbBackup) => {
     setVerifyingId(backup.backup_id);
+    setActionError(null);
     try {
       await verifyBackup(backup.backup_id);
       reload();
+    } catch (err) {
+      setActionError(messageOf(err, 'The backup could not be checked.'));
     } finally {
       setVerifyingId(null);
     }
@@ -38,7 +44,11 @@ const BackupTab = () => {
       <div className="rp-panel-header">
         <div>
           <h3 className="card-title">Database Backups</h3>
-          <span className="card-subtitle">On-demand SQLite file snapshots. Restoring replaces the live database.</span>
+          <span className="card-subtitle">
+            Each backup is one file holding the whole database plus every uploaded photo, attachment and letter. Download it and
+            keep a copy somewhere other than this computer. Restoring is a maintenance procedure done with the system stopped
+            (deploy/restore.sh), not something done from this screen.
+          </span>
         </div>
         <button className="pat-btn primary" disabled={creating} onClick={handleCreate}>
           <PlusIcon /> {creating ? 'Creating…' : 'Create Backup'}
@@ -46,11 +56,7 @@ const BackupTab = () => {
       </div>
 
       {error && <div className="dash-error-banner">Couldn't load backups: {error}</div>}
-      {restoreWarning && (
-        <div className="dash-error-banner" style={{ background: '#fffbeb', borderColor: '#fde68a', color: '#92400e' }}>
-          {restoreWarning}
-        </div>
-      )}
+      {actionError && <div className="dash-error-banner">{actionError}</div>}
 
       <div className="pat-table-scroll">
         <table className="pat-table">
@@ -101,9 +107,6 @@ const BackupTab = () => {
                       <button className="pat-icon-btn" onClick={() => downloadBackup(b.backup_id, b.filename)} aria-label="Download">
                         <DownloadIcon />
                       </button>
-                      <button className="pat-btn" style={{ padding: '6px 10px', fontSize: 12, color: '#dc2626' }} onClick={() => setRestoreTarget(b)}>
-                        <RefreshIcon /> Restore
-                      </button>
                     </div>
                   </td>
                 </tr>
@@ -112,17 +115,6 @@ const BackupTab = () => {
         </table>
       </div>
 
-      {restoreTarget && (
-        <RestoreConfirmModal
-          backup={restoreTarget}
-          onClose={() => setRestoreTarget(null)}
-          onRestored={(warning) => {
-            setRestoreTarget(null);
-            setRestoreWarning(warning);
-            reload();
-          }}
-        />
-      )}
     </div>
   );
 };

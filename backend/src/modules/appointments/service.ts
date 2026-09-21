@@ -337,7 +337,7 @@ export class AppointmentsService {
    */
   async getDoctors(search?: string) {
     const where: any = { role: 'Doctor', is_active: true };
-    if (search) where.username = { contains: search };
+    if (search) where.username = { contains: search, mode: 'insensitive' };
 
     return prisma.user.findMany({
       where,
@@ -379,11 +379,11 @@ export class AppointmentsService {
       const term = filters.search.trim();
       const asId = Number(term.replace(/^APT-?/i, ''));
       where.OR = [
-        { patient: { full_name: { contains: term } } },
-        { patient: { phone: { contains: term } } },
-        { patient_id: { contains: term } },
-        { temp_patient_name: { contains: term } },
-        { temp_patient_phone: { contains: term } },
+        { patient: { full_name: { contains: term, mode: 'insensitive' } } },
+        { patient: { phone: { contains: term, mode: 'insensitive' } } },
+        { patient_id: { contains: term, mode: 'insensitive' } },
+        { temp_patient_name: { contains: term, mode: 'insensitive' } },
+        { temp_patient_phone: { contains: term, mode: 'insensitive' } },
         ...(Number.isFinite(asId) && asId > 0 ? [{ appointment_id: asId }] : []),
       ];
     }
@@ -586,9 +586,9 @@ export class AppointmentsService {
         ...(filters.search
           ? {
               OR: [
-                { patient: { full_name: { contains: filters.search } } },
-                { patient_id: { contains: filters.search } },
-                { temp_patient_name: { contains: filters.search } },
+                { patient: { full_name: { contains: filters.search, mode: 'insensitive' } } },
+                { patient_id: { contains: filters.search, mode: 'insensitive' } },
+                { temp_patient_name: { contains: filters.search, mode: 'insensitive' } },
               ],
             }
           : {}),

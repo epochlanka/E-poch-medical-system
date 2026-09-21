@@ -212,10 +212,10 @@ export const listPatients = async (filters: ListPatientsFilters) => {
   if (filters.search) {
     const term = filters.search.trim();
     where.OR = [
-      { patient_id: { contains: term } },
-      { full_name: { contains: term } },
-      { nic: { contains: term } },
-      { phone: { contains: term } },
+      { patient_id: { contains: term, mode: 'insensitive' } },
+      { full_name: { contains: term, mode: 'insensitive' } },
+      { nic: { contains: term, mode: 'insensitive' } },
+      { phone: { contains: term, mode: 'insensitive' } },
     ];
   }
 
@@ -702,7 +702,7 @@ export const listDuplicateFlags = async (filters: ListDuplicateFlagsFilters = {}
   if (filters.reviewedBy) where.reviewer = { username: filters.reviewedBy };
   if (filters.search) {
     const term = filters.search.trim();
-    const patientMatch = { OR: [{ patient_id: { contains: term } }, { full_name: { contains: term } }, { nic: { contains: term } }, { phone: { contains: term } }] };
+    const patientMatch = { OR: [{ patient_id: { contains: term, mode: 'insensitive' as const } }, { full_name: { contains: term, mode: 'insensitive' as const } }, { nic: { contains: term, mode: 'insensitive' as const } }, { phone: { contains: term, mode: 'insensitive' as const } }] };
     where.OR = [{ patient: patientMatch }, { matched_patient: patientMatch }];
   }
 

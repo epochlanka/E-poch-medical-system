@@ -1,12 +1,13 @@
 import { prisma } from '../../lib/prisma';
+import { BACKUPS_DIR, UPLOADS_DIR } from '../../config/paths';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { NotFoundError, ValidationError } from './errors';
+import { NotFoundError, ValidationError, RestoreDisabledError } from './errors';
 
 const execFileAsync = promisify(execFile);
-const BACKUPS_DIR = path.resolve(__dirname, '../../../backups');
 
 interface Actor {
   user_id: number;
@@ -128,34 +129,66 @@ export const deleteMasterDataItem = async (itemId: number) => {
   await prisma.masterDataItem.delete({ where: { item_id: itemId } });
 };
 
-// ---- Backup & Restore ------------------------------------------------------------------------
+// ---- Backup ------------------------------------------------------------------------------------
+// A backup is ONE archive (.tar) holding everything needed to rebuild the clinic's data:
+//   database.dump  - pg_dump custom format of the whole database
+//   uploads/       - patient photos, consultation attachments, lab reports, letter templates and
+//                    issued letters (these live on this machine's disk, NOT in the database, so a
+//                    database-only backup silently loses them)
+// Recovery is deliberately NOT a button: restoring rewrites the live database, which must happen
+// with the application stopped (deploy/restore.sh). This module only creates, lists, verifies and
+// serves archives.
 
-const ensureBackupsDir = () => {
-  if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+const ARCHIVE_EXT = '.tar';
+const LEGACY_DUMP_EXT = '.dump'; // database-only archives made before uploads were included
+
+const ensureDir = (dir: string) => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 };
 
-const timestampedFilename = (prefix: string) => `${prefix}-${new Date().toISOString().replace(/[:.]/g, '-')}.dump`;
+const timestampedFilename = (prefix: string) => `${prefix}-${new Date().toISOString().replace(/[:.]/g, '-')}${ARCHIVE_EXT}`;
 
 // DIRECT_URL, not DATABASE_URL — pg_dump/pg_restore parse the URL as a plain libpq connection
 // string, which doesn't understand Prisma-only query params like DATABASE_URL's
 // `connection_limit` and errors out on them.
 const pgConnectionString = () => {
   const url = process.env.DIRECT_URL;
-  if (!url) throw new ValidationError('DIRECT_URL is not configured — cannot back up or restore the database');
+  if (!url) throw new ValidationError('DIRECT_URL is not configured — cannot back up the database');
   return url;
 };
 
+const BIG = { maxBuffer: 1024 * 1024 * 64 };
+
+const withTempDir = async <T>(fn: (dir: string) => Promise<T>): Promise<T> => {
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'epoch-backup-'));
+  try {
+    return await fn(dir);
+  } finally {
+    await fs.promises.rm(dir, { recursive: true, force: true });
+  }
+};
+
 export const createBackup = async (actor: Actor) => {
-  ensureBackupsDir();
+  ensureDir(BACKUPS_DIR);
+  ensureDir(UPLOADS_DIR);
 
   const filename = timestampedFilename('backup');
   const destPath = path.join(BACKUPS_DIR, filename);
+  const partialPath = `${destPath}.partial`;
 
-  // Custom format (-Fc): compressed, and the only format pg_restore can selectively inspect
-  // (--list) or replay (--clean) against a live database — a plain SQL dump can't do either.
-  await execFileAsync('pg_dump', ['--format=custom', '--file', destPath, pgConnectionString()], {
-    maxBuffer: 1024 * 1024 * 64,
+  await withTempDir(async (work) => {
+    // Custom format (-Fc): compressed, and the only format pg_restore can selectively inspect
+    // (--list) or replay (--clean) — a plain SQL dump can't do either.
+    await execFileAsync('pg_dump', ['--format=custom', '--file', path.join(work, 'database.dump'), pgConnectionString()], BIG);
+
+    // Stage a directory that references the live uploads folder, then archive it following the
+    // link (-h) — portable across GNU tar and the BusyBox tar the production image ships.
+    await fs.promises.symlink(UPLOADS_DIR, path.join(work, 'uploads'));
+    await execFileAsync('tar', ['-chf', partialPath, '-C', work, 'database.dump', 'uploads'], BIG);
   });
+  // Written under a temporary name and renamed only when complete: a half-written archive must
+  // never be listed (or later trusted) as a backup.
+  await fs.promises.rename(partialPath, destPath);
   const { size } = await fs.promises.stat(destPath);
 
   const backup = await prisma.dbBackup.create({
@@ -170,8 +203,10 @@ export const listBackups = async () => {
   return prisma.dbBackup.findMany({ orderBy: { created_at: 'desc' }, include: { creator: { select: { username: true } } } });
 };
 
-// Reads the custom-format archive's table of contents without touching any database — a backup
-// file existing on disk is not itself proof it's a valid, restorable archive.
+// A backup file existing on disk is not proof it can be restored. This opens the archive, checks it
+// really contains the database dump, and asks pg_restore to read that dump's table of contents
+// (which fails on a truncated or corrupt file). It does NOT restore anything — a full recovery drill
+// into an isolated database is the real proof (deploy/restore.sh --drill).
 export const verifyBackup = async (backupId: number) => {
   const backup = await prisma.dbBackup.findUnique({ where: { backup_id: backupId } });
   if (!backup) throw new NotFoundError('Backup not found');
@@ -181,8 +216,20 @@ export const verifyBackup = async (backupId: number) => {
 
   let ok = false;
   try {
-    const { stdout } = await execFileAsync('pg_restore', ['--list', backupPath], { maxBuffer: 1024 * 1024 * 64 });
-    ok = stdout.trim().length > 0;
+    if (backup.filename.endsWith(LEGACY_DUMP_EXT)) {
+      const { stdout } = await execFileAsync('pg_restore', ['--list', backupPath], BIG);
+      ok = stdout.trim().length > 0;
+    } else {
+      const { stdout: listing } = await execFileAsync('tar', ['-tf', backupPath], BIG);
+      const hasDump = listing.split('\n').some((entry) => entry.trim().replace(/^\.\//, '') === 'database.dump');
+      if (hasDump) {
+        ok = await withTempDir(async (work) => {
+          await execFileAsync('tar', ['-xf', backupPath, '-C', work, 'database.dump'], BIG);
+          const { stdout } = await execFileAsync('pg_restore', ['--list', path.join(work, 'database.dump')], BIG);
+          return stdout.trim().length > 0;
+        });
+      }
+    }
   } catch {
     ok = false;
   }
@@ -190,36 +237,15 @@ export const verifyBackup = async (backupId: number) => {
   return prisma.dbBackup.update({ where: { backup_id: backupId }, data: { verified: ok, verified_at: new Date() } });
 };
 
-// Restores in place against the live database: drops existing objects first (--clean --if-exists)
-// so pg_restore doesn't fail on "already exists", and skips ownership statements (--no-owner)
-// since the pooled connection user isn't a superuser and can't reassign roles. Always takes a
-// fresh pre-restore safety backup first, since restore is the one operation here with no undo
-// once complete.
-export const restoreBackup = async (backupId: number, actor: Actor) => {
-  const backup = await prisma.dbBackup.findUnique({ where: { backup_id: backupId } });
-  if (!backup) throw new NotFoundError('Backup not found');
-
-  const backupPath = path.join(BACKUPS_DIR, backup.filename);
-  if (!fs.existsSync(backupPath)) throw new ValidationError('Backup file is missing from disk');
-
-  const safetyBackup = await createBackup(actor);
-  const preRestoreFilename = safetyBackup.filename.replace('backup-', 'pre-restore-');
-  await prisma.dbBackup.update({ where: { backup_id: safetyBackup.backup_id }, data: { filename: preRestoreFilename } });
-  await fs.promises.rename(path.join(BACKUPS_DIR, safetyBackup.filename), path.join(BACKUPS_DIR, preRestoreFilename));
-
-  await execFileAsync(
-    'pg_restore',
-    ['--clean', '--if-exists', '--no-owner', '--dbname', pgConnectionString(), backupPath],
-    { maxBuffer: 1024 * 1024 * 64 }
+// Restore is intentionally not performed by the running application. Replaying a dump into the
+// LIVE database while requests are being served is not safe: it drops and recreates tables under
+// active connections, cannot be atomic across the archive, and restoring the database also replaces
+// the backup catalog (DbBackup) itself. Use deploy/restore.sh, which stops the app, restores inside
+// a single transaction, and restores the uploaded files together with the database.
+export const restoreBackup = async (_backupId: number, _actor: Actor): Promise<never> => {
+  throw new RestoreDisabledError(
+    'Restoring from inside the application is disabled: it must be done as a controlled maintenance procedure with the application stopped. See deploy/restore.sh.'
   );
-
-  await prisma.auditLog.create({ data: { user_id: actor.user_id, action: 'RESTORE', entity: 'DbBackup', entity_id: String(backupId) } });
-
-  return {
-    restoredFromBackupId: backupId,
-    restoredFilename: backup.filename,
-    warning: 'The live database has been replaced. Restart the backend process so every connection in its pool picks up the restored state consistently.',
-  };
 };
 
 export const getBackupFile = async (backupId: number) => {

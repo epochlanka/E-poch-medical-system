@@ -9,6 +9,9 @@ export interface PrescriptionItemInput {
   route?: string;
   instructions?: string;
   qty: number;
+  // Units per administration in the medicine's dispensing unit; required to accept a calculated qty.
+  dose_qty?: number;
+  qty_manual?: boolean;
   external_qty?: number;
 }
 
@@ -29,6 +32,8 @@ export interface PrescriptionItem {
   route: string | null;
   instructions: string | null;
   qty: number;
+  dose_qty?: number | null;
+  qty_manual?: boolean;
   external_qty: number;
   medicine: { name: string; generic_name: string | null; strength: string | null; unit: string };
   stockStatus?: string;

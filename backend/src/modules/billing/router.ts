@@ -69,6 +69,10 @@ const paymentsListSchema = z.object({
 const paymentsStatsSchema = z.object({ query: z.object({ range: z.enum(['month', 'quarter', 'year', 'all']).optional() }) });
 
 router.get('/reconciliation', requireRole(['Admin', 'Receptionist']), validate(reconciliationSchema), controller.reconciliation);
+// Dispensed medicine that never reached an invoice (a failed post-dispense sync). Read-only list for
+// staff, plus an admin-triggered retry; the same retry also runs automatically (server.ts).
+router.get('/unbilled-dispenses', requireRole(['Admin', 'Receptionist']), controller.unbilledDispenses);
+router.post('/unbilled-dispenses/reconcile', requireRole(['Admin']), controller.reconcile);
 router.get('/stats', requireRole(READ_ROLES), controller.stats);
 // Registered before the /:invoiceId catch-all — same route-ordering rule as every other module.
 router.get('/payments', requireRole(READ_ROLES), validate(paymentsListSchema), controller.payments);

@@ -1,6 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import multer from 'multer';
+import { UPLOADS_DIR } from '../../config/paths';
+import { enforceUploadedFileType } from '../../middlewares/uploadValidation';
 import path from 'path';
 import fs from 'fs';
 import { validate } from '../../middlewares/validate';
@@ -19,7 +21,7 @@ const ADMIN_ONLY = ['Admin'];
 // Stored on disk like the patient-photo upload above it in the module list — same convention,
 // served back out via the app-wide /uploads static handler (backend/src/app.ts).
 
-const logoUploadsDir = path.join(__dirname, '..', '..', '..', 'uploads', 'settings');
+const logoUploadsDir = path.join(UPLOADS_DIR, 'settings');
 fs.mkdirSync(logoUploadsDir, { recursive: true });
 
 const ALLOWED_LOGO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -27,7 +29,7 @@ const ALLOWED_LOGO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const logoUpload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, logoUploadsDir),
-    filename: (_req, file, cb) => cb(null, `logo-${Date.now()}${path.extname(file.originalname).toLowerCase()}`),
+    filename: (_req, _file, cb) => cb(null, `logo-${Date.now()}.tmp`),
   }),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
@@ -41,7 +43,7 @@ const logoUpload = multer({
 const uploadLogoMiddleware = (req: Request, res: Response, next: NextFunction) => {
   logoUpload.single('logo')(req, res, (err: unknown) => {
     if (err) return res.status(400).json({ message: err instanceof Error ? err.message : 'Upload failed' });
-    next();
+    enforceUploadedFileType(['jpeg', 'png', 'webp'])(req, res, next);
   });
 };
 

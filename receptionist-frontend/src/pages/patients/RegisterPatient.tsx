@@ -38,7 +38,7 @@ const STEPS = ['Patient Information', 'Contact & Address', 'Medical Information'
 
 const loadDraft = (): RegisterFormState | null => {
   try {
-    const raw = localStorage.getItem(DRAFT_KEY);
+    const raw = localStorage.getItem(DRAFT_KEY());
     return raw ? { ...emptyRegisterForm, ...JSON.parse(raw) } : null;
   } catch {
     return null;
@@ -71,7 +71,7 @@ const RegisterPatient = () => {
   // on every change — same "no server-side draft, use localStorage" pattern used for
   // Prescriptions elsewhere in this app, since Patient creation is atomic (no Draft status).
   useEffect(() => {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(form));
+    localStorage.setItem(DRAFT_KEY(), JSON.stringify(form));
   }, [form]);
 
   const set = <K extends keyof RegisterFormState>(field: K) => (
@@ -116,7 +116,7 @@ const RegisterPatient = () => {
   const goBack = () => setStep((s) => Math.max(1, s - 1));
 
   const handleSaveDraft = () => {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(form));
+    localStorage.setItem(DRAFT_KEY(), JSON.stringify(form));
     navigate('/patients/all');
   };
 
@@ -163,7 +163,7 @@ const RegisterPatient = () => {
         await uploadPatientPhoto(newPatientId, photoFile);
       }
 
-      localStorage.removeItem(DRAFT_KEY);
+      localStorage.removeItem(DRAFT_KEY());
       setCreatedId(newPatientId);
     } catch (err: any) {
       if (err.response?.status === 409) {

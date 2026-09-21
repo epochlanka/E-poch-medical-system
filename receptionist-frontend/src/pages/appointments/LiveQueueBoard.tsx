@@ -261,10 +261,10 @@ const LiveQueueBoard = () => {
 
   const { data: clinic } = useApiData(() => getClinicSettings(), []);
 
-  const fetchBoard = useCallback(async () => {
+  const fetchBoard = useCallback(async (background = false) => {
     setLoading(true);
     try {
-      const data = await getQueueBoard({ doctorId: doctorFilter?.user_id, consultationType: consultationType || undefined, date: date || undefined });
+      const data = await getQueueBoard({ doctorId: doctorFilter?.user_id, consultationType: consultationType || undefined, date: date || undefined }, background);
       setBoard(data);
       setLastUpdated(new Date());
       setError(null);
@@ -280,7 +280,7 @@ const LiveQueueBoard = () => {
   }, [fetchBoard]);
 
   useEffect(() => {
-    const t = setInterval(fetchBoard, REFRESH_SECONDS * 1000);
+    const t = setInterval(() => fetchBoard(true), REFRESH_SECONDS * 1000);
     return () => clearInterval(t);
   }, [fetchBoard]);
 
@@ -383,7 +383,7 @@ const LiveQueueBoard = () => {
           <p>Monitor and manage today's patient queue in real-time.</p>
         </div>
         <div className="pat-header-actions">
-          <button className="pat-btn" onClick={fetchBoard} disabled={loading}>
+          <button className="pat-btn" onClick={() => fetchBoard()} disabled={loading}>
             <RefreshIcon /> Refresh
           </button>
           <button className="pat-btn" onClick={handleExport} disabled={!board}>

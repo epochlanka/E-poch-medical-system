@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import fs from 'fs';
 import * as service from './service';
 import { NotFoundError, ValidationError, ForbiddenError } from './errors';
 import { respondWithServerError } from '../../errors';
@@ -124,8 +125,15 @@ export const uploadDocument = async (req: Request, res: Response) => {
   try {
     const file = (req as any).file;
     if (!file) return res.status(400).json({ message: 'No file uploaded' });
-    const doc = await service.addDocument(idParam(req), file, actor(req).user_id);
-    res.status(201).json(doc);
+    try {
+      const doc = await service.addDocument(idParam(req), file, actor(req));
+      res.status(201).json(doc);
+    } catch (error) {
+      // multer has already written the file — don't leave an orphaned patient document on disk
+      // when the request is then refused (wrong doctor, unknown consultation, ...).
+      await fs.promises.unlink(file.path).catch(() => undefined);
+      throw error;
+    }
   } catch (error) {
     handleError(req, res, error);
   }
@@ -133,7 +141,7 @@ export const uploadDocument = async (req: Request, res: Response) => {
 
 export const listDocuments = async (req: Request, res: Response) => {
   try {
-    const docs = await service.listDocuments(idParam(req));
+    const docs = await service.listDocuments(idParam(req), actor(req));
     res.status(200).json(docs);
   } catch (error) {
     handleError(req, res, error);
@@ -142,7 +150,7 @@ export const listDocuments = async (req: Request, res: Response) => {
 
 export const deleteDocument = async (req: Request, res: Response) => {
   try {
-    await service.deleteDocument(Number(req.params.documentId));
+    await service.deleteDocument(Number(req.params.documentId), actor(req));
     res.status(204).send();
   } catch (error) {
     handleError(req, res, error);

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { draftKey } from '../../lib/drafts';
 import { Link, useNavigate } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import { fileUrl } from '../../lib/api';
@@ -29,7 +30,7 @@ import '../patients/register.css';
 import './bookAppointment.css';
 import './walkIn.css';
 
-const DRAFT_KEY = 'epoch_reception_walkin_draft';
+const DRAFT_KEY = () => draftKey('walkin');
 
 type Priority = 'Normal' | 'Urgent' | 'Emergency';
 
@@ -75,7 +76,7 @@ const emptyWalkIn: WalkInState = {
 
 const loadDraft = (): WalkInState | null => {
   try {
-    const raw = localStorage.getItem(DRAFT_KEY);
+    const raw = localStorage.getItem(DRAFT_KEY());
     return raw ? { ...emptyWalkIn, ...JSON.parse(raw), patient: null, tempPatient: null, newPatientStep: 'choose' } : null;
   } catch {
     return null;
@@ -105,7 +106,7 @@ const WalkInQueue = () => {
   const doctorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(walkIn));
+    localStorage.setItem(DRAFT_KEY(), JSON.stringify(walkIn));
   }, [walkIn]);
 
   useEffect(() => {
@@ -161,7 +162,7 @@ const WalkInQueue = () => {
   const canSubmit = (!!walkIn.patient || tempPatientValid) && !!walkIn.doctor && !!walkIn.consultationType;
 
   const handleSaveDraft = () => {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(walkIn));
+    localStorage.setItem(DRAFT_KEY(), JSON.stringify(walkIn));
     navigate('/dashboard');
   };
 
@@ -189,7 +190,7 @@ const WalkInQueue = () => {
         visit_type: walkIn.visitType,
         priority: walkIn.priority,
       });
-      localStorage.removeItem(DRAFT_KEY);
+      localStorage.removeItem(DRAFT_KEY());
       setCreated({ appointment_id: result.appointment_id });
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to add patient to the queue.');

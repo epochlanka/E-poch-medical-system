@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { UPLOADS_DIR } from '../../config/paths';
 import fs from 'fs';
 import path from 'path';
 import { NotFoundError, ValidationError, ForbiddenError } from './errors';
@@ -8,7 +9,7 @@ import { logger } from '../../errors';
 
 const FALLBACK_CONSULTATION_FEE = 500;
 
-export const uploadsDir = path.join(__dirname, '..', '..', '..', 'uploads', 'consultations');
+export const uploadsDir = path.join(UPLOADS_DIR, 'consultations');
 
 interface Actor {
   user_id: number;
@@ -298,7 +299,7 @@ export const listConsultations = async (filters: ListConsultationsFilters) => {
 
   const where: Prisma.ConsultationWhereInput = {};
   if (filters.status) where.status = filters.status;
-  if (filters.diagnosisKeyword) where.diagnosis = { contains: filters.diagnosisKeyword };
+  if (filters.diagnosisKeyword) where.diagnosis = { contains: filters.diagnosisKeyword, mode: 'insensitive' };
   if (filters.followUpOnly) where.follow_up_date = { not: null };
   if (filters.from || filters.to) {
     where.created_at = { ...(filters.from ? { gte: filters.from } : {}), ...(filters.to ? { lte: filters.to } : {}) };
@@ -308,7 +309,7 @@ export const listConsultations = async (filters: ListConsultationsFilters) => {
       ...(filters.patientId ? { patient_id: filters.patientId } : {}),
       ...(filters.doctorId ? { doctor_id: filters.doctorId } : {}),
       ...(filters.search
-        ? { OR: [{ patient: { full_name: { contains: filters.search } } }, { patient: { patient_id: { contains: filters.search } } }] }
+        ? { OR: [{ patient: { full_name: { contains: filters.search, mode: 'insensitive' } } }, { patient: { patient_id: { contains: filters.search, mode: 'insensitive' } } }] }
         : {}),
     };
   }
@@ -541,27 +542,54 @@ export const getPatientConsultationHistory = async (patientId: string, excludeAp
 
 // ---- Attach Files (consultation-scoped document uploads) --------------------------------
 
+// Attachments are part of the clinical record, so they follow the same rules as the clinical
+// fields: only the consultation's own doctor (or an Admin) may change them, and once the record is
+// Finalized nothing may be REMOVED from it (that needs the amendment path). Adding a late document
+// (e.g. an outside lab report that arrives after finalization) is allowed but always audit-logged.
+const loadForAttachmentChange = async (consultationId: number, actor: Actor) => {
+  const consultation = await prisma.consultation.findUnique({ where: { consultation_id: consultationId }, include: { appointment: true } });
+  if (!consultation) throw new NotFoundError('Consultation not found');
+  assertDoctorOwnsOrAdmin(actor, consultation.appointment.doctor_id);
+  return consultation;
+};
+
 export const addDocument = async (
   consultationId: number,
   file: { filename: string; originalname: string; mimetype: string; size: number },
-  actorUserId: number
+  actor: Actor
 ) => {
-  const consultation = await prisma.consultation.findUnique({ where: { consultation_id: consultationId } });
-  if (!consultation) throw new NotFoundError('Consultation not found');
+  const consultation = await loadForAttachmentChange(consultationId, actor);
 
-  return prisma.consultationDocument.create({
+  const doc = await prisma.consultationDocument.create({
     data: {
       consultation_id: consultationId,
       filename: file.filename,
       original_name: file.originalname,
       mime_type: file.mimetype,
       size_bytes: file.size,
-      uploaded_by: actorUserId,
+      uploaded_by: actor.user_id,
     },
   });
+  await prisma.auditLog.create({
+    data: {
+      user_id: actor.user_id,
+      action: consultation.status === 'Finalized' ? 'ATTACH_AFTER_FINALIZE' : 'ATTACH',
+      entity: 'ConsultationDocument',
+      entity_id: String(doc.document_id),
+    },
+  });
+  return doc;
 };
 
-export const listDocuments = async (consultationId: number) => {
+// A Doctor is scoped to their own patients' consultations, exactly like reading the consultation
+// itself (getConsultationById) — attachments were previously listable for any consultation id.
+export const listDocuments = async (consultationId: number, actor: Actor) => {
+  const consultation = await prisma.consultation.findUnique({ where: { consultation_id: consultationId }, include: { appointment: true } });
+  if (!consultation) throw new NotFoundError('Consultation not found');
+  if (actor.role === 'Doctor' && actor.user_id !== consultation.appointment.doctor_id) {
+    throw new ForbiddenError('You do not have permission to view this consultation');
+  }
+
   return prisma.consultationDocument.findMany({
     where: { consultation_id: consultationId },
     include: { uploader: { select: { username: true } } },
@@ -569,10 +597,17 @@ export const listDocuments = async (consultationId: number) => {
   });
 };
 
-export const deleteDocument = async (documentId: number) => {
+export const deleteDocument = async (documentId: number, actor: Actor) => {
   const doc = await prisma.consultationDocument.findUnique({ where: { document_id: documentId } });
   if (!doc) throw new NotFoundError('Document not found');
+
+  const consultation = await loadForAttachmentChange(doc.consultation_id, actor);
+  if (consultation.status === 'Finalized') {
+    throw new ValidationError('A document cannot be removed from a Finalized consultation — amend the consultation instead');
+  }
+
   await prisma.consultationDocument.delete({ where: { document_id: documentId } });
+  await prisma.auditLog.create({ data: { user_id: actor.user_id, action: 'DELETE', entity: 'ConsultationDocument', entity_id: String(documentId) } });
 
   const filePath = path.join(uploadsDir, doc.filename);
   fs.promises.unlink(filePath).catch(() => {});

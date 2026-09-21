@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { UPLOADS_DIR } from '../../config/paths';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -23,9 +24,8 @@ import { convertDocxToPdf } from './libreoffice';
 // the frozen .docx + .pdf of each issued letter. Both are served ONLY through the authenticated
 // routes in this module — never the public /uploads static handler — since letters are patient
 // documents.
-const backendRoot = path.join(__dirname, '..', '..', '..');
-export const templatesDir = path.join(backendRoot, 'uploads', 'letter-templates');
-export const issuedDir = path.join(backendRoot, 'uploads', 'issued-letters');
+export const templatesDir = path.join(UPLOADS_DIR, 'letter-templates');
+export const issuedDir = path.join(UPLOADS_DIR, 'issued-letters');
 export const blankTemplatePath = path.join(__dirname, 'assets', 'blank-letter-template.docx');
 fs.mkdirSync(templatesDir, { recursive: true });
 fs.mkdirSync(issuedDir, { recursive: true });

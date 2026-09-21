@@ -1,6 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import multer from 'multer';
+import { UPLOADS_DIR } from '../../config/paths';
+import { enforceUploadedFileType } from '../../middlewares/uploadValidation';
 import path from 'path';
 import fs from 'fs';
 import { validate } from '../../middlewares/validate';
@@ -17,7 +19,7 @@ const ALLERGY_WRITE_ROLES = ['Admin', 'Receptionist', 'Doctor'];
 
 // ---- Photo upload (Multer) --------------------------------------------------
 
-const uploadsDir = path.join(__dirname, '..', '..', '..', 'uploads', 'patients');
+const uploadsDir = path.join(UPLOADS_DIR, 'patients');
 fs.mkdirSync(uploadsDir, { recursive: true });
 
 const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -25,10 +27,9 @@ const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const upload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, uploadsDir),
-    filename: (req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase();
-      cb(null, `${req.params.patientId}-${Date.now()}${ext}`);
-    },
+    // Extension is decided after the content is inspected (enforceUploadedFileType) — never from
+    // the client-supplied filename.
+    filename: (req, _file, cb) => cb(null, `${req.params.patientId}-${Date.now()}.tmp`),
   }),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
@@ -42,7 +43,7 @@ const upload = multer({
 const uploadPhotoMiddleware = (req: Request, res: Response, next: NextFunction) => {
   upload.single('photo')(req, res, (err: unknown) => {
     if (err) return res.status(400).json({ message: err instanceof Error ? err.message : 'Upload failed' });
-    next();
+    enforceUploadedFileType(['jpeg', 'png', 'webp'])(req, res, next);
   });
 };
 

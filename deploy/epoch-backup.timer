@@ -1,0 +1,12 @@
+## Daily backup at 02:00 clinic time. Persistent=true runs a missed backup at next boot (e.g. the PC
+## was off at 02:00) instead of skipping the day.
+
+[Unit]
+Description=Daily E-Poch backup
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 Asia/Colombo
+Persistent=true
+
+[Install]
+WantedBy=timers.target

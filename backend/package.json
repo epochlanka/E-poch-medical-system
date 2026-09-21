@@ -5,8 +5,9 @@
   "scripts": {
     "start": "node dist/server.js",
     "dev": "nodemon --watch src --ext ts --exec ts-node src/server.ts",
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-assets.js",
     "test": "jest",
+    "test:isolated": "sh scripts/run-tests.sh",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "build:blank-template": "node scripts/build-blank-template.mjs"
@@ -38,7 +39,6 @@
     "pino-http": "^11.0.0",
     "pizzip": "^3.2.0",
     "prisma": "^5.22.0",
-    "socket.io": "^4.8.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {

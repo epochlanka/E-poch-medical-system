@@ -1,9 +1,9 @@
 import http from 'http';
-import { Server } from 'socket.io';
 import app from './app';
 import { prisma } from './lib/prisma';
-import { libreOfficeStatus } from './modules/letters/libreoffice';
-import { installProcessErrorHandlers, verifyEmailTransport, emailStatus, logger } from './errors';
+import { verifyLibreOffice } from './modules/letters/libreoffice';
+import { installProcessErrorHandlers, verifyEmailTransport, emailStatus, logger, startHealthProbe } from './errors';
+import { reconcileBilling } from './modules/billing/service';
 
 // Catch stray promise rejections / uncaught exceptions before anything else starts.
 installProcessErrorHandlers();
@@ -11,32 +11,6 @@ installProcessErrorHandlers();
 const PORT = process.env.PORT || 3000;
 
 const server = http.createServer(app);
-
-// Setup Socket.IO
-const io = new Server(server, {
-  cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173', // Default Vite port
-    methods: ['GET', 'POST'],
-    credentials: true,
-  },
-});
-
-io.on('connection', (socket) => {
-  console.log(`Client connected: ${socket.id}`);
-
-  // Join role-based or specific rooms if needed
-  socket.on('join', (room) => {
-    socket.join(room);
-    console.log(`Socket ${socket.id} joined room ${room}`);
-  });
-
-  socket.on('disconnect', () => {
-    console.log(`Client disconnected: ${socket.id}`);
-  });
-});
-
-// Attach io to app so it can be accessed in controllers
-app.set('io', io);
 
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
@@ -50,15 +24,24 @@ server.listen(PORT, () => {
   );
   void verifyEmailTransport();
 
-  const lo = libreOfficeStatus();
-  if (lo.ok) {
-    console.log(`LibreOffice (letter PDF rendering) found at: ${lo.path}`);
-  } else {
-    console.warn(
-      'WARNING: LibreOffice was not found. Letter preview/issue will fail with 503 until ' +
-        'LibreOffice is installed or LIBREOFFICE_PATH is set.'
+  startHealthProbe();
+
+  // Retry any dispense whose invoice sync failed (see reconcileBilling). Unref'd so it never keeps
+  // the process alive, and a failed pass is logged, never thrown.
+  const runReconcile = () => reconcileBilling().catch((err) => logger.error({ err }, 'Billing reconciliation pass failed'));
+  setTimeout(runReconcile, 30_000).unref();
+  setInterval(runReconcile, 5 * 60_000).unref();
+
+  // Letters are rendered by LibreOffice. Prove it actually starts rather than just that a file exists,
+  // and raise it as an error (so it reaches the alert pipeline) instead of a startup console line.
+  verifyLibreOffice()
+    .then((version) => logger.info({ libreOffice: version }, 'LibreOffice (letter PDF rendering) is available'))
+    .catch((err) =>
+      logger.error(
+        { err: err.message },
+        'LibreOffice is NOT usable — letter preview/issue will fail with 503 until it is installed (or LIBREOFFICE_PATH is set)'
+      )
     );
-  }
 });
 
 // Release the Postgres connection pool on restart/shutdown instead of leaving it to the OS —

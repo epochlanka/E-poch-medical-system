@@ -25,7 +25,13 @@ const fromAuthCookie = (req: Request): string | null => {
   return null;
 };
 
+// Sent by the portals on timer-driven refreshes (live queue boards, sidebar counters). Those are
+// not a person using the workstation, so they must not count as activity — otherwise a queue board
+// left open on an unattended PC polls every 10-15s and the idle timeout can never expire.
+export const BACKGROUND_REQUEST_HEADER = 'x-epoch-background';
+
 const opts = {
+  passReqToCallback: true as const,
   // Bearer tokens remain supported for non-browser clients while the browser portals use an
   // HttpOnly cookie that cannot be read by injected JavaScript.
   jwtFromRequest: ExtractJwt.fromExtractors([ExtractJwt.fromAuthHeaderAsBearerToken(), fromAuthCookie]),
@@ -39,7 +45,7 @@ const opts = {
 // A JWT's own expiry is a fixed absolute cap; idle timeout has to be checked here per-request
 // against UserSession.last_activity_at, since "idle" resets on activity rather than issuance.
 passport.use(
-  new JwtStrategy(opts, async (jwt_payload, done) => {
+  new JwtStrategy(opts, async (req: Request, jwt_payload: any, done: (err: unknown, user?: unknown) => void) => {
     try {
       const userId = Number(jwt_payload.sub);
       const sessionId = Number(jwt_payload.sid);
@@ -68,7 +74,12 @@ passport.use(
         return done(null, false);
       }
 
-      await prisma.userSession.update({ where: { session_id: session.session_id }, data: { last_activity_at: new Date() } });
+      // The idle check above ran for EVERY request (a stale session is rejected even when the
+      // request is a background poll); only human-driven requests extend it.
+      const isBackground = req.headers[BACKGROUND_REQUEST_HEADER] === '1';
+      if (!isBackground) {
+        await prisma.userSession.update({ where: { session_id: session.session_id }, data: { last_activity_at: new Date() } });
+      }
       const user = { ...session.user, sessionId: session.session_id };
 
       return done(null, user);

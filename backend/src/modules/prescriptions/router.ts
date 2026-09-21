@@ -18,7 +18,12 @@ const itemSchema = z.object({
   duration: z.string().optional(),
   route: z.string().optional(),
   instructions: z.string().optional(),
-  qty: z.number().int().positive(),
+  qty: z.number().int().positive().max(100000),
+  // Units per administration in the medicine's dispensing unit (2 tablets, 5 ml ...). Required to
+  // accept a calculated quantity; see qtyCalc.ts.
+  dose_qty: z.number().positive().max(10000).optional(),
+  // The clinician deliberately entered qty rather than accepting the calculated one.
+  qty_manual: z.boolean().optional(),
   external_qty: z.number().int().min(0).optional(),
 });
 

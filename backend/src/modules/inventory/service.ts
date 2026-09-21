@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { TX_OPTIONS, lockBatches } from '../../lib/rowLocks';
 import { NotFoundError, ValidationError, ForbiddenError } from './errors';
 
 
@@ -58,7 +59,7 @@ export const listBatches = async (filters: ListBatchesFilters) => {
   const where: Prisma.BatchWhereInput = {
     ...(filters.medicineId ? { medicine_id: filters.medicineId } : {}),
     ...(filters.supplierId ? { supplier_id: filters.supplierId } : {}),
-    ...(filters.batchNo ? { batch_no: { contains: filters.batchNo } } : {}),
+    ...(filters.batchNo ? { batch_no: { contains: filters.batchNo, mode: 'insensitive' } } : {}),
     ...(Object.keys(expiryFilter).length ? { expiry_date: expiryFilter } : {}),
     ...(filters.status === 'Depleted' ? { qty_on_hand: { lte: 0 } } : {}),
     ...(filters.status === 'Expiring' ? { qty_on_hand: { gt: 0 } } : {}),
@@ -151,13 +152,16 @@ export const adjustBatch = async (batchId: number, delta: number, reason: string
   if (!reason?.trim()) throw new ValidationError('A reason is required for a manual stock adjustment');
   if (delta === 0) throw new ValidationError('Adjustment quantity cannot be zero');
 
-  const batch = await prisma.batch.findUnique({ where: { batch_id: batchId } });
-  if (!batch) throw new NotFoundError('Batch not found');
-
-  const newQty = batch.qty_on_hand + delta;
-  if (newQty < 0) throw new ValidationError('Adjustment would take the batch below zero');
-
   return prisma.$transaction(async (tx) => {
+    // Lock, then read: computing the new quantity from a value read BEFORE the transaction would
+    // silently overwrite a sale that landed in between (lost update) and put the ledger out of step.
+    await lockBatches(tx, [batchId]);
+    const batch = await tx.batch.findUnique({ where: { batch_id: batchId } });
+    if (!batch) throw new NotFoundError('Batch not found');
+
+    const newQty = batch.qty_on_hand + delta;
+    if (newQty < 0) throw new ValidationError('Adjustment would take the batch below zero');
+
     const updated = await tx.batch.update({ where: { batch_id: batchId }, data: { qty_on_hand: newQty } });
     await tx.stockLedger.create({
       data: {
@@ -171,7 +175,7 @@ export const adjustBatch = async (batchId: number, delta: number, reason: string
       },
     });
     return updated;
-  });
+  }, TX_OPTIONS);
 };
 
 // ---- Physical relocation (Stock Transfer) --------------------------------------

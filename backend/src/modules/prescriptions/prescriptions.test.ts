@@ -234,32 +234,68 @@ describe('Prescriptions API', () => {
   });
 
   describe('Qty auto-calc validation', () => {
-    it('rejects a qty that does not match a calculable frequency × duration', async () => {
+    const post = async (item: Record<string, unknown>) => {
       const { consultationId } = await makeDraftConsultation(doctorToken, doctorId);
-      const res = await request(app)
+      return request(app)
         .post('/api/v1/prescriptions')
         .set('Authorization', `Bearer ${doctorToken}`)
-        .send({ consultation_id: consultationId, items: [{ medicine_id: 1, dosage: '1 tablet', frequency: 'TDS', duration: '6 Days', qty: 10 }] });
+        .send({ consultation_id: consultationId, items: [{ medicine_id: 1, dosage: '500 mg', ...item }] });
+    };
+
+    it('rejects a qty that does not match units-per-dose × frequency × duration', async () => {
+      const res = await post({ dose_qty: 1, frequency: 'TDS', duration: '6 Days', qty: 10 });
       expect(res.status).toBe(400);
       expect(res.body.message).toMatch(/should be 18/);
     });
 
-    it('accepts a qty that matches the calculated TDS × 6 days = 18', async () => {
-      const { consultationId } = await makeDraftConsultation(doctorToken, doctorId);
-      const res = await request(app)
-        .post('/api/v1/prescriptions')
-        .set('Authorization', `Bearer ${doctorToken}`)
-        .send({ consultation_id: consultationId, items: [{ medicine_id: 1, dosage: '1 tablet', frequency: 'TDS', duration: '6 Days', qty: 18 }] });
+    it('accepts a qty that matches the calculated TDS × 6 days = 18 for one unit per dose', async () => {
+      const res = await post({ dose_qty: 1, frequency: 'TDS', duration: '6 Days', qty: 18 });
       expect(res.status).toBe(201);
+      expect(res.body.items[0].dose_qty).toBe(1);
+    });
+
+    // The reported defect: the old calculation ignored the dose, so a two-tablet BD × 5 day
+    // instruction (20 tablets) was REJECTED in favour of 10.
+    it('accepts 20 for a two-tablet BD × 5 days prescription, and rejects the old dose-blind 10', async () => {
+      const ok = await post({ dose_qty: 2, frequency: 'BD', duration: '5 Days', qty: 20 });
+      expect(ok.status).toBe(201);
+      expect(ok.body.items[0].qty).toBe(20);
+
+      const wrong = await post({ dose_qty: 2, frequency: 'BD', duration: '5 Days', qty: 10 });
+      expect(wrong.status).toBe(400);
+      expect(wrong.body.message).toMatch(/should be 20/);
+    });
+
+    it('rounds a fractional dose UP to whole units (1.5 × TDS × 5 days = 22.5 -> 23)', async () => {
+      expect((await post({ dose_qty: 1.5, frequency: 'TDS', duration: '5 Days', qty: 23 })).status).toBe(201);
+      expect((await post({ dose_qty: 1.5, frequency: 'TDS', duration: '5 Days', qty: 22 })).status).toBe(400);
+    });
+
+    it('handles a half-tablet dose and a one-off STAT dose', async () => {
+      expect((await post({ dose_qty: 0.5, frequency: 'BD', duration: '10 Days', qty: 10 })).status).toBe(201);
+      expect((await post({ dose_qty: 3, frequency: 'STAT', qty: 3 })).status).toBe(201);
+    });
+
+    it('refuses to guess the dose: a calculable schedule with no dose_qty needs manual confirmation', async () => {
+      const res = await post({ frequency: 'BD', duration: '5 Days', qty: 10 });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/per dose/i);
+    });
+
+    it('accepts any positive qty when the clinician explicitly confirms it manually', async () => {
+      const res = await post({ frequency: 'BD', duration: '5 Days', qty: 30, qty_manual: true });
+      expect(res.status).toBe(201);
+      expect(res.body.items[0].qty_manual).toBe(true);
     });
 
     it('does not validate qty for a non-calculable frequency (PRN) or duration ("Ongoing")', async () => {
-      const { consultationId } = await makeDraftConsultation(doctorToken, doctorId);
-      const res = await request(app)
-        .post('/api/v1/prescriptions')
-        .set('Authorization', `Bearer ${doctorToken}`)
-        .send({ consultation_id: consultationId, items: [{ medicine_id: 1, dosage: '1 tablet', frequency: 'PRN', duration: 'Ongoing', qty: 7 }] });
-      expect(res.status).toBe(201);
+      expect((await post({ frequency: 'PRN', duration: 'Ongoing', qty: 7 })).status).toBe(201);
+      expect((await post({ frequency: 'BD', duration: 'Ongoing', qty: 60 })).status).toBe(201);
+    });
+
+    it('rejects a non-positive dose_qty at the API boundary', async () => {
+      expect((await post({ dose_qty: 0, frequency: 'BD', duration: '5 Days', qty: 10 })).status).toBe(400);
+      expect((await post({ dose_qty: -1, frequency: 'BD', duration: '5 Days', qty: 10 })).status).toBe(400);
     });
   });
 

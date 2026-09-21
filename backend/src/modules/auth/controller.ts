@@ -65,7 +65,7 @@ export const changePassword = async (req: Request, res: Response) => {
 
 export const setupTotp = async (req: Request, res: Response) => {
   try {
-    res.status(200).json(await service.setupTotp(actor(req)));
+    res.status(200).json(await service.setupTotp(actor(req), req.body.password));
   } catch (error) {
     handleError(req, res, error);
   }

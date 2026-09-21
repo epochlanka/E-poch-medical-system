@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { api, authState } from '../lib/api';
+import { clearAllDrafts, setDraftOwner } from '../lib/drafts';
 import { commonLoginUrl, type UserRole } from '../config/roleRoutes';
 
 export interface AuthUser {
@@ -35,19 +36,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     localStorage.removeItem('epoch_doctor_user');
 
     api.get<{ user: AuthUser }>('/auth/me')
-      .then(({ data }) => active && setUser(data.user))
+      .then(({ data }) => { if (!active) return; setDraftOwner(data.user.id); setUser(data.user); })
       .catch(() => active && setUser(null))
       .finally(() => active && setLoading(false));
 
     return () => { active = false; };
   }, []);
 
-  const login = (nextUser: AuthUser) => setUser(nextUser);
+  const login = (nextUser: AuthUser) => { setDraftOwner(nextUser.id); setUser(nextUser); };
 
   const logout = async () => {
     try {
       await api.post('/auth/logout');
     } finally {
+      clearAllDrafts();
       setUser(null);
       window.location.replace(commonLoginUrl());
     }

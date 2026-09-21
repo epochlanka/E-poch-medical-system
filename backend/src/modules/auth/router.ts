@@ -31,7 +31,7 @@ router.post('/change-password', requireAuth, validate(changePasswordSchema), con
 const totpTokenSchema = z.object({ body: z.object({ token: z.string().min(1, 'token is required') }) });
 const totpPasswordSchema = z.object({ body: z.object({ password: z.string().min(1, 'password is required') }) });
 
-router.post('/2fa/setup', requireAuth, requireRole(['Admin']), controller.setupTotp);
+router.post('/2fa/setup', requireAuth, requireRole(['Admin']), validate(totpPasswordSchema), controller.setupTotp);
 router.post('/2fa/verify', requireAuth, requireRole(['Admin']), validate(totpTokenSchema), controller.verifyTotp);
 router.post('/2fa/disable', requireAuth, requireRole(['Admin']), validate(totpPasswordSchema), controller.disableTotp);
 

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import { fileUrl } from '../../lib/api';
+import { draftKey as scopedDraftKey } from '../../lib/drafts';
 import { searchMedicines } from '../../lib/medicines';
 import type { Medicine } from '../../lib/medicines';
 import { getPrescriptionContext, createPrescription, downloadPrescriptionPdf, downloadExternalPurchaseSlip, displayPrescriptionPatient } from '../../lib/prescriptions';
@@ -52,7 +53,8 @@ const ROUTE_OPTIONS = ['Oral', 'Topical', 'IV', 'IM', 'SC', 'Sublingual', 'Recta
 // the qty can't be mechanically derived (PRN, "Ongoing", or any non-matching free text), in which
 // case Qty stays a manually-entered field instead of an auto-calculated read-only one.
 const DAILY_FREQUENCY: Record<string, number | null> = { OD: 1, BD: 2, TDS: 3, QID: 4, STAT: 1, HS: 1, PRN: null };
-const computeExpectedQty = (frequency?: string, duration?: string): number | null => {
+// Total doses over the course (BD x 5 Days = 10), or null when the schedule can't be derived.
+const scheduledDoseCount = (frequency?: string, duration?: string): number | null => {
   const code = frequency?.trim().toUpperCase().match(/^(OD|BD|TDS|QID|STAT|HS|PRN)\b/)?.[1];
   if (!code) return null;
   if (code === 'STAT') return 1;
@@ -64,6 +66,16 @@ const computeExpectedQty = (frequency?: string, duration?: string): number | nul
   const days = dayMatch ? Number(dayMatch[1]) : monthMatch ? Number(monthMatch[1]) * 30 : null;
   if (days === null) return null;
   return daily * days;
+};
+
+// Quantity = units per dose x total doses, rounded UP to whole units. The dose is never assumed:
+// with no positive dose entered there is nothing to calculate (null) and the doctor must either
+// enter it or deliberately type the quantity by hand.
+const computeExpectedQty = (frequency?: string, duration?: string, dose?: string | number): number | null => {
+  const doses = scheduledDoseCount(frequency, duration);
+  const perDose = Number(dose);
+  if (doses === null || !Number.isFinite(perDose) || perDose <= 0) return null;
+  return Math.ceil(perDose * doses - 1e-9);
 };
 
 const clamp = (n: number, min: number, max: number) => Math.min(Math.max(n, min), max);
@@ -80,6 +92,10 @@ interface DraftItem {
   totalQty: number;
   stockStatus: Medicine['stockStatus'];
   dosage: string;
+  // Units taken per dose in the medicine's dispensing unit ("2" tablets, "5" ml). Kept as text so
+  // the field can be empty until the doctor deliberately fills it in — see computeExpectedQty.
+  dose_qty: string;
+  qtyManual: boolean;
   frequency: string;
   duration: string;
   route: string;
@@ -93,6 +109,8 @@ interface DraftItem {
 // and reconstructs instruction chips from a legacy plain-text `instructions` string if present.
 const normalizeItem = (it: any): DraftItem => ({
   ...it,
+  dose_qty: it.dose_qty ?? '',
+  qtyManual: it.qtyManual ?? false,
   external_qty: it.external_qty ?? 0,
   sourceManual: it.sourceManual ?? false,
   instructionChips: it.instructionChips ?? (it.instructions ? String(it.instructions).split(';').map((s: string) => s.trim()).filter(Boolean) : []),
@@ -126,7 +144,7 @@ const sourceBadge = (item: DraftItem): { emoji: string; label: string; cls: stri
 };
 const isSplit = (item: DraftItem) => item.totalQty > 0 && item.totalQty < (Number(item.qty) || 0);
 
-const draftKey = (consultationId: number) => `epoch_doctor_rx_draft_${consultationId}`;
+const draftKey = (consultationId: number) => scopedDraftKey(`doctor_rx_${consultationId}`);
 
 // Landing view when no consultation is specified — lets the doctor pick from their own
 // in-progress (Draft) consultations, since a prescription is normally written during one.
@@ -278,7 +296,9 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
         unit: m.base_unit,
         totalQty: m.totalQty,
         stockStatus: m.stockStatus,
-        dosage: m.strength || '1 ' + m.base_unit,
+        dosage: m.strength || '',
+        dose_qty: '',
+        qtyManual: false,
         frequency: '',
         duration: '',
         route: '',
@@ -306,11 +326,33 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
       prev.map((it) => {
         if (it.key !== key) return it;
         const updated = { ...it, [field]: value };
-        const expected = computeExpectedQty(updated.frequency, updated.duration);
+        const expected = updated.qtyManual ? null : computeExpectedQty(updated.frequency, updated.duration, updated.dose_qty);
         return recalcSource({ ...updated, qty: expected !== null ? String(expected) : updated.qty });
       })
     );
   };
+
+  const updateDose = (key: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.key !== key) return it;
+        const updated = { ...it, dose_qty: value };
+        const expected = updated.qtyManual ? null : computeExpectedQty(updated.frequency, updated.duration, value);
+        return recalcSource({ ...updated, qty: expected !== null ? String(expected) : updated.qty });
+      })
+    );
+  };
+
+  const setQtyManual = (key: string, manual: boolean) =>
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.key !== key) return it;
+        const updated = { ...it, qtyManual: manual };
+        const expected = manual ? null : computeExpectedQty(updated.frequency, updated.duration, updated.dose_qty);
+        return recalcSource({ ...updated, qty: expected !== null ? String(expected) : updated.qty });
+      })
+    );
 
   const updateQtyManual = (key: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -368,6 +410,8 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
       route: i.route || undefined,
       instructions: i.instructionChips.length ? i.instructionChips.join('; ') : undefined,
       qty: Number(i.qty) || 1,
+      dose_qty: Number(i.dose_qty) > 0 ? Number(i.dose_qty) : undefined,
+      qty_manual: i.qtyManual || scheduledDoseCount(i.frequency, i.duration) === null,
       external_qty: i.external_qty || 0,
     }));
 
@@ -391,6 +435,11 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
     }
     if (allergyConflictItems.length > 0 && !allergyAck) {
       setSubmitError('Acknowledge the allergy alert below before submitting.');
+      return;
+    }
+    const missingDose = items.find((i) => scheduledDoseCount(i.frequency, i.duration) !== null && !i.qtyManual && !(Number(i.dose_qty) > 0));
+    if (missingDose) {
+      setSubmitError(`Enter how many ${missingDose.unit} of ${missingDose.name} are taken per dose (or choose \u201cEnter quantity manually\u201d).`);
       return;
     }
     submittingRef.current = true;
@@ -637,7 +686,9 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
                 )}
                 {items.map((it, i) => {
                   const qtyNum = Number(it.qty) || 0;
-                  const expectedQty = computeExpectedQty(it.frequency, it.duration);
+                  const scheduleCalculable = scheduledDoseCount(it.frequency, it.duration) !== null;
+                  const expectedQty = it.qtyManual ? null : computeExpectedQty(it.frequency, it.duration, it.dose_qty);
+                  const needsDose = scheduleCalculable && !it.qtyManual && !(Number(it.dose_qty) > 0);
                   const badge = stockBadge(it) ?? sourceBadge(it);
                   const split = isSplit(it);
                   return (
@@ -699,7 +750,22 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
                         </div>
                       </td>
                       <td>
-                        <input className="rxb-table-input" value={it.dosage} onChange={updateItem(it.key, 'dosage')} placeholder="500 mg" />
+                        <input className="rxb-table-input" value={it.dosage} onChange={updateItem(it.key, 'dosage')} placeholder="500 mg" aria-label="Strength / dosage" />
+                        <label className="rxp-dose-row" title="How many units the patient takes each time — the quantity is calculated from this">
+                          Take
+                          <input
+                            className="rxb-table-input"
+                            style={{ width: 64, ...(needsDose ? { borderColor: '#dc2626' } : {}) }}
+                            type="number"
+                            min={0.1}
+                            step={0.5}
+                            value={it.dose_qty}
+                            onChange={updateDose(it.key)}
+                            placeholder="1"
+                            aria-label={`${it.unit} per dose`}
+                          />
+                          {it.unit} / dose
+                        </label>
                       </td>
                       <td>
                         <input
@@ -724,11 +790,29 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
                       </td>
                       <td>
                         {expectedQty !== null ? (
-                          <input className="rxb-table-input qty" type="number" value={it.qty} disabled title="Auto calculated from Frequency × Duration" />
+                          <>
+                            <input className="rxb-table-input qty" type="number" value={it.qty} disabled title="Auto calculated: units per dose × doses per day × days" />
+                            <div className="rxp-manual-badge" style={{ cursor: 'pointer' }} onClick={() => setQtyManual(it.key, true)} role="button" tabIndex={0}>
+                              Enter quantity manually
+                            </div>
+                          </>
+                        ) : needsDose ? (
+                          <>
+                            <input className="rxb-table-input qty" type="number" value="" disabled placeholder="—" title="Enter the amount taken per dose to calculate the quantity" />
+                            <div className="rxp-manual-badge" style={{ color: '#dc2626' }}>Enter dose per intake</div>
+                            <div className="rxp-manual-badge" style={{ cursor: 'pointer' }} onClick={() => setQtyManual(it.key, true)} role="button" tabIndex={0}>
+                              Enter quantity manually
+                            </div>
+                          </>
                         ) : (
                           <>
                             <input className="rxb-table-input qty" type="number" min={1} value={it.qty} onChange={updateQtyManual(it.key)} />
-                            <div className="rxp-manual-badge">Manual</div>
+                            <div className="rxp-manual-badge">Manual ({it.unit})</div>
+                            {it.qtyManual && scheduleCalculable && (
+                              <div className="rxp-manual-badge" style={{ cursor: 'pointer' }} onClick={() => setQtyManual(it.key, false)} role="button" tabIndex={0}>
+                                Calculate from dose
+                              </div>
+                            )}
                           </>
                         )}
                       </td>

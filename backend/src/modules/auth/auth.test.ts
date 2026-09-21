@@ -172,7 +172,11 @@ describe('Auth API', () => {
         const loginRes = await request(app).post('/api/v1/auth/login').send({ username, password });
         const userToken = loginRes.body.token;
 
-        const setupRes = await request(app).post('/api/v1/auth/2fa/setup').set('Authorization', `Bearer ${userToken}`);
+        // Starting enrolment re-checks the account password (a stolen session alone must not be able to enrol).
+        const noPasswordRes = await request(app).post('/api/v1/auth/2fa/setup').set('Authorization', `Bearer ${userToken}`).send({});
+        expect(noPasswordRes.status).toBe(400);
+
+        const setupRes = await request(app).post('/api/v1/auth/2fa/setup').set('Authorization', `Bearer ${userToken}`).send({ password });
         expect(setupRes.status).toBe(200);
         expect(setupRes.body.secret).toBeTruthy();
         const { secret } = setupRes.body;
@@ -205,7 +209,7 @@ describe('Auth API', () => {
       it('rejects a non-admin from setting up 2FA', async () => {
         const { username, password } = await createThrowawayUser('Doctor');
         const loginRes = await request(app).post('/api/v1/auth/login').send({ username, password });
-        const res = await request(app).post('/api/v1/auth/2fa/setup').set('Authorization', `Bearer ${loginRes.body.token}`);
+        const res = await request(app).post('/api/v1/auth/2fa/setup').set('Authorization', `Bearer ${loginRes.body.token}`).send({ password });
         expect(res.status).toBe(403);
       });
     });

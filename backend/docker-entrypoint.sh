@@ -9,6 +9,14 @@ if [ "$NODE_ENV" = "production" ]; then
   # through reviewed migrations only, and demo data must never touch a real pharmacy's DB.
   echo "Applying database migrations (prisma migrate deploy)..."
   npx prisma migrate deploy
+
+  # Fail closed: refuse to serve if any table is exposed to Supabase's public API roles (RLS off, or
+  # anon/authenticated holding privileges) — that path bypasses every authorization check in the app.
+  # SKIP_DB_SECURITY_CHECK=true is for non-Supabase Postgres where those roles do not exist and the
+  # check is meaningless; leave it unset in a real deployment.
+  if [ "${SKIP_DB_SECURITY_CHECK:-}" != "true" ]; then
+    node scripts/check-db-security.js
+  fi
 else
   echo "Pushing database schema..."
   npx prisma db push --accept-data-loss

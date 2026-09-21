@@ -1,8 +1,18 @@
 node_modules
 dist
 .env
+.env.*
+!.env.example
 *.db
 *.sqlite
 *.sqlite3
 coverage
 .git
+# Patient data and operational output must never be baked into an image layer (the builder stage
+# does COPY . ., so anything left in the build context lands in the image cache).
+uploads
+backups
+logs
+# Test-only demo data with well-known passwords — not shipped.
+prisma/seed-demo.ts
+scripts/run-tests.sh

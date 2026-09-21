@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import * as service from './service';
-import { NotFoundError, ValidationError } from './errors';
+import { NotFoundError, ValidationError, RestoreDisabledError } from './errors';
 import { respondWithServerError } from '../../errors';
 
 const actor = (req: Request) => req.user as any as { user_id: number; role: string };
@@ -8,6 +8,7 @@ const actor = (req: Request) => req.user as any as { user_id: number; role: stri
 const handleError = (req: Request, res: Response, error: any) => {
   if (error instanceof NotFoundError) return res.status(404).json({ message: error.message });
   if (error instanceof ValidationError) return res.status(400).json({ message: error.message });
+  if (error instanceof RestoreDisabledError) return res.status(501).json({ message: error.message });
   return respondWithServerError(req, res, error, 'settings');
 };
 

@@ -73,14 +73,6 @@ export const createBackup = () => api.post<DbBackup>('/settings/backups').then((
 export const listBackups = () => api.get<DbBackup[]>('/settings/backups').then((r) => r.data);
 export const verifyBackup = (backupId: number) => api.post<DbBackup>(`/settings/backups/${backupId}/verify`).then((r) => r.data);
 
-export interface RestoreResult {
-  restoredFromBackupId: number;
-  restoredFilename: string;
-  warning: string;
-}
-
-export const restoreBackup = (backupId: number) => api.post<RestoreResult>(`/settings/backups/${backupId}/restore`).then((r) => r.data);
-
 export const downloadBackup = async (backupId: number, filename: string) => {
   const res = await api.get(`/settings/backups/${backupId}/download`, { responseType: 'blob' });
   const url = URL.createObjectURL(res.data as Blob);

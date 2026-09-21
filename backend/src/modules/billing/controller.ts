@@ -124,3 +124,30 @@ export const reconciliation = async (req: Request, res: Response) => {
     handleError(req, res, error);
   }
 };
+
+export const unbilledDispenses = async (req: Request, res: Response) => {
+  try {
+    const rows = await service.findUnbilledDispenses();
+    res.status(200).json({
+      count: rows.length,
+      data: rows.map((d) => ({
+        dispenseId: d.dispense_id,
+        prescriptionId: d.item.prescription.prescription_id,
+        consultationId: d.item.prescription.consultation_id,
+        qty: d.qty,
+        amount: d.qty * d.unit_price,
+        dispensedAt: d.dispensed_at,
+      })),
+    });
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const reconcile = async (req: Request, res: Response) => {
+  try {
+    res.status(200).json(await service.reconcileBilling());
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
