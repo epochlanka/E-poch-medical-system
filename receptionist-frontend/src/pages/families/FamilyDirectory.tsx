@@ -114,17 +114,17 @@ const FamilyDirectory = () => {
     <div>
       <div className="pat-header">
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-          <div className="reg-card-icon" style={{ background: '#dbeafe', color: '#2563eb', marginTop: 2 }}>
+          <div className="reg-card-icon" style={{ background: '#dbeafe', color: 'var(--accent)', marginTop: 2 }}>
             <FamiliesIcon />
           </div>
           <div>
-            <h1>Family Directory</h1>
-            <p>View and manage all patient families in the system.</p>
+            <h1>All families</h1>
+            <p>Every household on file. Open one to see or change its members.</p>
           </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10 }}>
           <div className="reg-breadcrumb">
-            <Link to="/families/directory" style={{ color: '#2563eb', textDecoration: 'none' }}>
+            <Link to="/families/directory" style={{ color: 'var(--accent)', textDecoration: 'none' }}>
               Families
             </Link>
             <span className="sep">/</span>

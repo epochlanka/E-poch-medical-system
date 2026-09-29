@@ -11,7 +11,7 @@ const AppLayout = () => {
   useEffect(() => { window.scrollTo({ top: 0, behavior: "instant" }); }, [location.pathname]);
 
   return (
-    <div className="shell">
+    <div className="shell" data-desk="pharmacy">
       <Sidebar open={sidebarOpen} onNavigate={() => setSidebarOpen(false)} />
       <div className={`shell-backdrop${sidebarOpen ? ' open' : ''}`} onClick={() => setSidebarOpen(false)} />
       <div className="shell-main">

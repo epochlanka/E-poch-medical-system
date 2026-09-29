@@ -21,6 +21,8 @@ export interface ExternalMedicineInput {
   dosage_form: string;
   strength?: string;
   dosage: string;
+  /** Units taken per administration ("1", "1.5"). Drives the quantity and prints on the slip. */
+  dose_qty?: number | null;
   frequency?: string;
   duration?: string;
   quantity: number;
@@ -40,6 +42,7 @@ const serialize = (row: any) => ({
   dosageForm: row.dosage_form,
   strength: row.strength,
   dosage: row.dosage,
+  doseQty: row.dose_qty,
   frequency: row.frequency,
   duration: row.duration,
   quantity: row.quantity,
@@ -80,6 +83,9 @@ const assertLineValid = (input: ExternalMedicineInput) => {
   if (!input.dosage?.trim()) throw new ValidationError('dosage is required');
   if (!input.quantity_unit?.trim()) throw new ValidationError('quantity_unit is required');
   if (!Number.isFinite(input.quantity) || input.quantity <= 0) throw new ValidationError('quantity must be a positive number');
+  if (input.dose_qty != null && (!Number.isFinite(input.dose_qty) || input.dose_qty <= 0)) {
+    throw new ValidationError('dose_qty must be a positive number when given');
+  }
 };
 
 const getPrescriptionOwner = async (prescriptionId: number) => {
@@ -113,6 +119,7 @@ export const createExternalMedicine = async (prescriptionId: number, input: Exte
       dosage_form: input.dosage_form.trim(),
       strength: input.strength || undefined,
       dosage: input.dosage.trim(),
+      dose_qty: input.dose_qty ?? undefined,
       frequency: input.frequency || undefined,
       duration: input.duration || undefined,
       quantity: input.quantity,
@@ -147,6 +154,7 @@ export const bulkCreateExternalMedicines = async (prescriptionId: number, items:
           dosage_form: input.dosage_form.trim(),
           strength: input.strength || undefined,
           dosage: input.dosage.trim(),
+          dose_qty: input.dose_qty ?? undefined,
           frequency: input.frequency || undefined,
           duration: input.duration || undefined,
           quantity: input.quantity,
@@ -214,6 +222,7 @@ export const updateExternalMedicine = async (extItemId: number, updates: Partial
     dosage_form: updates.dosage_form ?? existing.dosage_form,
     strength: updates.strength ?? existing.strength ?? undefined,
     dosage: updates.dosage ?? existing.dosage,
+    dose_qty: updates.dose_qty ?? existing.dose_qty ?? undefined,
     frequency: updates.frequency ?? existing.frequency ?? undefined,
     duration: updates.duration ?? existing.duration ?? undefined,
     quantity: updates.quantity ?? existing.quantity,
@@ -231,6 +240,7 @@ export const updateExternalMedicine = async (extItemId: number, updates: Partial
       dosage_form: merged.dosage_form.trim(),
       strength: merged.strength,
       dosage: merged.dosage.trim(),
+      dose_qty: merged.dose_qty ?? null,
       frequency: merged.frequency,
       duration: merged.duration,
       quantity: merged.quantity,

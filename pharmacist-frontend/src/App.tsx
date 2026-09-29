@@ -11,6 +11,7 @@ import MedicineCatalog from './pages/inventory/MedicineCatalog';
 import InventoryOperations from './pages/operations/InventoryOperations';
 import PurchasingOperations from './pages/operations/PurchasingOperations';
 import BillingReports from './pages/operations/BillingReports';
+import { FeedbackProvider } from '../../shared/ui/feedback';
 
 const RootRedirect = () => {
   const { isAuthenticated, loading } = useAuth();
@@ -32,6 +33,7 @@ const LegacyPartialRedirect = () => {
 
 function App() {
   return (
+    <FeedbackProvider>
     <AuthProvider>
       <Routes>
         <Route path="/" element={<RootRedirect />} />
@@ -71,6 +73,7 @@ function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AuthProvider>
+    </FeedbackProvider>
   );
 }
 

@@ -5,7 +5,8 @@ const prisma = new PrismaClient();
 
 async function main() {
   // Test/demo data only: well-known passwords (admin123, doctor123, ...) and fictional patients.
-  // Refuses to run in production or against anything but a local database.
+  // Refuses to run in production. Remote databases additionally require a one-time explicit
+  // opt-in so a dedicated hosted test database can be seeded without weakening the default guard.
   const host = (() => {
     try {
       return new URL(process.env.DATABASE_URL ?? '').hostname;
@@ -13,8 +14,10 @@ async function main() {
       return '';
     }
   })();
-  if (process.env.NODE_ENV === 'production' || !['localhost', '127.0.0.1', '::1', '[::1]'].includes(host)) {
-    console.error(`Refusing to load demo data (NODE_ENV=${process.env.NODE_ENV}, database host="${host}") — this seed is for a local test database only.`);
+  const isLocalDatabase = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(host);
+  const remoteDemoSeedAllowed = process.env.ALLOW_REMOTE_DEMO_SEED === 'true';
+  if (process.env.NODE_ENV === 'production' || (!isLocalDatabase && !remoteDemoSeedAllowed)) {
+    console.error(`Refusing to load demo data (NODE_ENV=${process.env.NODE_ENV}, database host="${host}"). Use a local database or explicitly set ALLOW_REMOTE_DEMO_SEED=true for a dedicated remote test database.`);
     process.exit(1);
   }
 

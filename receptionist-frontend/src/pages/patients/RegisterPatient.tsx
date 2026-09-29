@@ -214,11 +214,11 @@ const RegisterPatient = () => {
     <div>
       <div className="pat-header">
         <div>
-          <h1>Register New Patient</h1>
+          <h1>Register a patient</h1>
           <p>Enter patient details. All fields marked with * are required.</p>
         </div>
         <div className="reg-breadcrumb">
-          <Link to="/patients/all" style={{ color: '#2563eb', textDecoration: 'none' }}>
+          <Link to="/patients/all" style={{ color: 'var(--accent)', textDecoration: 'none' }}>
             Patients
           </Link>
           <span className="sep">/</span>

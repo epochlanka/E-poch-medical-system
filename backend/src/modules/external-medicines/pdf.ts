@@ -56,7 +56,10 @@ export const streamExternalMedicineSlipPdf = (prescription: any, clinicSettings:
     const title = [item.medicine_name, item.strength].filter(Boolean).join(' ');
     doc.fontSize(11).font('Helvetica-Bold').text(`${i + 1}. ${title}${item.dosage_form ? ` (${item.dosage_form})` : ''}`);
     doc.font('Helvetica').fontSize(10).fillColor('#333');
-    const line2 = [item.dosage, item.frequency, item.duration].filter(Boolean).join(' — ');
+    // "Take 1.5 tablets" is the instruction the outside pharmacy and the patient actually need;
+    // without it the slip only said how many to buy, not how many to take.
+    const take = item.dose_qty ? `Take ${item.dose_qty} ${item.quantity_unit}` : null;
+    const line2 = [item.dosage, take, item.frequency, item.duration].filter(Boolean).join(' — ');
     if (line2) doc.text(line2, { indent: 14 });
     doc.text(`Qty: ${item.quantity} ${item.quantity_unit}`, { indent: 14 });
     if (item.instructions) doc.text(item.instructions.split(';').map((s: string) => s.trim()).join(', '), { indent: 14 });

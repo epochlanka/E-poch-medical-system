@@ -1,0 +1,66 @@
+/* Shared sign-in styling.
+ *
+ * Every class here is mc-/handoff- prefixed. The four portals' stylesheets share 144 class names
+ * between them (.btn, .card, .badge, ...) and all of it is global CSS, so anything the shell
+ * renders outside a workspace keeps its own prefix and cannot be reached by a workspace rule.
+ * Previously this lived in a template string injected into the DOM on every render of Login. */
+
+.mc-auth-layout { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #eef3fb; padding: 24px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.mc-auth-shell { display: flex; width: 100%; max-width: 900px; border-radius: 20px; overflow: hidden; box-shadow: 0 20px 50px rgba(30,60,120,0.12); background: white; }
+.mc-illustration-panel { flex: 1; background: linear-gradient(180deg,#eaf1fd,#f5f8fe); padding: 40px 36px; display: flex; flex-direction: column; }
+.mc-form-panel { flex: 1; padding: 40px 36px; display: flex; flex-direction: column; justify-content: center; }
+.mc-logo-row { display: flex; align-items: center; gap: 10px; margin-bottom: 32px; }
+.mc-logo-icon { width: 40px; height: 40px; border-radius: 10px; background: #2563eb; display: flex; align-items: center; justify-content: center; color: white; flex-shrink: 0; }
+.mc-brand-text { display: flex; flex-direction: column; line-height: 1.1; }
+.mc-brand-name { font-size: 18px; font-weight: 700; color: #1e293b; }
+.mc-brand-name b { color: #2563eb; font-weight: 700; }
+.mc-brand-sub { font-size: 11px; color: #64748b; }
+.mc-welcome-title { font-size: 26px; font-weight: 700; color: #0f172a; margin: 0 0 6px; }
+.mc-welcome-sub { color: #64748b; font-size: 14px; margin: 0 0 20px; }
+.mc-illustration { flex: 1; display: flex; align-items: center; justify-content: center; }
+.mc-secure-note { display: flex; align-items: center; gap: 8px; color: #475569; font-size: 13px; margin-top: 16px; }
+.mc-form-title { font-size: 24px; font-weight: 700; color: #0f172a; margin: 0 0 4px; }
+.mc-form-sub { color: #64748b; font-size: 14px; margin: 0 0 24px; }
+.mc-input-group { margin-bottom: 18px; }
+.mc-input-group label { display: block; font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 6px; }
+.mc-input-wrapper { position: relative; display: flex; align-items: center; }
+.mc-input-icon { position: absolute; left: 12px; color: #94a3b8; display: flex; }
+.mc-input-icon--right { left: auto; right: 12px; background: none; border: none; cursor: pointer; padding: 0; }
+.mc-input-field { width: 100%; padding: 11px 12px 11px 38px; border: 1px solid #e2e8f0; border-radius: 10px; font-size: 14px; outline: none; box-sizing: border-box; transition: border-color .15s; }
+.mc-input-field:focus { border-color: #2563eb; }
+.mc-input-field:disabled { background: #f8fafc; color: #64748b; }
+.mc-row-between { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+.mc-link { color: #2563eb; font-size: 13px; text-decoration: none; font-weight: 500; }
+.mc-link:hover { text-decoration: underline; }
+.mc-error { color: #dc2626; font-size: 13px; }
+.mc-error-block { display: flex; gap: 8px; align-items: flex-start; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 10px; padding: 10px 12px; font-size: 13px; margin-bottom: 16px; }
+.mc-error-block strong { display: block; font-weight: 600; }
+.mc-btn { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; }
+.mc-btn-primary { background: #2563eb; color: white; }
+.mc-btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+.mc-btn:disabled { opacity: 0.7; cursor: not-allowed; }
+.mc-btn-quiet { width: 100%; background: none; border: none; color: #64748b; font-size: 13px; margin-top: 14px; padding: 6px; cursor: pointer; }
+.mc-btn-quiet:hover:not(:disabled) { color: #334155; text-decoration: underline; }
+.mc-muted { color: #64748b; }
+.mb-4 { margin-bottom: 16px; }
+.text-center { text-align: center; }
+
+/* Two-factor step */
+.mc-totp-badge { width: 44px; height: 44px; border-radius: 12px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; margin-bottom: 16px; }
+.mc-totp-user { font-weight: 600; color: #0f172a; }
+.mc-code-field { width: 100%; padding: 12px 14px; border: 1px solid #e2e8f0; border-radius: 10px; font-size: 22px; letter-spacing: 10px; text-align: center; font-variant-numeric: tabular-nums; outline: none; box-sizing: border-box; }
+.mc-code-field:focus { border-color: #2563eb; }
+
+/* Handoff to a workspace that has not been migrated into this app yet */
+.handoff-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #eef3fb; padding: 24px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.handoff-card { background: white; border-radius: 16px; padding: 36px 40px; text-align: center; max-width: 420px; box-shadow: 0 16px 40px rgba(30,60,120,0.12); }
+.handoff-card h1 { font-size: 19px; color: #0f172a; margin: 16px 0 8px; }
+.handoff-card p { color: #64748b; font-size: 14px; margin: 0 0 16px; }
+.handoff-link { color: #2563eb; font-size: 13px; }
+.handoff-spinner { width: 26px; height: 26px; border-radius: 50%; border: 3px solid #dbeafe; border-top-color: #2563eb; display: inline-block; animation: handoff-spin 0.8s linear infinite; }
+@keyframes handoff-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 720px) {
+  .mc-auth-shell { flex-direction: column; }
+  .mc-illustration-panel { display: none; }
+}

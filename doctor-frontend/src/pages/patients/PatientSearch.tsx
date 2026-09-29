@@ -25,7 +25,6 @@ import {
   PillIcon,
   StarIcon,
   PrescriptionIcon,
-  StethoscopeIcon,
   ClipboardIcon,
   MapPinIcon,
   PrintIcon,
@@ -318,21 +317,6 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'notes', label: 'Notes' },
 ];
 
-const eventIcon = (type: TimelineEvent['type']) => {
-  switch (type) {
-    case 'consultation':
-      return { icon: <StethoscopeIcon />, bg: '#eaf1fe', color: '#2563eb' };
-    case 'prescription':
-      return { icon: <PrescriptionIcon />, bg: '#dcfce7', color: '#16a34a' };
-    case 'document':
-      return { icon: <FileIcon />, bg: '#f3e8ff', color: '#7c3aed' };
-    case 'vitals':
-      return { icon: <HeartPulseIcon />, bg: '#fef3c7', color: '#b45309' };
-    default:
-      return { icon: <CalendarIcon />, bg: '#f1f5f9', color: '#64748b' };
-  }
-};
-
 const PatientHistoryPanel = ({ patientId, onBack }: { patientId: string; onBack: () => void }) => {
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('overview');
@@ -359,9 +343,9 @@ const PatientHistoryPanel = ({ patientId, onBack }: { patientId: string; onBack:
   }
 
   const events = history ?? [];
-  const visibleEvents = showFullTimeline ? events : events.slice(0, 6);
   const consultations = consultResult?.data ?? [];
   const prescriptions = rxResult?.data ?? [];
+  const visibleVisits = showFullTimeline ? consultations : consultations.slice(0, 4);
   const notesEntries = consultations.filter((c) => c.notes);
   const labTestOrders = labResult?.data ?? [];
   const pendingLabTests = labTestOrders.filter((o) => o.status === 'Pending');
@@ -428,93 +412,80 @@ const PatientHistoryPanel = ({ patientId, onBack }: { patientId: string; onBack:
 
       {tab === 'overview' && (
         <div className="cons-layout" style={{ gridTemplateColumns: '1.4fr 1fr' }}>
-          <div className="card">
+          <div className="card pth-visits-card">
             <div className="card-header">
-              <h3 className="card-title">Timeline</h3>
+              <div>
+                <span className="pth-section-kicker">CLINICAL HISTORY</span>
+                <h3 className="card-title">Recent visits</h3>
+              </div>
+              <span className="pth-visit-count">{consultations.length} visit{consultations.length === 1 ? '' : 's'}</span>
             </div>
-            {historyLoading && <div className="card-empty">Loading…</div>}
-            {!historyLoading && events.length === 0 && <div className="card-empty">No recorded history for this patient yet.</div>}
-            {!historyLoading && events.length > 0 && (
-              <div className="pth-timeline">
-                {visibleEvents.map((e, i) => {
-                  const { icon, bg, color } = eventIcon(e.type);
-                  return (
-                    <div className="pth-timeline-item" key={`${e.type}-${i}`}>
-                      <span className="pth-timeline-dot" style={{ background: bg, color }}>
-                        {icon}
-                      </span>
-                      <div className="pth-timeline-card">
-                        <div>
-                          <div className="pth-timeline-date">{formatDateTime(e.date)}</div>
-                          {e.type === 'consultation' && (
-                            <>
-                              <div className="pth-timeline-title">Consultation</div>
-                              <div className="pth-timeline-desc">{e.diagnosis ? `Diagnosis: ${e.diagnosis}` : 'No diagnosis recorded'}</div>
-                            </>
-                          )}
-                          {e.type === 'prescription' && (
-                            <>
-                              <div className="pth-timeline-title">Prescription</div>
-                              <div className="pth-timeline-desc">
-                                {e.items.length} medicine{e.items.length === 1 ? '' : 's'} prescribed —{' '}
-                                <span className={`badge ${RX_BADGE[e.status]}`}>{e.status}</span>
-                              </div>
-                            </>
-                          )}
-                          {e.type === 'document' && (
-                            <>
-                              <div className="pth-timeline-title">Document</div>
-                              <div className="pth-timeline-desc">{e.originalName}</div>
-                            </>
-                          )}
-                          {e.type === 'vitals' && (
-                            <>
-                              <div className="pth-timeline-title">Vitals Recorded</div>
-                              <div className="pth-timeline-desc">
-                                {[
-                                  e.vitals.bp_systolic && e.vitals.bp_diastolic ? `BP: ${e.vitals.bp_systolic}/${e.vitals.bp_diastolic} mmHg` : null,
-                                  e.vitals.pulse ? `Pulse: ${e.vitals.pulse} bpm` : null,
-                                  e.vitals.temp ? `Temp: ${e.vitals.temp} °C` : null,
-                                ]
-                                  .filter(Boolean)
-                                  .join(', ') || 'Recorded'}
-                              </div>
-                            </>
-                          )}
-                        </div>
-                        {e.type === 'consultation' && (
-                          <button className="pat-btn" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={() => navigate(`/consultations/workspace/${e.appointmentId}`)}>
-                            View Details
-                          </button>
-                        )}
-                        {e.type === 'prescription' && (
-                          <button
-                            className="pat-btn"
-                            style={{ fontSize: 11.5, padding: '5px 10px' }}
-                            onClick={() => downloadPrescriptionPdf(e.prescriptionId, `RX${String(e.prescriptionId).padStart(6, '0')}`)}
-                          >
-                            View Prescription
-                          </button>
-                        )}
-                        {e.type === 'document' && (
-                          <button className="pat-btn" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={() => window.open(fileUrl(`/uploads/consultations/${e.filename}`), '_blank')}>
-                            View Document
-                          </button>
-                        )}
+            {(historyLoading || !consultResult) && <div className="card-empty">Loading visits…</div>}
+            {!historyLoading && consultResult && consultations.length === 0 && <div className="card-empty">No recorded visits for this patient yet.</div>}
+            <div className="pth-visit-list">
+              {visibleVisits.map((visit) => {
+                const visitPrescriptions = prescriptions.filter((rx) => rx.appointmentId === visit.appointmentId);
+                const vitalsEvent = events.find(
+                  (event): event is Extract<TimelineEvent, { type: 'vitals' }> => event.type === 'vitals' && event.consultationId === visit.consultationId
+                );
+                const documentCount = events.filter((event) => event.type === 'document' && event.consultationId === visit.consultationId).length;
+                const medicines = visitPrescriptions.flatMap((rx) => rx.items.map((item) => item.medicine));
+                return (
+                  <article className="pth-visit" key={visit.consultationId}>
+                    <div className="pth-visit-head">
+                      <div className="pth-visit-datebox">
+                        <strong>{new Date(visit.createdAt).getDate()}</strong>
+                        <span>{new Date(visit.createdAt).toLocaleDateString(undefined, { month: 'short' })}</span>
+                      </div>
+                      <div className="pth-visit-heading">
+                        <div><span>{formatTime(visit.createdAt)}</span><span className={`badge ${CONS_BADGE[visit.status]}`}>{visit.status}</span></div>
+                        <h4>{visit.diagnosis || visit.complaint || 'Consultation'}</h4>
+                        <p>{visit.complaint && visit.diagnosis ? visit.complaint : `Seen by Dr. ${visit.doctorName}`}</p>
+                      </div>
+                      <button className="pat-btn" onClick={() => navigate(`/consultations/workspace/${visit.appointmentId}`)}>View visit <ChevronRightIcon /></button>
+                    </div>
+
+                    <div className="pth-visit-clinical">
+                      <div>
+                        <span><HeartPulseIcon /> Vitals</span>
+                        <strong>
+                          {vitalsEvent
+                            ? [
+                                vitalsEvent.vitals.bp_systolic && vitalsEvent.vitals.bp_diastolic ? `${vitalsEvent.vitals.bp_systolic}/${vitalsEvent.vitals.bp_diastolic}` : null,
+                                vitalsEvent.vitals.pulse ? `${vitalsEvent.vitals.pulse} bpm` : null,
+                                vitalsEvent.vitals.temp ? `${vitalsEvent.vitals.temp} °C` : null,
+                              ].filter(Boolean).join(' · ') || 'Recorded'
+                            : 'Not recorded'}
+                        </strong>
+                      </div>
+                      <div>
+                        <span><PrescriptionIcon /> Medicines</span>
+                        <strong>{medicines.length ? medicines.join(', ') : 'None prescribed'}</strong>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
-            {!historyLoading && events.length > 6 && (
-              <button className="card-link" style={{ marginTop: 10 }} onClick={() => setShowFullTimeline((v) => !v)}>
-                {showFullTimeline ? 'Show fewer' : 'View Full Timeline'} →
+
+                    {(visitPrescriptions.length > 0 || documentCount > 0) && (
+                      <div className="pth-visit-footer">
+                        <span>{documentCount > 0 ? `${documentCount} document${documentCount === 1 ? '' : 's'}` : 'No documents'}</span>
+                        {visitPrescriptions.map((rx) => (
+                          <button key={rx.prescriptionId} className="card-link" onClick={() => downloadPrescriptionPdf(rx.prescriptionId, rx.code)}>
+                            Prescription {rx.code} · {rx.status}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+            {consultations.length > 4 && (
+              <button className="pth-show-more" onClick={() => setShowFullTimeline((v) => !v)}>
+                {showFullTimeline ? 'Show recent visits only' : `Show all ${consultations.length} visits`} <ChevronRightIcon />
               </button>
             )}
           </div>
 
-          <div>
+          <div className="pth-summary-rail">
             <div className="card" style={{ marginBottom: 16 }}>
               <div className="pth-side-card-title">
                 <AlertIcon /> Allergies

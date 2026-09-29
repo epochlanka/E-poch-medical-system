@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import { fileUrl } from '../../lib/api';
 import {
@@ -32,6 +32,7 @@ import {
   RefreshIcon,
   SaveIcon,
   CheckCircleIcon,
+  ClockIcon,
   PrescriptionIcon,
   ClipboardIcon,
   AlertIcon,
@@ -59,16 +60,13 @@ const initials = (name: string) =>
 const formatDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 const formatTime = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 
-const TABS = [
-  { key: 'consultation', label: 'Consultation' },
-  { key: 'examination', label: 'Examination' },
-  { key: 'prescription', label: 'Prescription' },
-  { key: 'laborders', label: 'Lab Orders' },
-  { key: 'followup', label: 'Follow-up' },
+const SUPPORT_TABS = [
+  { key: 'consultation', label: 'Clinical assessment' },
+  { key: 'history', label: 'Patient history' },
+  { key: 'laborders', label: 'Tests' },
   { key: 'letters', label: 'Letters' },
-  { key: 'history', label: 'History' },
 ] as const;
-type TabKey = (typeof TABS)[number]['key'];
+type TabKey = 'consultation' | 'examination' | 'prescription' | 'laborders' | 'followup' | 'letters' | 'history';
 
 interface FormState {
   complaint: string;
@@ -174,6 +172,7 @@ const ConsultationWorkspace = () => {
 
 const Workspace = ({ appointmentId }: { appointmentId: number }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { data: context, loading, error, reload } = useApiData(() => getConsultationContext(appointmentId), [appointmentId]);
   const { data: clinicSettings } = useApiData(() => getClinicSettings(), []);
 
@@ -191,6 +190,7 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
   const [savingAllergies, setSavingAllergies] = useState(false);
   const [saving, setSaving] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
+  const [completeReviewOpen, setCompleteReviewOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showAmendModal, setShowAmendModal] = useState(false);
   const [amendments, setAmendments] = useState<AmendmentEntry[] | null>(null);
@@ -251,6 +251,15 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
     });
   }, [context]);
 
+  // The prescription page returns here with review=1. Move the doctor straight into the final
+  // safety review instead of making them rediscover the completion action in the workspace.
+  useEffect(() => {
+    if (!context || new URLSearchParams(location.search).get('review') !== '1') return;
+    setTab('prescription');
+    setCompleteReviewOpen(true);
+    navigate(location.pathname, { replace: true });
+  }, [context, location.pathname, location.search, navigate]);
+
   const isConsultationFinalized = context?.consultation?.status === 'Finalized';
   useEffect(() => {
     if (!consultationId || !isConsultationFinalized) {
@@ -269,12 +278,11 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
     // freshly-saved entry silently wouldn't show up until the next full page load.
   }, [consultationId, isConsultationFinalized, amendReloadToken]);
 
-  // History tab, fetched lazily (only once the doctor actually opens it, not on every workspace
-  // load) and only for a registered patient — a temporary walk-in has no patient_id to call this
-  // with, and must never get a permanent history record (see backend guard).
+  // Load history as the visit opens so the safety summary is available before documentation.
+  // A temporary walk-in has no permanent patient record to query.
   const historyPatientId = context?.appointment.patient?.patient_id ?? null;
   useEffect(() => {
-    if (tab !== 'history' || !historyPatientId || patientHistory !== null) return;
+    if (!historyPatientId || patientHistory !== null) return;
     let cancelled = false;
     setHistoryLoading(true);
     getPatientConsultationHistory(historyPatientId, appointmentId)
@@ -287,7 +295,7 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
     return () => {
       cancelled = true;
     };
-  }, [tab, historyPatientId, appointmentId, patientHistory]);
+  }, [historyPatientId, appointmentId, patientHistory]);
 
   // Issued-letters section inside History — same registered-only lazy fetch as above.
   useEffect(() => {
@@ -408,6 +416,9 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
   const isFinalized = consultation?.status === 'Finalized';
   const canStart = appointment.status === 'Consulting';
   const canEdit = !isFinalized && (canStart || !!consultation);
+  const hasVitals = Object.values(form.vitals).some((value) => value !== '');
+  const allergyReviewRequired = !!context.patientSummary.allergies && !form.allergies_ack;
+  const completionBlocked = !form.complaint.trim() || allergyReviewRequired;
 
   const amendCurrentValues: Record<AmendableField, string> = {
     complaint: form.complaint,
@@ -496,6 +507,19 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
     }
   };
 
+  const handleContinueToPrescription = async () => {
+    setSaveError(null);
+    setSaving(true);
+    try {
+      const cid = await persist();
+      navigate(`/prescriptions/new/${cid}`, { state: { consultationFee: consultationFeeInput } });
+    } catch (err: any) {
+      setSaveError(err.response?.data?.message || err.response?.data?.details?.map((d: any) => d.message).join(', ') || 'Failed to save the clinical assessment.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleComplete = async () => {
     setSaveError(null);
     setFinalizing(true);
@@ -507,7 +531,8 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
         return;
       }
       await finalizeConsultation(cid, fee);
-      reload();
+      setCompleteReviewOpen(false);
+      navigate('/dashboard');
     } catch (err: any) {
       setSaveError(err.response?.data?.message || 'Failed to complete consultation.');
     } finally {
@@ -551,8 +576,9 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
     <div>
       <div className="dash-header">
         <div>
-          <h1>Consultation Workspace</h1>
-          <p>Manage patient consultation, notes, examination and follow-up.</p>
+          <span className="cons-step-kicker">STEP 1 OF 2</span>
+          <h1>Examine &amp; document</h1>
+          <p>Record the clinical assessment, then continue to the prescription page.</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button className="pat-btn" onClick={() => navigate('/queue/call-next')}>
@@ -626,8 +652,19 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
         </div>
       )}
 
+      {!isFinalized && (
+        <div className="cons-flow-strip" aria-label="Consultation workflow">
+          <button className={tab !== 'prescription' ? 'active' : 'done'} onClick={() => setTab('consultation')}>
+            <span>1</span><strong>Examine &amp; document</strong><small>Complaint, findings and diagnosis</small>
+          </button>
+          <button className={tab === 'prescription' ? 'active' : ''} disabled={!canEdit || saving} onClick={handleContinueToPrescription}>
+            <span>2</span><strong>Prescribe &amp; finalize</strong><small>Medicines, safety check and completion</small>
+          </button>
+        </div>
+      )}
+
       <div className="cons-tabs">
-        {TABS.map((t) => (
+        {SUPPORT_TABS.map((t) => (
           <button key={t.key} className={`cons-tab${tab === t.key ? ' active' : ''}`} onClick={() => setTab(t.key)}>
             {t.label}
           </button>
@@ -679,6 +716,18 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
                   value={form.history_of_present_illness}
                   onChange={setField('history_of_present_illness')}
                   placeholder="Enter history of present illness..."
+                />
+              </div>
+
+              <div className="cons-box span-2 cons-section-highlight">
+                <div className="cons-box-title">Examination Findings</div>
+                <textarea
+                  className="cons-textarea"
+                  rows={5}
+                  disabled={!canEdit}
+                  value={form.examination_findings}
+                  onChange={setField('examination_findings')}
+                  placeholder="Record relevant examination findings, including normal and abnormal findings..."
                 />
               </div>
 
@@ -767,8 +816,20 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
                 />
               </div>
 
+              <div className="cons-box">
+                <div className="cons-box-title">Follow-up Date</div>
+                <input
+                  type="date"
+                  className="cons-input"
+                  disabled={!canEdit}
+                  value={followUpDate}
+                  onChange={(e) => setFollowUpDate(e.target.value)}
+                />
+                <p className="pat-muted cons-field-help">Optional. Leave blank when no scheduled review is needed.</p>
+              </div>
+
               {!isFinalized && (
-                <div className="cons-box span-2">
+                <div className="cons-box">
                   <div className="cons-box-title">Consultation Fee (LKR)</div>
                   <input
                     className="cons-input"
@@ -778,12 +839,11 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
                     disabled={!canEdit}
                     value={consultationFeeInput}
                     onChange={(e) => setConsultationFeeInput(e.target.value)}
-                    placeholder={clinicSettings ? String(clinicSettings.default_consultation_fee) : '—'}
-                    style={{ maxWidth: 220 }}
+                    placeholder={clinicSettings ? String(clinicSettings.default_consultation_fee) : 'Clinic default'}
                   />
-                  <span className="pat-muted" style={{ fontSize: 12, marginLeft: 10 }}>
-                    {clinicSettings ? `Default fee: Rs. ${clinicSettings.default_consultation_fee.toLocaleString()}` : ''} — leave empty to use the default
-                  </span>
+                  <p className="pat-muted cons-field-help">
+                    {clinicSettings ? `Default: Rs. ${clinicSettings.default_consultation_fee.toLocaleString()}` : 'Leave blank to use the clinic default.'}
+                  </p>
                 </div>
               )}
 
@@ -795,12 +855,12 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
               )}
 
               {!isFinalized && (
-                <div className="span-2" style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <div className="span-2 cons-step-actions">
                   <button className="cons-btn" disabled={!canEdit || saving || finalizing} onClick={handleSaveDraft}>
-                    <SaveIcon /> {saving ? 'Saving…' : 'Save as Draft'}
+                    <SaveIcon /> Save draft
                   </button>
-                  <button className="cons-btn primary" disabled={!canEdit || saving || finalizing} onClick={handleComplete}>
-                    <CheckCircleIcon /> {finalizing ? 'Completing…' : 'Complete Consultation'}
+                  <button className="cons-btn primary cons-continue-btn" disabled={!canEdit || saving || finalizing} onClick={handleContinueToPrescription}>
+                    {saving ? 'Saving assessment…' : 'Continue to prescription'} <ChevronRightIcon />
                   </button>
                 </div>
               )}
@@ -829,8 +889,10 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
           )}
 
           {tab === 'prescription' && (
-            <div className="cons-box">
-              <div className="cons-box-title">Prescriptions for this Visit</div>
+            <div className="cons-box cons-prescription-review">
+              <span className="cons-step-kicker">STEP 2 OF 2</span>
+              <div className="cons-box-title">Prescription &amp; final review</div>
+              <p className="cons-step-description">Add any required medicines. If no medicine is needed, continue directly to the final safety check.</p>
               {(consultation?.prescriptions.length ?? 0) === 0 && <div className="pat-empty">No prescriptions issued for this consultation yet.</div>}
               {consultation?.prescriptions.map((p) => (
                 <div className="cons-rx-row" key={p.prescription_id}>
@@ -840,15 +902,19 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
                   <span className={`badge ${p.status === 'Dispensed' || p.status === 'Collected' ? 'badge-green' : 'badge-amber'}`}>{p.status}</span>
                 </div>
               ))}
-              <div style={{ marginTop: 14 }}>
+              <div className="cons-step-actions" style={{ marginTop: 18 }}>
                 <button
                   className="cons-btn primary"
                   disabled={!consultationId}
-                  title={consultationId ? undefined : 'Save this consultation as a draft first'}
                   onClick={() => consultationId && navigate(`/prescriptions/new/${consultationId}`)}
                 >
-                  <PrescriptionIcon /> New Prescription
+                  <PrescriptionIcon /> {(consultation?.prescriptions.length ?? 0) > 0 ? 'Add another prescription' : 'Add prescription'}
                 </button>
+                {!isFinalized && (
+                  <button className="cons-btn cons-continue-btn" disabled={!canEdit} onClick={() => setCompleteReviewOpen(true)}>
+                    {(consultation?.prescriptions.length ?? 0) > 0 ? 'Review & finalize' : 'No medicines needed — review & finalize'} <ChevronRightIcon />
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -1279,6 +1345,29 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
         </div>
 
         <div>
+          <div className="card cons-safety-card" style={{ marginBottom: 16 }}>
+            <div className="card-header">
+              <div>
+                <span className="cons-safety-kicker">REVIEW BEFORE TREATING</span>
+                <h3 className="card-title">Clinical safety snapshot</h3>
+              </div>
+              {!patient.isTemporary && <button className="card-link" onClick={() => setTab('history')}>Full history</button>}
+            </div>
+            <div className={`cons-safety-allergy${context.patientSummary.allergies ? ' warning' : ''}`}>
+              <AlertIcon />
+              <span><small>Allergies</small><strong>{context.patientSummary.allergies || (patient.isTemporary ? 'Unknown — temporary patient' : 'No known allergies recorded')}</strong></span>
+            </div>
+            <div className="cons-safety-row"><span>Chronic conditions</span><strong>{context.patientSummary.chronicConditions.join(', ') || 'None recorded'}</strong></div>
+            <div className="cons-safety-row"><span>Current medicines</span><strong>{context.patientSummary.currentMedications.join(', ') || 'None recorded'}</strong></div>
+            <div className="cons-safety-recent">
+              <small>MOST RECENT VISIT</small>
+              {historyLoading ? <span>Loading history…</span> : patientHistory?.[0] ? <>
+                <strong>{patientHistory[0].diagnosis || 'No diagnosis recorded'}</strong>
+                <span>{formatDate(patientHistory[0].createdAt)} · {patientHistory[0].complaint || 'No complaint recorded'}</span>
+              </> : <span>{patient.isTemporary ? 'No permanent history' : 'First recorded visit'}</span>}
+            </div>
+          </div>
+
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-header">
               <h3 className="card-title">Patient Info</h3>
@@ -1495,7 +1584,7 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
                 </span>
                 <span className="qa-label">Add Lab Test</span>
               </button>
-              <button className="qa-btn" onClick={() => setTab('followup')}>
+              <button className="qa-btn" onClick={() => setTab('consultation')}>
                 <span className="qa-icon" style={{ background: '#dcfce7', color: '#16a34a' }}>
                   <RefreshIcon />
                 </span>
@@ -1549,6 +1638,47 @@ const Workspace = ({ appointmentId }: { appointmentId: number }) => {
           </div>
         </div>
       </div>
+
+      {!isFinalized && canEdit && tab !== 'prescription' && (
+        <div className="cons-rapid-footer">
+          <div>
+            <span className={`cons-save-state${consultationId ? ' saved' : ''}`} />
+            <strong>Step 1 · Clinical assessment</strong>
+            <small>Your assessment is saved automatically when you continue.</small>
+          </div>
+          <button className="cons-btn" disabled={saving || finalizing} onClick={handleSaveDraft}><SaveIcon /> {saving ? 'Saving…' : 'Save draft'}</button>
+          <button className="cons-btn primary" disabled={saving || finalizing} onClick={handleContinueToPrescription}>
+            {saving ? 'Saving…' : 'Continue to prescription'} <ChevronRightIcon />
+          </button>
+        </div>
+      )}
+
+      {completeReviewOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setCompleteReviewOpen(false)}>
+          <div className="modal-card cons-complete-modal" role="dialog" aria-modal="true" aria-labelledby="complete-title">
+            <div className="cons-complete-heading">
+              <div><span className="cons-safety-kicker">FINAL CHECK</span><h2 id="complete-title">Review and complete visit</h2><p>Finalizing locks this clinical record and sends the patient to billing.</p></div>
+              <span className="rapid-token">{tokenNumber(appointmentId)}</span>
+            </div>
+            <div className="cons-complete-patient"><strong>{patient.fullName}</strong><span>{patient.patientId ?? 'Temporary patient'} · {patient.gender ?? 'Gender not recorded'}</span></div>
+            <div className="cons-complete-checks">
+              <div className={form.complaint.trim() ? 'done' : 'required'}><CheckCircleIcon /><span><strong>Reason for visit</strong><small>{form.complaint.trim() || 'Required before completion'}</small></span></div>
+              <div className={form.diagnosis.trim() ? 'done' : 'optional'}><CheckCircleIcon /><span><strong>Diagnosis</strong><small>{form.diagnosis.trim() || 'Not recorded — review if appropriate'}</small></span></div>
+              <div className={!allergyReviewRequired ? 'done' : 'required'}><CheckCircleIcon /><span><strong>Allergy safety</strong><small>{context.patientSummary.allergies ? (form.allergies_ack ? 'Known allergies reviewed' : 'Review and acknowledge known allergies') : 'No known allergies recorded'}</small></span></div>
+              <div className={hasVitals ? 'done' : 'optional'}><CheckCircleIcon /><span><strong>Vital signs</strong><small>{hasVitals ? 'Recorded for this visit' : 'Not recorded — optional'}</small></span></div>
+              <div className={(consultation?.prescriptions.length ?? 0) > 0 ? 'done' : 'optional'}><PrescriptionIcon /><span><strong>Medicines</strong><small>{(consultation?.prescriptions.length ?? 0) > 0 ? `${consultation?.prescriptions.length} prescription(s) issued` : 'No prescription issued'}</small></span></div>
+              <div className={followUpDate ? 'done' : 'optional'}><ClockIcon /><span><strong>Follow-up</strong><small>{followUpDate ? formatDate(followUpDate) : 'No follow-up date set'}</small></span></div>
+            </div>
+            {saveError && <div className="cons-complete-warning"><AlertIcon /> {saveError}</div>}
+            {completionBlocked && <div className="cons-complete-warning"><AlertIcon /> Complete the required checks highlighted above.</div>}
+            <div className="cons-complete-fee"><label htmlFor="complete-fee">Consultation fee (LKR)</label><input id="complete-fee" className="cons-input" type="number" min={0} step="0.01" value={consultationFeeInput} onChange={(event) => setConsultationFeeInput(event.target.value)} placeholder={clinicSettings ? String(clinicSettings.default_consultation_fee) : 'Clinic default'} /><small>Leave empty to use the clinic default.</small></div>
+            <div className="modal-actions">
+              <button className="cons-btn" disabled={finalizing} onClick={() => setCompleteReviewOpen(false)}>Continue editing</button>
+              <button className="cons-btn primary" disabled={completionBlocked || finalizing} onClick={handleComplete}><CheckCircleIcon /> {finalizing ? 'Completing…' : 'Finalize & call next'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showAmendModal && consultationId && (
         <AmendModal consultationId={consultationId} currentValues={amendCurrentValues} onClose={() => setShowAmendModal(false)} onAmended={handleAmended} />

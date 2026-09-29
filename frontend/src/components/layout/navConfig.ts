@@ -78,9 +78,13 @@ export const navSections: NavSection[] = [
   },
 ];
 
+/**
+ * Page title for a path. `path` is workspace-local ('/patients'), not the full app path — the
+ * layout strips the workspace prefix before calling this.
+ */
 export const findNavLabel = (path: string): string => {
   for (const section of navSections) {
-    const match = section.items.find((item) => path.startsWith(item.path));
+    const match = section.items.find((item) => path === item.path || path.startsWith(`${item.path}/`));
     if (match) return match.label;
   }
   return 'E-Poch Medical System';

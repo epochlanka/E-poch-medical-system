@@ -147,7 +147,7 @@ const FamilyMemberRoster = () => {
   if (!numericFamilyId) {
     return (
       <div className="fam-roster-empty">
-        <div className="reg-card-icon" style={{ margin: '0 auto', background: '#eaf1fe', color: '#2563eb' }}>
+        <div className="reg-card-icon" style={{ margin: '0 auto', background: '#eaf1fe', color: 'var(--accent)' }}>
           <FamiliesIcon />
         </div>
         <h2>Select a Family</h2>
@@ -167,20 +167,20 @@ const FamilyMemberRoster = () => {
     <div>
       <div className="pat-header fam-no-print">
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-          <div className="reg-card-icon" style={{ background: '#dbeafe', color: '#2563eb', marginTop: 2 }}>
+          <div className="reg-card-icon" style={{ background: '#dbeafe', color: 'var(--accent)', marginTop: 2 }}>
             <UsersIcon />
           </div>
           <div>
-            <h1>Family Member Roster</h1>
-            <p>View and manage all members of the selected family.</p>
+            <h1>Family members</h1>
+            <p>Everyone in the family you picked. Add, edit or move a member here.</p>
           </div>
         </div>
         <div className="reg-breadcrumb">
-          <Link to="/families/directory" style={{ color: '#2563eb', textDecoration: 'none' }}>
+          <Link to="/families/directory" style={{ color: 'var(--accent)', textDecoration: 'none' }}>
             Families
           </Link>
           <span className="sep">/</span>
-          <Link to="/families/directory" style={{ color: '#2563eb', textDecoration: 'none' }}>
+          <Link to="/families/directory" style={{ color: 'var(--accent)', textDecoration: 'none' }}>
             Family Directory
           </Link>
           <span className="sep">/</span>

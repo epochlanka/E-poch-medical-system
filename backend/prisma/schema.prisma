@@ -361,6 +361,7 @@ model ExternalPrescriptionMedicine {
   dosage_form     String
   strength        String?
   dosage          String
+  dose_qty        Float? // units taken per administration; mirrors PrescriptionItem.dose_qty
   frequency       String?
   duration        String?
   quantity        Int

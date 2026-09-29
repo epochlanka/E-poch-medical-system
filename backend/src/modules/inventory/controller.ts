@@ -14,11 +14,12 @@ const handleError = (req: Request, res: Response, error: any) => {
 
 export const listBatches = async (req: Request, res: Response) => {
   try {
-    const { medicineId, supplierId, batchNo, status, expiryFrom, expiryTo, page, limit } = req.query as any;
+    const { medicineId, supplierId, batchNo, search, status, expiryFrom, expiryTo, page, limit } = req.query as any;
     const result = await service.listBatches({
       medicineId: medicineId ? Number(medicineId) : undefined,
       supplierId: supplierId ? Number(supplierId) : undefined,
       batchNo,
+      search,
       status,
       expiryFrom: expiryFrom ? new Date(expiryFrom) : undefined,
       expiryTo: expiryTo ? new Date(expiryTo) : undefined,

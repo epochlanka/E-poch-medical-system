@@ -16,13 +16,22 @@
 #   BACKUP_HEARTBEAT_URL     Optional. A dead-man's-switch URL (healthchecks.io). Pinged only on
 #                            success, so a backup that silently stops running alerts you.
 set -eu
-cd "$(dirname "$0")/.."
+# Works in two layouts, because the clinic machine has no checkout of this repository:
+#   development repo  — docker-compose.prod.yml, .env,       service "backend",       backend/uploads
+#   clinic install    — docker-compose.yml,      clinic.env, service "epoch-medical", data/uploads
+# The script is run from whichever directory holds the compose file.
+if [ -f "$(dirname "$0")/../docker-compose.prod.yml" ]; then
+  cd "$(dirname "$0")/.."
+  COMPOSE_FILE=docker-compose.prod.yml; APP_SERVICE=backend; UPLOADS_PARENT=backend; ENV_FILE=.env
+else
+  cd "$(dirname "$0")"
+  COMPOSE_FILE=docker-compose.yml; APP_SERVICE=epoch-medical; UPLOADS_PARENT=data; ENV_FILE=clinic.env
+fi
+[ -f "$ENV_FILE" ] && { set -a; . "./$ENV_FILE"; set +a; }
+COMPOSE="docker compose -f $COMPOSE_FILE"
 
-[ -f .env ] && { set -a; . ./.env; set +a; }
-
-: "${BACKUP_DEST:?Set BACKUP_DEST in .env to a directory on an independent drive/share}"
+: "${BACKUP_DEST:?Set BACKUP_DEST in $ENV_FILE to a directory on an independent drive/share}"
 RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
-COMPOSE="docker compose -f docker-compose.prod.yml"
 TS="$(date +%Y%m%dT%H%M%S)"
 
 case "$(cd "$BACKUP_DEST" 2>/dev/null && pwd -P || echo "$BACKUP_DEST")/" in
@@ -45,11 +54,11 @@ UPLOADS_FILE="$BACKUP_DEST/uploads-$TS.tar.gz$EXT"
 echo "Backing up the database..."
 # pg_dump runs inside the backend container (it has the matching PostgreSQL 17 client and the
 # connection string); the dump streams out through the encryptor and is never written unencrypted.
-$COMPOSE exec -T backend sh -c 'pg_dump --format=custom "$DIRECT_URL"' | encrypt > "$DB_FILE.partial"
+$COMPOSE exec -T "$APP_SERVICE" sh -c 'pg_dump --format=custom "$DIRECT_URL"' | encrypt > "$DB_FILE.partial"
 mv "$DB_FILE.partial" "$DB_FILE"
 
 echo "Backing up uploaded files..."
-tar -czf - -C backend uploads | encrypt > "$UPLOADS_FILE.partial"
+tar -czf - -C "$UPLOADS_PARENT" uploads | encrypt > "$UPLOADS_FILE.partial"
 mv "$UPLOADS_FILE.partial" "$UPLOADS_FILE"
 
 # A backup you have not read back is a hope, not a backup: prove the dump is a readable archive.
@@ -58,7 +67,7 @@ if [ -n "${BACKUP_PASSPHRASE_FILE:-}" ]; then
   openssl enc -d -aes-256-cbc -pbkdf2 -pass "file:${BACKUP_PASSPHRASE_FILE}" < "$DB_FILE"
 else
   cat "$DB_FILE"
-fi | $COMPOSE exec -T backend pg_restore --list > /dev/null
+fi | $COMPOSE exec -T "$APP_SERVICE" pg_restore --list > /dev/null
 [ -s "$UPLOADS_FILE" ] || { echo "uploads archive is empty" >&2; exit 1; }
 
 echo "Pruning backups older than $RETENTION_DAYS days..."

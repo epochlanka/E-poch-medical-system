@@ -1,0 +1,96 @@
+/*
+ * E-POCH front desk design tokens.
+ *
+ * The reception and pharmacy halves grew up as separate apps and were later fused into one
+ * portal (see receptionist-frontend/src/App.tsx), which left staff switching between two
+ * different-looking applications. This file is the single source for the parts that should never
+ * have differed — neutrals, shape, type scale, focus, status colours — while keeping the accent
+ * deliberately different per desk, so colour still answers "which counter am I at?".
+ *
+ * Imported by both apps' index.css. Add a colour here before hardcoding a new hex anywhere else.
+ */
+
+:root {
+  /* ---- Type ---------------------------------------------------------------- */
+  --font-ui: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13.5px;
+  --text-md: 15px;
+  --text-lg: 18px;
+  --text-xl: 22px;
+
+  /* ---- Neutrals ------------------------------------------------------------ */
+  --surface: #ffffff;
+  --surface-sunken: #f4f6fb;
+  --surface-wash: #f8fafc;
+  --line: #e4e9f2;
+  --line-strong: #cbd5e1;
+  --ink: #0f172a;
+  --ink-muted: #475569;
+  --ink-soft: #64748b;
+  --ink-faint: #94a3b8;
+
+  /* ---- Accent (rebound per desk below; reception is the default) ------------ */
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-on: #ffffff;
+  --accent-wash: #eaf1fe;
+  --accent-line: #bfd4fb;
+
+  /* ---- Status -------------------------------------------------------------- */
+  --ok: #157a52;
+  --ok-wash: #e6f5ed;
+  --ok-line: #bae6cf;
+  --warn: #8a6410;
+  --warn-wash: #fff4d9;
+  --warn-line: #f0dca7;
+  --danger: #b3261e;
+  --danger-wash: #fdeceb;
+  --danger-line: #f3c9c4;
+  --info: #315e9e;
+  --info-wash: #eaf1fe;
+  --info-line: #cddffb;
+
+  /* ---- Shape & depth ------------------------------------------------------- */
+  --r-sm: 8px;
+  --r-md: 11px;
+  --r-lg: 16px;
+  --r-xl: 18px;
+  --shadow-card: 0 4px 18px rgba(15, 55, 75, 0.05);
+  --shadow-pop: 0 10px 28px rgba(15, 23, 42, 0.14);
+
+  /* ---- Controls ------------------------------------------------------------ */
+  --control-h: 42px;
+  --control-r: var(--r-md);
+  --focus-ring: 3px solid var(--accent);
+  --focus-offset: 2px;
+}
+
+/*
+ * Colour is the one thing that should still tell the two desks apart, so it is the one thing
+ * scoped. Everything above stays identical on both sides.
+ */
+[data-desk='reception'] {
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-on: #ffffff;
+  --accent-wash: #eaf1fe;
+  --accent-line: #bfd4fb;
+}
+
+[data-desk='pharmacy'] {
+  --accent: #0c8f6e;
+  --accent-hover: #087657;
+  --accent-on: #ffffff;
+  --accent-wash: #e6f5ed;
+  --accent-line: #a7d8c3;
+}
+
+/* One focus treatment across both desks — previously each page CSS invented its own, and several
+   screens had none at all. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+  border-radius: var(--r-sm);
+}

@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { usableQty, LOW_STOCK_THRESHOLD } from '../../lib/stock';
 import { NotFoundError, ValidationError } from './errors';
 
 
@@ -315,18 +316,19 @@ export const cancelPurchaseOrder = async (poId: number) => {
 };
 
 // Auto-suggests reorder quantities from medicines currently flagged low-stock (FR-067) —
-// target is 2x the reorder level, a simple, defensible restock heuristic.
+// Restock target is twice the clinic-wide low-stock threshold — a simple, defensible heuristic
+// now that medicines no longer carry their own reorder level.
 export const suggestReorder = async () => {
   const medicines = await prisma.medicine.findMany({
     where: { is_active: true },
-    select: { medicine_id: true, name: true, reorder_level: true, batches: { select: { qty_on_hand: true } } },
+    select: { medicine_id: true, name: true, batches: { select: { qty_on_hand: true, expiry_date: true } } },
   });
 
+  const target = LOW_STOCK_THRESHOLD * 2;
   return medicines
     .map((m) => {
-      const currentQty = m.batches.reduce((sum, b) => sum + b.qty_on_hand, 0);
-      const target = m.reorder_level * 2;
-      return { medicineId: m.medicine_id, medicineName: m.name, currentQty, reorderLevel: m.reorder_level, suggestedQty: Math.max(0, target - currentQty) };
+      const currentQty = usableQty(m.batches);
+      return { medicineId: m.medicine_id, medicineName: m.name, currentQty, alertBelow: LOW_STOCK_THRESHOLD, suggestedQty: Math.max(0, target - currentQty) };
     })
     .filter((m) => m.suggestedQty > 0);
 };
@@ -339,7 +341,7 @@ export const suggestReorder = async () => {
 interface BatchDerivedInput {
   received_qty: number;
   units_per_pack: number;
-  purchase_price_per_pack: number;
+  purchase_price_per_pack?: number;
   selling_price_per_pack?: number;
   selling_price_per_base_unit?: number;
 }
@@ -347,10 +349,13 @@ interface BatchDerivedInput {
 const computeBatchDerived = (input: BatchDerivedInput) => {
   if (input.units_per_pack <= 0) throw new ValidationError('Units per pack must be greater than zero');
   if (input.received_qty <= 0) throw new ValidationError('Received quantity must be greater than zero');
-  if (input.purchase_price_per_pack < 0) throw new ValidationError('Purchase price cannot be negative');
+  // Unknown cost is recorded as zero rather than blocking entry — a clinic entering what is
+  // already on its shelves knows the selling price, not always what it paid.
+  const purchasePricePerPack = input.purchase_price_per_pack ?? 0;
+  if (purchasePricePerPack < 0) throw new ValidationError('Purchase price cannot be negative');
 
   const qty_base_total = input.received_qty * input.units_per_pack;
-  const cost_per_base_unit = input.purchase_price_per_pack / input.units_per_pack;
+  const cost_per_base_unit = purchasePricePerPack / input.units_per_pack;
 
   let selling_price_per_base_unit = input.selling_price_per_base_unit;
   if (selling_price_per_base_unit === undefined || selling_price_per_base_unit === null) {
@@ -366,15 +371,18 @@ const computeBatchDerived = (input: BatchDerivedInput) => {
 
 export interface ReceiveStockInput {
   medicine_id: number;
-  supplier_id: number;
-  batch_no: string;
+  /** Optional: stock entered during setup often has no known supplier. Falls back to the
+   *  auto-created "Opening stock" supplier so the PO/GRN audit chain still holds. */
+  supplier_id?: number;
+  /** Optional: auto-generated when the pack carries no batch number worth typing. */
+  batch_no?: string;
   purchase_date?: Date;
   manufacture_date?: Date;
   expiry_date: Date;
   received_unit: string;
   received_qty: number;
   units_per_pack: number;
-  purchase_price_per_pack: number;
+  purchase_price_per_pack?: number;
   selling_price_per_pack?: number;
   selling_price_per_base_unit?: number;
   location?: string;
@@ -384,12 +392,25 @@ export interface ReceiveStockInput {
 // posted) Purchase Order + GRN, so every batch is equally auditable whether it came from a
 // planned, multi-line PO (receiveGrn below) or this one-step shortcut ("Add Stock Batch" on an
 // existing Medicine Product, or a brand-new product's opening stock — Section 16/17).
+const OPENING_STOCK_SUPPLIER = 'Opening stock (added at setup)';
+
+/** Get-or-create the placeholder supplier used when stock is entered without a known source. */
+const openingStockSupplierId = async (): Promise<number> => {
+  const existing = await prisma.supplier.findFirst({ where: { name: OPENING_STOCK_SUPPLIER } });
+  if (existing) return existing.supplier_id;
+  const created = await prisma.supplier.create({ data: { name: OPENING_STOCK_SUPPLIER } });
+  return created.supplier_id;
+};
+
 export const receiveStockBatch = async (input: ReceiveStockInput, actor: Actor) => {
   const medicine = await prisma.medicine.findUnique({ where: { medicine_id: input.medicine_id } });
   if (!medicine) throw new NotFoundError('Medicine not found');
-  const supplier = await prisma.supplier.findUnique({ where: { supplier_id: input.supplier_id } });
+  const supplierId = input.supplier_id ?? (await openingStockSupplierId());
+  const supplier = await prisma.supplier.findUnique({ where: { supplier_id: supplierId } });
   if (!supplier) throw new NotFoundError('Supplier not found');
-  if (!input.batch_no?.trim()) throw new ValidationError('A batch number is required');
+  // Many packs carry no batch number, and during setup nobody wants to invent one. A generated
+  // marker keeps every batch individually identifiable in the ledger without blocking entry.
+  const batchNo = input.batch_no?.trim() || `NOBATCH-${Date.now().toString(36).toUpperCase()}`;
   // `validate` middleware checks the request shape but doesn't write the coerced result back
   // onto req.body, so dates can still arrive as raw strings here — re-coerce explicitly.
   const expiryDate = new Date(input.expiry_date);
@@ -404,7 +425,7 @@ export const receiveStockBatch = async (input: ReceiveStockInput, actor: Actor) 
   return prisma.$transaction(async (tx) => {
     const po = await tx.purchaseOrder.create({
       data: {
-        supplier_id: input.supplier_id,
+        supplier_id: supplierId,
         order_date: purchaseDate,
         status: 'Submitted',
         created_by: actor.user_id,
@@ -419,8 +440,8 @@ export const receiveStockBatch = async (input: ReceiveStockInput, actor: Actor) 
     const batch = await tx.batch.create({
       data: {
         medicine_id: input.medicine_id,
-        supplier_id: input.supplier_id,
-        batch_no: input.batch_no.trim(),
+        supplier_id: supplierId,
+        batch_no: batchNo,
         purchase_date: purchaseDate,
         manufacture_date: manufactureDate,
         expiry_date: expiryDate,

@@ -78,7 +78,7 @@ const topSuppliersSchema = z.object({
 const grnItemSchema = z.object({
   po_item_id: z.number().int().positive(),
   qty_received: z.number().positive(),
-  batch_no: z.string().min(1, 'Batch number is required'),
+  batch_no: z.string().optional(),
   expiry_date: z.coerce.date(),
   manufacture_date: z.coerce.date().optional(),
   received_unit: z.string().min(1, 'Received unit is required'),

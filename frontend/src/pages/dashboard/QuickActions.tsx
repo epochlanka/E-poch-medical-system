@@ -1,5 +1,5 @@
+import { useWorkspaceNavigate } from '../../app/WorkspaceContext';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import { getCatalogMeta } from '../../lib/medicines';
 import {
@@ -29,7 +29,7 @@ const ACTIONS = [
 ];
 
 const QuickActions = () => {
-  const navigate = useNavigate();
+  const navigate = useWorkspaceNavigate();
   const [modal, setModal] = useState<string | null>(null);
   const { data: meta } = useApiData(() => getCatalogMeta());
 

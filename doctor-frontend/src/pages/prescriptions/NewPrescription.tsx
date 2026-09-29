@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import { fileUrl } from '../../lib/api';
 import { draftKey as scopedDraftKey } from '../../lib/drafts';
 import { searchMedicines } from '../../lib/medicines';
 import type { Medicine } from '../../lib/medicines';
-import { getPrescriptionContext, createPrescription, downloadPrescriptionPdf, downloadExternalPurchaseSlip, displayPrescriptionPatient } from '../../lib/prescriptions';
-import type { PrescriptionItemInput, PrescriptionItem } from '../../lib/prescriptions';
-import { bulkCreateExternalMedicines, previewExternalMedicineSlip } from '../../lib/externalMedicines';
+import { getPrescriptionContext, createPrescription, displayPrescriptionPatient } from '../../lib/prescriptions';
+import type { PrescriptionItemInput } from '../../lib/prescriptions';
+import { bulkCreateExternalMedicines } from '../../lib/externalMedicines';
+import { finalizeConsultation } from '../../lib/consultations';
+import { getClinicSettings } from '../../lib/settings';
 import { listConsultations } from '../../lib/consultations';
 import { calculateAge } from '../../lib/queue';
 import InstructionsPicker from '../../components/InstructionsPicker';
@@ -16,13 +18,11 @@ import type { ExternalMedicineDraft, ShortfallPrefill } from './ExternalMedicine
 import {
   PrintIcon,
   SaveIcon,
-  SendIcon,
   SearchIcon,
   TrashIcon,
   AlertIcon,
   CheckCircleIcon,
   ClipboardIcon,
-  DownloadIcon,
   PlusIcon,
 } from '../../components/layout/Icons';
 import '../dashboard/dashboard.css';
@@ -42,35 +42,111 @@ const initials = (name: string) =>
 const formatDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 const formatDateTime = (iso: string) => new Date(iso).toLocaleString(undefined, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const formatTime = (d: Date) => d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-const rxCode = (id: number) => `RX${String(id).padStart(6, '0')}`;
 
 const FREQUENCY_OPTIONS = ['OD - Once Daily', 'BD - Twice Daily', 'TDS - Three times daily', 'QID - Four times daily', 'PRN - As needed', 'STAT', 'HS - At bedtime'];
 const DURATION_OPTIONS = ['3 Days', '5 Days', '7 Days', '10 Days', '14 Days', '1 Month', 'Ongoing'];
 const ROUTE_OPTIONS = ['Oral', 'Topical', 'IV', 'IM', 'SC', 'Sublingual', 'Rectal', 'Inhalation', 'Ophthalmic', 'Otic'];
 
 // Mirrored server-side in backend/src/modules/prescriptions/qtyCalc.ts — this copy drives instant
-// UI calculation, the backend copy is the authoritative check at submit time. Returns null when
-// the qty can't be mechanically derived (PRN, "Ongoing", or any non-matching free text), in which
-// case Qty stays a manually-entered field instead of an auto-calculated read-only one.
-const DAILY_FREQUENCY: Record<string, number | null> = { OD: 1, BD: 2, TDS: 3, QID: 4, STAT: 1, HS: 1, PRN: null };
-// Total doses over the course (BD x 5 Days = 10), or null when the schedule can't be derived.
-const scheduledDoseCount = (frequency?: string, duration?: string): number | null => {
-  const code = frequency?.trim().toUpperCase().match(/^(OD|BD|TDS|QID|STAT|HS|PRN)\b/)?.[1];
-  if (!code) return null;
-  if (code === 'STAT') return 1;
-  const daily = DAILY_FREQUENCY[code];
-  if (daily === null || daily === undefined) return null;
-  const d = duration?.trim() ?? '';
-  const dayMatch = d.match(/^(\d+)\s*Days?$/i);
-  const monthMatch = d.match(/^(\d+)\s*Months?$/i);
-  const days = dayMatch ? Number(dayMatch[1]) : monthMatch ? Number(monthMatch[1]) * 30 : null;
-  if (days === null) return null;
-  return daily * days;
+// UI calculation, the backend copy is the authoritative check at submit time and REJECTS a qty
+// that disagrees, so the two must stay byte-for-byte equivalent. Returns null when the qty can't
+// be mechanically derived, in which case Qty stays a manually-entered field.
+// Latin/─prescribing shorthand → doses per day. `null` means deliberately not calculable.
+const DOSE_CODES: Record<string, number | null> = {
+  OD: 1, // once daily
+  OM: 1, // omni mane — each morning
+  ON: 1, // omni nocte — each night
+  HS: 1, // hora somni — at bedtime
+  NOCTE: 1,
+  MANE: 1,
+  DAILY: 1,
+  BD: 2, // bis die
+  BID: 2,
+  TDS: 3, // ter die sumendus
+  TID: 3,
+  QDS: 4, // quater die sumendus — the common British/Sri Lankan form
+  QID: 4,
+  PRN: null, // as needed
+  SOS: null, // si opus sit — if required
 };
 
-// Quantity = units per dose x total doses, rounded UP to whole units. The dose is never assumed:
-// with no positive dose entered there is nothing to calculate (null) and the doctor must either
-// enter it or deliberately type the quantity by hand.
+const MAX_DAYS = 365;
+
+/** Doses per day, or null when the frequency is as-needed or not recognised. */
+const dosesPerDay = (frequency?: string): number | null => {
+  const text = (frequency ?? '').trim().toUpperCase();
+  if (!text) return null;
+  if (/\b(PRN|SOS)\b|AS\s+(NEEDED|REQUIRED)|WHEN\s+(NEEDED|REQUIRED)/.test(text)) return null;
+
+  // "q6h", "every 8 hours" — only when the interval divides a day evenly.
+  const hourly = text.match(/\bQ\s*(\d{1,2})\s*H\b/) ?? text.match(/\bEVERY\s+(\d{1,2})\s*(?:H|HRS?|HOURS?)\b/);
+  if (hourly) {
+    const hours = Number(hourly[1]);
+    return hours > 0 && hours <= 24 && 24 % hours === 0 ? 24 / hours : null;
+  }
+
+  // "3 times daily", "3 times a day", "3x per day".
+  const times = text.match(/\b(\d{1,2})\s*(?:X|TIMES?)\s*(?:A\s+|PER\s+)?DAY(?:LY)?\b/);
+  if (times) {
+    const n = Number(times[1]);
+    return n >= 1 && n <= 24 ? n : null;
+  }
+
+  // Worded forms, checked before the codes so "TDS - Three times daily" agrees either way.
+  if (/\bONCE\b/.test(text)) return 1;
+  if (/\bTWICE\b/.test(text)) return 2;
+  if (/\bTHRICE\b|\bTHREE\s+TIMES\b/.test(text)) return 3;
+  if (/\bFOUR\s+TIMES\b/.test(text)) return 4;
+
+  // Leading shorthand code, e.g. "BD", "TDS - Three times daily", "BD x 5/7".
+  const code = text.match(/^([A-Z]+)\b/)?.[1];
+  if (code && Object.prototype.hasOwnProperty.call(DOSE_CODES, code)) return DOSE_CODES[code];
+  return null;
+};
+
+/** Course length in days, or null when it is open-ended or not recognised. */
+const parseDurationDays = (duration?: string): number | null => {
+  const text = (duration ?? '').trim().toUpperCase();
+  if (!text) return null;
+  if (/ONGOING|CONTINUOUS|LONG[\s-]?TERM|INDEFINITE|UNTIL/.test(text)) return null;
+
+  // Prescribing shorthand: 5/7 = 5 days, 2/52 = 2 weeks, 3/12 = 3 months.
+  const shorthand = text.match(/^(\d{1,3})\s*\/\s*(7|52|12)$/);
+  if (shorthand) {
+    const n = Number(shorthand[1]);
+    const days = shorthand[2] === '7' ? n : shorthand[2] === '52' ? n * 7 : n * 30;
+    return days >= 1 && days <= MAX_DAYS ? days : null;
+  }
+
+  // "5 days", "2 weeks", "1 month", or a bare number read as days.
+  const m = text.match(/^(\d{1,3})\s*(DAYS?|D|WEEKS?|WKS?|W|MONTHS?|MTHS?|M)?$/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  const unit = m[2] ?? 'DAYS';
+  const perUnit = /^(WEEKS?|WKS?|W)$/.test(unit) ? 7 : /^(MONTHS?|MTHS?|M)$/.test(unit) ? 30 : 1;
+  const days = n * perUnit;
+  return days >= 1 && days <= MAX_DAYS ? days : null;
+};
+
+/** Doses per day and course length, for callers that want to explain the arithmetic. */
+const parseSchedule = (frequency?: string, duration?: string) => ({
+  perDay: dosesPerDay(frequency),
+  days: parseDurationDays(duration),
+  /** STAT is a single dose — duration does not apply. */
+  isStat: /^STAT\b/.test((frequency ?? '').trim().toUpperCase()),
+});
+
+// Total number of doses over the course (e.g. BD x 5 Days = 10), or null when the schedule can't
+// be derived mechanically (PRN frequency, non-numeric duration like "Ongoing", or free text).
+const scheduledDoseCount = (frequency?: string, duration?: string): number | null => {
+  const { perDay, days, isStat } = parseSchedule(frequency, duration);
+  if (isStat) return 1;
+  if (perDay === null || days === null) return null;
+  return perDay * days;
+};
+
+// Whole units to dispense, rounded UP so the patient is never short a fraction of a unit
+// (1.5 tablets x TDS x 5 days = 22.5 -> 23).
 const computeExpectedQty = (frequency?: string, duration?: string, dose?: string | number): number | null => {
   const doses = scheduledDoseCount(frequency, duration);
   const perDose = Number(dose);
@@ -78,7 +154,22 @@ const computeExpectedQty = (frequency?: string, duration?: string, dose?: string
   return Math.ceil(perDose * doses - 1e-9);
 };
 
-const clamp = (n: number, min: number, max: number) => Math.min(Math.max(n, min), max);
+// Why the quantity is or isn't being calculated, in words the prescriber can act on. Silence was
+// the original problem: the field just sat there saying "Manual" with no hint what was missing.
+type QtyNote = { ok: true; text: string } | { ok: false; text: string };
+const explainQty = (frequency: string, duration: string, dose: string, unit: string, qty: string): QtyNote => {
+  const { perDay, days, isStat } = parseSchedule(frequency, duration);
+  const perDose = Number(dose);
+  const hasDose = Number.isFinite(perDose) && perDose > 0;
+
+  if (!hasDose) return { ok: false, text: `Enter how many ${unit.toLowerCase()} per dose` };
+  if (isStat) return { ok: true, text: `${perDose} ${unit.toLowerCase()} once (STAT) = ${qty}` };
+  if (!frequency.trim()) return { ok: false, text: 'Add a frequency (e.g. TDS) to calculate' };
+  if (perDay === null) return { ok: false, text: `Can't total \u201c${frequency.trim()}\u201d \u2014 enter the quantity` };
+  if (!duration.trim()) return { ok: false, text: 'Add a duration (e.g. 5 days) to calculate' };
+  if (days === null) return { ok: false, text: `Can't total \u201c${duration.trim()}\u201d \u2014 enter the quantity` };
+  return { ok: true, text: `${perDose} \u00d7 ${perDay}/day \u00d7 ${days} day${days === 1 ? '' : 's'} = ${qty} ${unit.toLowerCase()}` };
+};
 
 interface DraftItem {
   key: string;
@@ -101,34 +192,16 @@ interface DraftItem {
   route: string;
   instructionChips: string[];
   qty: string;
-  external_qty: number;
-  sourceManual: boolean;
 }
 
 // Fills in defaults for drafts saved before external purchase/instructions-chips support existed,
 // and reconstructs instruction chips from a legacy plain-text `instructions` string if present.
 const normalizeItem = (it: any): DraftItem => ({
   ...it,
-  dose_qty: it.dose_qty ?? '',
+  dose_qty: Number(it.dose_qty) > 0 ? String(it.dose_qty) : '1',
   qtyManual: it.qtyManual ?? false,
-  external_qty: it.external_qty ?? 0,
-  sourceManual: it.sourceManual ?? false,
   instructionChips: it.instructionChips ?? (it.instructions ? String(it.instructions).split(';').map((s: string) => s.trim()).filter(Boolean) : []),
 });
-
-// Recomputes external_qty from the current qty/totalQty unless the doctor has manually set the
-// source for this row (sourceManual) — in which case we just clamp it back into [0, qty] so an
-// edit to Frequency/Duration that shrinks qty can't leave external_qty larger than qty.
-const recalcSource = (item: DraftItem): DraftItem => {
-  const qtyNum = Number(item.qty) || 0;
-  if (item.sourceManual) {
-    return { ...item, external_qty: clamp(item.external_qty, 0, qtyNum) };
-  }
-  let external_qty = 0;
-  if (item.totalQty === 0) external_qty = qtyNum;
-  else if (item.totalQty < qtyNum) external_qty = qtyNum - item.totalQty;
-  return { ...item, external_qty };
-};
 
 type StockBadge = { emoji: string; label: string; cls: string } | null;
 const stockBadge = (item: DraftItem): StockBadge => {
@@ -137,12 +210,6 @@ const stockBadge = (item: DraftItem): StockBadge => {
   if (item.totalQty < qtyNum) return { emoji: '🟠', label: 'Insufficient Stock', cls: 'amber' };
   return null;
 };
-const sourceBadge = (item: DraftItem): { emoji: string; label: string; cls: string } => {
-  const qtyNum = Number(item.qty) || 0;
-  if (qtyNum > 0 && item.external_qty >= qtyNum) return { emoji: '🔵', label: 'External Purchase', cls: 'blue' };
-  return { emoji: '🟢', label: 'Clinic Pharmacy', cls: 'green' };
-};
-const isSplit = (item: DraftItem) => item.totalQty > 0 && item.totalQty < (Number(item.qty) || 0);
 
 const draftKey = (consultationId: number) => scopedDraftKey(`doctor_rx_${consultationId}`);
 
@@ -216,7 +283,9 @@ const NewPrescription = () => {
 
 const Builder = ({ consultationId }: { consultationId: number }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { data: context, loading, error } = useApiData(() => getPrescriptionContext(consultationId), [consultationId]);
+  const { data: clinicSettings } = useApiData(() => getClinicSettings(), []);
 
   const [items, setItems] = useState<DraftItem[]>([]);
   const [notes, setNotes] = useState('');
@@ -233,11 +302,13 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
   const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [allergyAck, setAllergyAck] = useState(false);
-  const [submitted, setSubmitted] = useState<{ id: number; code: string; items: PrescriptionItem[]; hadExternalItems: boolean; externalSaved: boolean } | null>(
-    null
-  );
-  const [externalSaveError, setExternalSaveError] = useState<string | null>(null);
-  const [savingExternal, setSavingExternal] = useState(false);
+  const [finalReviewOpen, setFinalReviewOpen] = useState(false);
+  const [skipPrescription, setSkipPrescription] = useState(false);
+  const [createdPrescriptionId, setCreatedPrescriptionId] = useState<number | null>(null);
+  const [consultationFeeInput, setConsultationFeeInput] = useState(() => {
+    const passedFee = (location.state as { consultationFee?: string } | null)?.consultationFee;
+    return passedFee ?? '';
+  });
 
   // There's no server-side Draft status for prescriptions — they're created atomically once
   // sent — so "Save as Draft" persists to localStorage instead, same convention as the admin app.
@@ -285,7 +356,7 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
     }
     setItems((prev) => [
       ...prev,
-      recalcSource({
+      {
         key: `${m.medicine_id}-${Date.now()}`,
         medicine_id: m.medicine_id,
         name: m.name,
@@ -297,16 +368,14 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
         totalQty: m.totalQty,
         stockStatus: m.stockStatus,
         dosage: m.strength || '',
-        dose_qty: '',
+        dose_qty: '1',
         qtyManual: false,
         frequency: '',
         duration: '',
         route: '',
         instructionChips: [],
         qty: '1',
-        external_qty: 0,
-        sourceManual: false,
-      }),
+      },
     ]);
     setSearchTerm('');
     setSearchResults([]);
@@ -318,8 +387,7 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
     setItems((prev) => prev.map((it) => (it.key === key ? { ...it, [field]: value } : it)));
   };
 
-  // Frequency/Duration changes ripple into Qty (when calculable) and then into external_qty
-  // (unless the doctor has manually set a source for this row) — both recomputed in one pass.
+  // Frequency/Duration changes ripple into Qty when it is calculable.
   const updateFreqOrDuration = (key: string, field: 'frequency' | 'duration') => (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setItems((prev) =>
@@ -327,7 +395,7 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
         if (it.key !== key) return it;
         const updated = { ...it, [field]: value };
         const expected = updated.qtyManual ? null : computeExpectedQty(updated.frequency, updated.duration, updated.dose_qty);
-        return recalcSource({ ...updated, qty: expected !== null ? String(expected) : updated.qty });
+        return { ...updated, qty: expected !== null ? String(expected) : updated.qty };
       })
     );
   };
@@ -339,7 +407,7 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
         if (it.key !== key) return it;
         const updated = { ...it, dose_qty: value };
         const expected = updated.qtyManual ? null : computeExpectedQty(updated.frequency, updated.duration, value);
-        return recalcSource({ ...updated, qty: expected !== null ? String(expected) : updated.qty });
+        return { ...updated, qty: expected !== null ? String(expected) : updated.qty };
       })
     );
   };
@@ -350,42 +418,16 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
         if (it.key !== key) return it;
         const updated = { ...it, qtyManual: manual };
         const expected = manual ? null : computeExpectedQty(updated.frequency, updated.duration, updated.dose_qty);
-        return recalcSource({ ...updated, qty: expected !== null ? String(expected) : updated.qty });
+        return { ...updated, qty: expected !== null ? String(expected) : updated.qty };
       })
     );
 
   const updateQtyManual = (key: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
-    setItems((prev) => prev.map((it) => (it.key === key ? recalcSource({ ...it, qty: value }) : it)));
+    setItems((prev) => prev.map((it) => (it.key === key ? { ...it, qty: value } : it)));
   };
 
-  const setSource = (key: string, source: 'Clinic' | 'External') =>
-    setItems((prev) =>
-      prev.map((it) => {
-        if (it.key !== key) return it;
-        const qtyNum = Number(it.qty) || 0;
-        return { ...it, sourceManual: true, external_qty: source === 'External' ? qtyNum : 0 };
-      })
-    );
 
-  const setClinicDispense = (key: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setItems((prev) =>
-      prev.map((it) => {
-        if (it.key !== key) return it;
-        const qtyNum = Number(it.qty) || 0;
-        const clinicDispense = clamp(Number(e.target.value) || 0, 0, qtyNum);
-        return { ...it, sourceManual: true, external_qty: qtyNum - clinicDispense };
-      })
-    );
-
-  const setExternalPurchaseQty = (key: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setItems((prev) =>
-      prev.map((it) => {
-        if (it.key !== key) return it;
-        const qtyNum = Number(it.qty) || 0;
-        return { ...it, sourceManual: true, external_qty: clamp(Number(e.target.value) || 0, 0, qtyNum) };
-      })
-    );
 
   const removeItem = (key: string) => setItems((prev) => prev.filter((it) => it.key !== key));
 
@@ -412,7 +454,7 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
       qty: Number(i.qty) || 1,
       dose_qty: Number(i.dose_qty) > 0 ? Number(i.dose_qty) : undefined,
       qty_manual: i.qtyManual || scheduledDoseCount(i.frequency, i.duration) === null,
-      external_qty: i.external_qty || 0,
+      external_qty: 0,
     }));
 
   // Live allergy check — same substring match the backend runs authoritatively at submit time;
@@ -427,71 +469,73 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
   // ref-based lock closes that window immediately, independent of React's render cycle.
   const submittingRef = useRef(false);
 
-  const submit = async () => {
-    if (submittingRef.current) return;
+  const validatePrescriptionDraft = () => {
     if (items.length === 0) {
-      setSubmitError('Add at least one medicine before submitting.');
-      return;
+      setSubmitError('Add at least one medicine, or choose “No medicines needed”.');
+      return false;
     }
     if (allergyConflictItems.length > 0 && !allergyAck) {
-      setSubmitError('Acknowledge the allergy alert below before submitting.');
-      return;
+      setSubmitError('Acknowledge the allergy alert below before finalizing.');
+      return false;
     }
     const missingDose = items.find((i) => scheduledDoseCount(i.frequency, i.duration) !== null && !i.qtyManual && !(Number(i.dose_qty) > 0));
     if (missingDose) {
       setSubmitError(`Enter how many ${missingDose.unit} of ${missingDose.name} are taken per dose (or choose \u201cEnter quantity manually\u201d).`);
+      return false;
+    }
+    setSubmitError(null);
+    return true;
+  };
+
+  const openFinalReview = (withoutPrescription = false) => {
+    if (!withoutPrescription && !validatePrescriptionDraft()) return;
+    setSkipPrescription(withoutPrescription);
+    setSubmitError(null);
+    setFinalReviewOpen(true);
+  };
+
+  const finalizeVisit = async () => {
+    if (submittingRef.current) return;
+    const fee = consultationFeeInput.trim() === '' ? undefined : Number(consultationFeeInput);
+    if (fee !== undefined && (Number.isNaN(fee) || fee < 0)) {
+      setSubmitError('Consultation fee must be a positive number.');
       return;
     }
     submittingRef.current = true;
     setSubmitError(null);
     setSubmitting(true);
     try {
-      const res = await createPrescription({
-        consultation_id: consultationId,
-        items: buildItemsInput(),
-        allergyAck,
-        notes: notes || undefined,
-      });
-      localStorage.removeItem(draftKey(consultationId));
+      if (!skipPrescription) {
+        let prescriptionId = createdPrescriptionId;
+        if (!prescriptionId) {
+          const res = await createPrescription({
+            consultation_id: consultationId,
+            items: buildItemsInput(),
+            allergyAck,
+            notes: notes || undefined,
+          });
+          prescriptionId = res.data.prescription_id;
+          setCreatedPrescriptionId(prescriptionId);
+        }
 
-      const hadExternalItems = externalItems.length > 0;
-      let externalSaved = true;
-      if (hadExternalItems) {
-        try {
-          await bulkCreateExternalMedicines(res.data.prescription_id, externalItems.map(draftToInput));
-        } catch (extErr: any) {
-          // The clinic prescription is already saved — never lose that. Keep the drafted external
-          // items on screen with a retry option rather than silently dropping the doctor's work.
-          externalSaved = false;
-          setExternalSaveError(extErr.response?.data?.message || 'Failed to save the external medicines — use Retry below.');
+        if (externalItems.length > 0) {
+          await bulkCreateExternalMedicines(prescriptionId, externalItems.map(draftToInput));
+          setExternalItems([]);
         }
       }
-      setSubmitted({ id: res.data.prescription_id, code: rxCode(res.data.prescription_id), items: res.data.items, hadExternalItems, externalSaved });
-      if (externalSaved) setExternalItems([]);
+
+      await finalizeConsultation(consultationId, fee);
+      localStorage.removeItem(draftKey(consultationId));
+      navigate('/dashboard');
     } catch (err: any) {
       if (err.response?.status === 409 && err.response.data?.conflicts) {
-        setSubmitError(`Allergy conflict: ${err.response.data.conflicts.join(', ')} — tick "Acknowledge" below and submit again.`);
+        setSubmitError(`Allergy conflict: ${err.response.data.conflicts.join(', ')} — acknowledge it and finalize again.`);
       } else {
-        setSubmitError(err.response?.data?.message || 'Failed to submit prescription.');
+        setSubmitError(err.response?.data?.message || 'Could not finalize the visit. Nothing will be submitted twice; please try again.');
       }
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
-    }
-  };
-
-  const retrySaveExternal = async () => {
-    if (!submitted) return;
-    setSavingExternal(true);
-    setExternalSaveError(null);
-    try {
-      await bulkCreateExternalMedicines(submitted.id, externalItems.map(draftToInput));
-      setSubmitted({ ...submitted, externalSaved: true });
-      setExternalItems([]);
-    } catch (err: any) {
-      setExternalSaveError(err.response?.data?.message || 'Still failed to save the external medicines.');
-    } finally {
-      setSavingExternal(false);
     }
   };
 
@@ -504,66 +548,34 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
   const stockIssues = items.filter((i) => i.totalQty > 0 && i.totalQty < Number(i.qty));
   const outOfStock = items.filter((i) => i.totalQty === 0);
 
-  if (submitted) {
-    return (
-      <div>
-        <div className="card rxp-success" style={{ maxWidth: 480, margin: '40px auto' }}>
-          <div className="rxp-success-icon">
-            <CheckCircleIcon />
-          </div>
-          <h2 style={{ margin: '0 0 6px', color: '#0f172a' }}>Prescription Submitted</h2>
-          <p style={{ color: '#64748b', fontSize: 13.5, margin: '0 0 20px' }}>
-            {submitted.code} has been sent to the pharmacy for {patient.fullName}.
-          </p>
-
-          {!submitted.externalSaved && (
-            <div className="dash-error-banner" style={{ textAlign: 'left', marginBottom: 16 }}>
-              {externalSaveError}
-              <button className="pat-btn" style={{ marginLeft: 10 }} onClick={retrySaveExternal} disabled={savingExternal}>
-                {savingExternal ? 'Retrying…' : 'Retry'}
-              </button>
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <button className="cons-btn" onClick={() => downloadPrescriptionPdf(submitted.id, submitted.code)}>
-              <DownloadIcon /> Download PDF
-            </button>
-            {submitted.items.some((i) => i.external_qty > 0) && (
-              <button className="cons-btn" onClick={() => downloadExternalPurchaseSlip(submitted.id)}>
-                <PrintIcon /> Generate External Purchase Slip
-              </button>
-            )}
-            {submitted.hadExternalItems && submitted.externalSaved && (
-              <button className="cons-btn" onClick={() => previewExternalMedicineSlip(submitted.id)}>
-                <PrintIcon /> Print External Medicine Slip
-              </button>
-            )}
-            <button className="cons-btn primary" onClick={() => navigate(`/consultations/workspace/${context.appointment.appointmentId}`)}>
-              Back to Workspace
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div>
+      <div className="cons-flow-strip" aria-label="Consultation workflow">
+        <button className="done" onClick={() => navigate(`/consultations/workspace/${context.appointment.appointmentId}`)}>
+          <span><CheckCircleIcon /></span><strong>Examine &amp; document</strong><small>Clinical assessment saved</small>
+        </button>
+        <button className="active">
+          <span>2</span><strong>Prescribe &amp; finalize</strong><small>Add medicines, then complete the visit</small>
+        </button>
+      </div>
       <div className="dash-header">
         <div>
-          <h1>New Prescription</h1>
-          <p>Create and send a prescription to the pharmacy.</p>
+          <span className="cons-step-kicker">STEP 2 OF 2</span>
+          <h1>Prescribe medicines</h1>
+          <p>Prepare the treatment as a draft. It is sent to pharmacy only when you finalize the visit.</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button className="pat-btn" onClick={() => navigate(`/consultations/workspace/${context.appointment.appointmentId}`)}>
-            Cancel
+            ← Back to examination
           </button>
           <button className="pat-btn" onClick={handleSaveDraft}>
             <SaveIcon /> Save as Draft
           </button>
-          <button className="pat-btn primary" onClick={submit} disabled={submitting}>
-            <SendIcon /> {submitting ? 'Submitting…' : 'Submit Prescription'}
+          <button className="pat-btn" onClick={() => openFinalReview(true)}>
+            No medicines needed
+          </button>
+          <button className="pat-btn primary" onClick={() => openFinalReview(false)} disabled={submitting}>
+            <CheckCircleIcon /> Review &amp; finalize
           </button>
         </div>
       </div>
@@ -611,9 +623,20 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
             <div className="rxp-field-box-value">Dr. {context.appointment.doctor.username}</div>
           </div>
         </div>
+
+        <div className={`rxp-allergy-strip${context.patientSummary.allergies ? ' has-allergies' : ''}`}>
+          {context.patientSummary.allergies ? <AlertIcon /> : <CheckCircleIcon />}
+          <span>
+            <strong>{context.patientSummary.allergies ? 'Allergies' : 'No known allergies'}</strong>
+            {context.patientSummary.allergies ? `: ${context.patientSummary.allergies}` : ' recorded for this patient.'}
+          </span>
+          <button className="card-link" onClick={() => navigate(`/consultations/workspace/${context.appointment.appointmentId}`)}>
+            View full record →
+          </button>
+        </div>
       </div>
 
-      <div className="cons-layout">
+      <div className="cons-layout rxp-no-rail">
         <div>
           <div className="cons-box" style={{ marginBottom: 16 }}>
             <div className="cons-box-title">Prescription Items</div>
@@ -689,10 +712,10 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
                   const scheduleCalculable = scheduledDoseCount(it.frequency, it.duration) !== null;
                   const expectedQty = it.qtyManual ? null : computeExpectedQty(it.frequency, it.duration, it.dose_qty);
                   const needsDose = scheduleCalculable && !it.qtyManual && !(Number(it.dose_qty) > 0);
-                  const badge = stockBadge(it) ?? sourceBadge(it);
-                  const split = isSplit(it);
+                  const qtyNote = explainQty(it.frequency, it.duration, it.dose_qty, it.unit, it.qty);
+                  const badge = stockBadge(it);
                   return (
-                    <tr key={it.key} className={it.external_qty > 0 ? 'rxb-row-external' : undefined}>
+                    <tr key={it.key}>
                       <td>{i + 1}</td>
                       <td>
                         <div className="rxb-med-name">{it.name}</div>
@@ -701,29 +724,10 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
                           <div className="rxp-source-meta">
                             Clinic Stock: <strong>{it.totalQty}</strong> · Required Qty: <strong>{qtyNum}</strong>
                           </div>
-                          <span className={`rxp-source-badge ${badge.cls}`}>
-                            {badge.emoji} {badge.label}
-                          </span>
-                          {split ? (
-                            <div className="rxp-split-row">
-                              <label>
-                                Clinic Dispense
-                                <input type="number" min={0} max={qtyNum} value={qtyNum - it.external_qty} onChange={setClinicDispense(it.key)} />
-                              </label>
-                              <label>
-                                External Purchase
-                                <input type="number" min={0} max={qtyNum} value={it.external_qty} onChange={setExternalPurchaseQty(it.key)} />
-                              </label>
-                            </div>
-                          ) : (
-                            <select
-                              className="rxp-source-select"
-                              value={qtyNum > 0 && it.external_qty >= qtyNum ? 'External' : 'Clinic'}
-                              onChange={(e) => setSource(it.key, e.target.value as 'Clinic' | 'External')}
-                            >
-                              <option value="Clinic">Clinic Pharmacy</option>
-                              <option value="External">External Purchase</option>
-                            </select>
+                          {badge && (
+                            <span className={`rxp-source-badge ${badge.cls}`}>
+                              {badge.emoji} {badge.label}
+                            </span>
                           )}
                           {stockBadge(it) && (
                             <button
@@ -737,6 +741,7 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
                                   dosage_form: it.form,
                                   strength: it.strength,
                                   dosage: it.dosage,
+                                  dose_qty: it.dose_qty,
                                   frequency: it.frequency,
                                   duration: it.duration,
                                   quantity: Math.max(qtyNum - it.totalQty, 1),
@@ -756,12 +761,10 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
                           <input
                             className="rxb-table-input"
                             style={{ width: 64, ...(needsDose ? { borderColor: '#dc2626' } : {}) }}
-                            type="number"
-                            min={0.1}
-                            step={0.5}
+                            type="text"
+                            inputMode="decimal"
                             value={it.dose_qty}
                             onChange={updateDose(it.key)}
-                            placeholder="1"
                             aria-label={`${it.unit} per dose`}
                           />
                           {it.unit} / dose
@@ -791,27 +794,32 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
                       <td>
                         {expectedQty !== null ? (
                           <>
-                            <input className="rxb-table-input qty" type="number" value={it.qty} disabled title="Auto calculated: units per dose × doses per day × days" />
-                            <div className="rxp-manual-badge" style={{ cursor: 'pointer' }} onClick={() => setQtyManual(it.key, true)} role="button" tabIndex={0}>
+                            <input className="rxb-table-input qty" type="number" value={it.qty} disabled />
+                            {/* Show the arithmetic, so a wrong frequency or duration is caught here
+                                rather than at the counter. */}
+                            <div className="rxp-qty-note calculated">{qtyNote.text}</div>
+                            <button type="button" className="rxp-qty-link" onClick={() => setQtyManual(it.key, true)}>
                               Enter quantity manually
-                            </div>
+                            </button>
                           </>
                         ) : needsDose ? (
                           <>
-                            <input className="rxb-table-input qty" type="number" value="" disabled placeholder="—" title="Enter the amount taken per dose to calculate the quantity" />
-                            <div className="rxp-manual-badge" style={{ color: '#dc2626' }}>Enter dose per intake</div>
-                            <div className="rxp-manual-badge" style={{ cursor: 'pointer' }} onClick={() => setQtyManual(it.key, true)} role="button" tabIndex={0}>
+                            <input className="rxb-table-input qty" type="number" value="" disabled placeholder="—" />
+                            <div className="rxp-qty-note blocked">{qtyNote.text}</div>
+                            <button type="button" className="rxp-qty-link" onClick={() => setQtyManual(it.key, true)}>
                               Enter quantity manually
-                            </div>
+                            </button>
                           </>
                         ) : (
                           <>
                             <input className="rxb-table-input qty" type="number" min={1} value={it.qty} onChange={updateQtyManual(it.key)} />
-                            <div className="rxp-manual-badge">Manual ({it.unit})</div>
+                            <div className={`rxp-qty-note ${it.qtyManual ? 'manual' : 'blocked'}`}>
+                              {it.qtyManual ? `Manual (${it.unit.toLowerCase()})` : qtyNote.text}
+                            </div>
                             {it.qtyManual && scheduleCalculable && (
-                              <div className="rxp-manual-badge" style={{ cursor: 'pointer' }} onClick={() => setQtyManual(it.key, false)} role="button" tabIndex={0}>
+                              <button type="button" className="rxp-qty-link" onClick={() => setQtyManual(it.key, false)}>
                                 Calculate from dose
-                              </div>
+                              </button>
                             )}
                           </>
                         )}
@@ -970,99 +978,83 @@ const Builder = ({ consultationId }: { consultationId: number }) => {
               <button className="cons-btn" onClick={() => window.print()}>
                 <PrintIcon /> Print
               </button>
-              <button className="cons-btn primary" onClick={submit} disabled={submitting}>
-                <SendIcon /> {submitting ? 'Submitting…' : 'Submit Prescription'}
+              <button className="cons-btn primary" onClick={() => openFinalReview(false)} disabled={submitting}>
+                <CheckCircleIcon /> Review &amp; finalize
               </button>
             </div>
-          </div>
-        </div>
-
-        <div>
-          <div className="card" style={{ marginBottom: 16 }}>
-            <div className="card-header">
-              <h3 className="card-title">Patient Summary</h3>
-            </div>
-            <div className="rxp-summary-item">
-              <span className="rxp-summary-item-label">Blood Group</span>
-              <span className="rxp-summary-item-value">{patient.bloodGroup || '—'}</span>
-            </div>
-            <div className="rxp-summary-item">
-              <span className="rxp-summary-item-label">Known Allergies</span>
-              <span className={`rxp-summary-item-value${context.patientSummary.allergies ? '' : ' muted'}`}>{context.patientSummary.allergies || 'None recorded'}</span>
-            </div>
-            <div className="rxp-summary-item">
-              <span className="rxp-summary-item-label">Chronic Conditions</span>
-              <span className={`rxp-summary-item-value${context.patientSummary.chronicConditions.length ? '' : ' muted'}`}>
-                {context.patientSummary.chronicConditions.join(', ') || 'None'}
-              </span>
-            </div>
-            <div className="rxp-summary-item">
-              <span className="rxp-summary-item-label">Current Medications</span>
-              <span className={`rxp-summary-item-value${context.patientSummary.currentMedications.length ? '' : ' muted'}`}>
-                {context.patientSummary.currentMedications.join(', ') || 'None'}
-              </span>
-            </div>
-            <div style={{ marginTop: 10 }}>
-              <button className="card-link" onClick={() => navigate(`/consultations/workspace/${context.appointment.appointmentId}`)}>
-                View Full Record →
-              </button>
-            </div>
-          </div>
-
-          <div className="card" style={{ marginBottom: 16 }}>
-            <div className="card-header">
-              <h3 className="card-title">Stock Status</h3>
-            </div>
-            {items.length === 0 && <div className="card-empty">Add medicines to see stock levels.</div>}
-            {items.map((it) => (
-              <div className="rxp-stock-row" key={it.key}>
-                <span className="rxp-stock-name">
-                  {it.stockStatus === 'in-stock' ? (
-                    <span style={{ color: '#16a34a' }}>
-                      <CheckCircleIcon />
-                    </span>
-                  ) : (
-                    <span style={{ color: it.stockStatus === 'low' ? '#b45309' : '#dc2626' }}>
-                      <AlertIcon />
-                    </span>
-                  )}
-                  {it.name}
-                </span>
-                <span className={`rxp-stock-qty ${it.stockStatus}`}>
-                  {it.totalQty > 0 ? `In Stock (${it.totalQty})` : 'Out of Stock'}
-                </span>
-              </div>
-            ))}
-          </div>
-
-          {items.some((i) => i.external_qty > 0) && (
-            <div className="card" style={{ marginBottom: 16 }}>
-              <div className="card-header">
-                <h3 className="card-title">External Purchase Slip Preview</h3>
-              </div>
-              {items
-                .filter((i) => i.external_qty > 0)
-                .map((i) => (
-                  <div className="rxp-stock-row" key={i.key}>
-                    <span className="rxp-stock-name">{i.name}</span>
-                    <span className="rxp-stock-qty blue">
-                      Qty {i.external_qty}
-                      {i.external_qty < (Number(i.qty) || 0) ? ' (partial)' : ''}
-                    </span>
-                  </div>
-                ))}
-              <p className="pat-muted" style={{ fontSize: 11.5, marginTop: 8 }}>
-                Available to print as a separate slip once this prescription is submitted.
-              </p>
-            </div>
-          )}
-
-          <div className="rxp-preview-box">
-            <div className="rxp-preview-title">Prescription Preview</div>
-            {submitted ? 'A PDF is ready to download above.' : 'A PDF will be available to download once you submit this prescription.'}
           </div>
         </div>
       </div>
+
+      {finalReviewOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => !submitting && event.target === event.currentTarget && setFinalReviewOpen(false)}>
+          <div className="modal-card cons-complete-modal" role="dialog" aria-modal="true" aria-labelledby="rx-finalize-title">
+            <div className="cons-complete-heading">
+              <div>
+                <span className="cons-safety-kicker">FINAL CHECK</span>
+                <h2 id="rx-finalize-title">Finalize visit &amp; call next</h2>
+                <p>The prescription remains a draft until you confirm this action.</p>
+              </div>
+            </div>
+
+            <div className="cons-complete-patient">
+              <strong>{patient.fullName}</strong>
+              <span>{context.consultation.diagnosis || 'No diagnosis recorded'}</span>
+            </div>
+
+            <div className="cons-complete-checks">
+              <div className="done">
+                <CheckCircleIcon />
+                <span><strong>Clinical documentation</strong><small>Saved in the consultation draft</small></span>
+              </div>
+              <div className={skipPrescription ? 'optional' : 'done'}>
+                <ClipboardIcon />
+                <span>
+                  <strong>Prescription</strong>
+                  <small>{skipPrescription ? 'No medicines required' : `${items.length} medicine${items.length === 1 ? '' : 's'} ready to submit`}</small>
+                </span>
+              </div>
+              <div className={allergyConflictItems.length > 0 && !allergyAck && !skipPrescription ? 'required' : 'done'}>
+                <AlertIcon />
+                <span>
+                  <strong>Allergy safety</strong>
+                  <small>{allergyConflictItems.length > 0 ? 'Potential conflict acknowledged' : context.patientSummary.allergies || 'No known allergies recorded'}</small>
+                </span>
+              </div>
+            </div>
+
+            {!skipPrescription && (
+              <div className="rxb-banner warning" style={{ marginTop: 12 }}>
+                <AlertIcon /> Clicking “Finalize &amp; call next” will submit this prescription to the pharmacy. It is not submitted before then.
+              </div>
+            )}
+
+            {submitError && <div className="cons-complete-warning"><AlertIcon /> {submitError}</div>}
+
+            <div className="cons-complete-fee">
+              <label htmlFor="rx-finalize-fee">Consultation fee (LKR)</label>
+              <input
+                id="rx-finalize-fee"
+                className="cons-input"
+                type="number"
+                min={0}
+                step="0.01"
+                value={consultationFeeInput}
+                onChange={(event) => setConsultationFeeInput(event.target.value)}
+                placeholder={clinicSettings ? String(clinicSettings.default_consultation_fee) : 'Clinic default'}
+              />
+              <small>Leave empty to use the clinic default.</small>
+            </div>
+
+            <div className="modal-actions">
+              <button className="cons-btn" disabled={submitting} onClick={() => setFinalReviewOpen(false)}>Continue editing</button>
+              <button className="cons-btn primary" disabled={submitting} onClick={finalizeVisit}>
+                <CheckCircleIcon /> {submitting ? 'Finalizing…' : 'Finalize & call next'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -16,6 +16,9 @@ const listBatchesSchema = z.object({
     medicineId: z.coerce.number().int().positive().optional(),
     supplierId: z.coerce.number().int().positive().optional(),
     batchNo: z.string().optional(),
+    // Free text across medicine name and batch number: a pharmacist counting or correcting stock
+    // knows the medicine in front of them, not its batch number.
+    search: z.string().optional(),
     status: z.enum(['Active', 'Depleted', 'Expired', 'Expiring']).optional(),
     expiryFrom: z.coerce.date().optional(),
     expiryTo: z.coerce.date().optional(),

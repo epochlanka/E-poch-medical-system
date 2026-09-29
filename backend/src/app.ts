@@ -38,21 +38,23 @@ const app = express();
 // Security HTTP headers
 app.use(helmet());
 
-// Browser portals share this API and authenticate with a credentialed HttpOnly cookie.
+// The web application shares this API and authenticates with a credentialed HttpOnly cookie.
 // Production stays allow-list only. In development, accept loopback on any port because Vite
 // selects the next available port when its preferred one is already occupied.
-const developmentOrigins = process.env.NODE_ENV === 'production'
-  ? ''
-  : 'http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176';
+const developmentOrigins = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5173';
 // Deployment shortcut: SITE_HOST is the address workstations type into the browser (the server's
-// LAN IP or hostname). The four portals are always on 5173-5176, so their origins follow from it —
-// nobody has to hand-maintain a FRONTEND_URLS list. `localhost` is included for the browser on the
-// server itself; another PC's "localhost" points at that PC, never at this server, so it grants
-// nothing. FRONTEND_URLS still works for anything unusual (extra hostnames, a TLS front end).
-const PORTAL_PORTS = [5173, 5174, 5175, 5176];
-const siteHostOrigins = process.env.SITE_HOST
-  ? [process.env.SITE_HOST, 'localhost'].flatMap((host) => PORTAL_PORTS.map((port) => `http://${host}:${port}`)).join(',')
-  : '';
+// LAN IP or hostname). There is one application, always on 5173, so its origin follows from that —
+// nobody has to hand-maintain a FRONTEND_URLS list. (It used to be four portals on 5173-5176; they
+// are now workspaces inside one app, so only the one origin is granted.) `localhost` is included
+// for the browser on the server itself; loopback names point at the machine running the browser,
+// never at this server from another workstation, so they grant nothing remotely. FRONTEND_URLS
+// still works for anything unusual (extra hostnames, a TLS front end).
+const APP_PORT = 5173;
+const siteHostOrigins = (process.env.SITE_HOST
+  ? [process.env.SITE_HOST, 'localhost', '127.0.0.1']
+  : ['localhost', '127.0.0.1'])
+  .map((host) => `http://${host}:${APP_PORT}`)
+  .join(',');
 const allowedOrigins = new Set(`${process.env.FRONTEND_URLS || developmentOrigins},${process.env.FRONTEND_URL || ''},${siteHostOrigins}`
   .split(',')
   .map((origin) => origin.trim().replace(/\/$/, ''))

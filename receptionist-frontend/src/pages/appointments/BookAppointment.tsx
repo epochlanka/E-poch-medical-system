@@ -300,11 +300,11 @@ const BookAppointment = () => {
     <div>
       <div className="pat-header">
         <div>
-          <h1>Book Appointment</h1>
-          <p>Schedule a new appointment for a patient.</p>
+          <h1>Book an appointment</h1>
+          <p>Pick a doctor, a day and a time for this patient.</p>
         </div>
         <div className="reg-breadcrumb">
-          <Link to="/queue/live" style={{ color: '#2563eb', textDecoration: 'none' }}>
+          <Link to="/queue/live" style={{ color: 'var(--accent)', textDecoration: 'none' }}>
             Appointments &amp; Queue
           </Link>
           <span className="sep">/</span>

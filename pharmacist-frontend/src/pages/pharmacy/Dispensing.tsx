@@ -5,11 +5,20 @@ import type { PrescriptionDetail, PrescriptionItemDetail } from '../../lib/presc
 import { getBatchSuggestions, dispensePrescription, downloadDispenseLabel, collectPrescription } from '../../lib/pharmacy';
 import type { BatchSuggestion, BatchOption, DispenseItemInput } from '../../lib/pharmacy';
 import { formatDateTime } from '../prescriptions/patientUtils';
+import { money } from '../operations/format';
 import HandoverPaymentDialog from './HandoverPaymentDialog';
+import { useFeedback } from '../../../../shared/ui/feedback';
 import './guidedDispensing.css';
 import { statusLabel } from '../../lib/pharmacy';
 
 type Selection = { batchId: number; qty: string; reason: string; picked: boolean };
+const LEAVE_PROMPT = {
+  title: 'Leave without saving?',
+  body: 'These medicine selections will be discarded. No stock has changed yet.',
+  confirmLabel: 'Leave',
+  cancelLabel: 'Stay here',
+  tone: 'danger' as const,
+};
 const remaining = (item: PrescriptionItemDetail) => Math.max(0, item.qty - item.external_qty - item.dispensed_qty);
 const externalOnly = (item: PrescriptionItemDetail) => item.external_qty >= item.qty;
 const code = (id: number) => `RX${String(id).padStart(6, '0')}`;
@@ -45,6 +54,7 @@ function MedicineChecklistRow({ item, batches, choice, expanded, externalMarked,
 
 function DispensingWorkspace({ prescriptionId }: { prescriptionId: number }) {
   const navigate = useNavigate();
+  const { confirm: askConfirm, toast } = useFeedback();
   const [detail, setDetail] = useState<PrescriptionDetail | null>(null);
   const [suggestions, setSuggestions] = useState<BatchSuggestion[]>([]);
   const [selected, setSelected] = useState<Record<number, Selection>>({});
@@ -103,14 +113,15 @@ function DispensingWorkspace({ prescriptionId }: { prescriptionId: number }) {
       const inFrontDesk = !!document.querySelector('[data-workspace-switch]');
       if (inFrontDesk && target.origin === window.location.origin &&
           !/^\/(pharmacy|inventory|prescriptions|suppliers|purchase-orders|goods-received|grn-review|reports)(\/|$)/.test(target.pathname)) return;
-      if (!window.confirm('Leave without saving these medicine selections? No stock has changed yet.')) {
-        event.preventDefault(); event.stopPropagation();
-      }
+      event.preventDefault(); event.stopPropagation();
+      void (async () => {
+        if (await askConfirm(LEAVE_PROMPT)) navigate(target.pathname + target.search + target.hash);
+      })();
     };
     window.addEventListener('beforeunload', warn);
     document.addEventListener('click', leaveViaLink, true);
     return () => { window.removeEventListener('beforeunload', warn); document.removeEventListener('click', leaveViaLink, true); };
-  }, [dirty]);
+  }, [dirty, askConfirm, navigate]);
   const reviewHasUnfinished = !!review && pending.some(item => {
     const line = review.find(entry => entry.rx_item_id === item.rx_item_id);
     return !line || (!externalOnly(item) && (line.qty ?? 0) < remaining(item));
@@ -124,8 +135,8 @@ function DispensingWorkspace({ prescriptionId }: { prescriptionId: number }) {
   };
   const updateSelection = (id: number, field: 'qty' | 'reason', value: string) =>
     setSelected(old => old[id] ? { ...old, [id]: { ...old[id], [field]: value, picked: field === 'qty' ? false : old[id].picked } } : old);
-  const leave = () => {
-    if (dirty && !window.confirm('Leave without saving these medicine selections? No stock has changed yet.')) return;
+  const leave = async () => {
+    if (dirty && !(await askConfirm(LEAVE_PROMPT))) return;
     navigate('/pharmacy/queue');
   };
   const prepareReview = () => {
@@ -189,7 +200,11 @@ function DispensingWorkspace({ prescriptionId }: { prescriptionId: number }) {
   };
   const markHandedOver = async () => {
     if (!detail || detail.status !== 'Dispensed') return;
-    if (!window.confirm(`Have you handed all recorded medicines to ${patient?.fullName || 'the patient'}?`)) return;
+    if (!(await askConfirm({
+      title: 'Confirm handover',
+      body: `Have you handed all recorded medicines to ${patient?.fullName || 'the patient'}?`,
+      confirmLabel: 'Yes, handed over',
+    }))) return;
     setCollectBusy(true); setError('');
     try {
       await collectPrescription(detail.prescription_id);
@@ -246,7 +261,19 @@ function DispensingWorkspace({ prescriptionId }: { prescriptionId: number }) {
       <div className="gd-actions"><button className="gd-button secondary" disabled={busy} onClick={() => { setReview(null); reviewButton.current?.focus(); }}>Go back and correct</button><button className="gd-button primary" disabled={busy || (reviewHasUnfinished && !partialAcknowledged)} onClick={() => void confirm()}>{busy ? 'Recording…' : 'Confirm and record'}</button></div>
     </dialog>}
 
-    <HandoverPaymentDialog open={showPayment} consultationId={detail.consultation.consultation_id} patientName={patient.fullName} onClose={() => setShowPayment(false)} />
+    <HandoverPaymentDialog
+      open={showPayment}
+      consultationId={detail.consultation.consultation_id}
+      patientName={patient.fullName}
+      onClose={() => setShowPayment(false)}
+      onPaid={(amountPaid) => {
+        // Taking the money is the last step for this patient, so go straight back to the waiting
+        // list ready for the next one. The receipt detail rides along in the toast.
+        setShowPayment(false);
+        toast(`${money(amountPaid)} received from ${patient.fullName}. Handover complete.`, 'success');
+        navigate('/pharmacy/queue');
+      }}
+    />
   </main>;
 }
 

@@ -1,13 +1,20 @@
-# Production stack: compiled backend + static (nginx-served) portal builds, plain HTTP on the clinic LAN.
+# Production stack: one container running the compiled backend and the nginx-served web
+# application, over plain HTTP on the clinic LAN.
+#
+# This used to be five containers — the API plus one nginx per portal. The portals are now a single
+# application with a workspace per role, so there is one image (Dockerfile.clinic) and one service.
 #
 # Usage:
 #   cp .env.example .env                    # repo root: set SITE_HOST (the server's fixed LAN IP)
 #   cp backend/.env.example backend/.env    # fill in secrets; NODE_ENV=production
 #   ./deploy/launch.sh
 #
-# Workstations open the portals at http://<SITE_HOST>:5173 (front desk), :5174 (doctor),
-# :5175 (receptionist), :5176 (pharmacist). The API is on :3000. Allowed browser origins are derived
-# from SITE_HOST, so there is no origin list to maintain.
+# Everyone opens http://<SITE_HOST>:5173 and signs in; their role decides which workspace loads.
+# The API is on :3000. Allowed browser origins are derived from SITE_HOST, so there is no origin
+# list to maintain.
+#
+# For the offline clinic install (this image plus its own PostgreSQL, transferred on a drive), see
+# deploy/docker-compose.clinic.yml and deploy/build-clinic-image.sh.
 
 x-logging: &logging
   driver: json-file
@@ -16,93 +23,30 @@ x-logging: &logging
     max-file: "5"
 
 services:
-  backend:
+  epoch-medical:
     build:
-      context: ./backend
-      dockerfile: Dockerfile.prod
+      # Repo root: the image builds the backend and the frontend in one go.
+      context: .
+      dockerfile: Dockerfile.clinic
     env_file:
       - ./backend/.env
     environment:
       - NODE_ENV=production
-      # The address workstations use; the backend allows portal origins on it (see backend/src/app.ts).
+      # The address workstations use; the backend allows the app's origin on it (see backend/src/app.ts).
       - SITE_HOST=${SITE_HOST:-localhost}
       # Plain HTTP on a private LAN: a "Secure" cookie would never be sent back and nobody could log
-      # in. Set to true only if TLS is put in front of the portals.
+      # in. Set to true only if TLS is put in front of the application.
       - COOKIE_SECURE=false
       # The clinic is in Sri Lanka. Day boundaries (daily reconciliation, "today's" appointments and
       # reports) are computed in the process's local time, so this must be the clinic's zone, not UTC.
       - TZ=Asia/Colombo
     ports:
       - "3000:3000"
+      - "5173:5173"
     volumes:
       - ./backend/uploads:/usr/src/app/uploads
       - ./backend/backups:/usr/src/app/backups
       - ./backend/logs:/usr/src/app/logs
     restart: always
     logging: *logging
-    healthcheck:
-      # timeout here must exceed checkDatabase's own timeout (backend/src/errors/health.ts) or
-      # wget cuts the request off before the app even finishes answering.
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile.prod
-    ports:
-      - "5173:80"
-    restart: always
-    logging: *logging
-    depends_on:
-      backend:
-        condition: service_healthy
-    healthcheck: &portal-health
-      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-
-  doctor-frontend:
-    build:
-      context: ./doctor-frontend
-      dockerfile: Dockerfile.prod
-    ports:
-      - "5174:80"
-    restart: always
-    logging: *logging
-    depends_on:
-      backend:
-        condition: service_healthy
-    healthcheck: *portal-health
-
-  receptionist-frontend:
-    build:
-      # Repo root, not ./receptionist-frontend — this build also needs pharmacist-frontend/src
-      # (see receptionist-frontend/Dockerfile.prod's header comment for why).
-      context: .
-      dockerfile: receptionist-frontend/Dockerfile.prod
-    ports:
-      - "5175:80"
-    restart: always
-    logging: *logging
-    depends_on:
-      backend:
-        condition: service_healthy
-    healthcheck: *portal-health
-
-  pharmacist-frontend:
-    build:
-      context: ./pharmacist-frontend
-      dockerfile: Dockerfile.prod
-    ports:
-      - "5176:80"
-    restart: always
-    logging: *logging
-    depends_on:
-      backend:
-        condition: service_healthy
-    healthcheck: *portal-health
+    # The image declares its own HEALTHCHECK (API and web application), so none is repeated here.

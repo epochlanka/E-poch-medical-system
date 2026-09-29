@@ -1,6 +1,6 @@
 import request from 'supertest';
 
-// The clinic LAN deployment: plain HTTP, production mode, portal origins derived from SITE_HOST.
+// The clinic LAN deployment: plain HTTP, production mode, the app's origin derived from SITE_HOST.
 // Both the origin list and the cookie's Secure flag are read when the app is first loaded, so each
 // case loads a fresh copy of the app under the environment it wants to prove.
 
@@ -32,14 +32,14 @@ const loadApp = (env: Record<string, string | undefined>) => {
 
 const prod = { NODE_ENV: 'production', FRONTEND_URLS: '', FRONTEND_URL: '' };
 
-describe('portal origins are derived from SITE_HOST in production', () => {
+describe('the application origin is derived from SITE_HOST in production', () => {
   const preflight = (app: any, origin: string) =>
     request(app).options('/api/v1/settings').set('Origin', origin).set('Access-Control-Request-Method', 'GET').set('Access-Control-Request-Headers', 'x-epoch-background');
 
-  it('allows the four portals on the site host, and on localhost for the server itself', async () => {
+  it('allows the application on the site host, and on localhost for the server itself', async () => {
     const { app, restore } = loadApp({ ...prod, SITE_HOST: '192.168.1.50' });
     try {
-      for (const origin of ['http://192.168.1.50:5173', 'http://192.168.1.50:5174', 'http://192.168.1.50:5175', 'http://192.168.1.50:5176', 'http://localhost:5174']) {
+      for (const origin of ['http://192.168.1.50:5173', 'http://localhost:5173', 'http://127.0.0.1:5173']) {
         const res = await preflight(app, origin);
         expect(res.headers['access-control-allow-origin']).toBe(origin);
         expect(res.headers['access-control-allow-credentials']).toBe('true');
@@ -49,10 +49,12 @@ describe('portal origins are derived from SITE_HOST in production', () => {
     }
   });
 
-  it('refuses any other host, other ports, or a lookalike', async () => {
+  // 5174-5176 were the doctor, receptionist and pharmacist portals. They are workspaces inside the
+  // one application now, so those origins are no longer granted anything.
+  it('refuses any other host, other ports (including the retired portals), or a lookalike', async () => {
     const { app, restore } = loadApp({ ...prod, SITE_HOST: '192.168.1.50' });
     try {
-      for (const origin of ['http://192.168.1.99:5174', 'http://192.168.1.50:9999', 'http://192.168.1.50.evil.example:5174', 'https://evil.example', 'http://192.168.1.50:5174.evil.example']) {
+      for (const origin of ['http://192.168.1.50:5174', 'http://192.168.1.50:5175', 'http://192.168.1.50:5176', 'http://192.168.1.99:5173', 'http://192.168.1.50:9999', 'http://192.168.1.50.evil.example:5173', 'https://evil.example', 'http://192.168.1.50:5173.evil.example']) {
         const res = await preflight(app, origin);
         expect(res.headers['access-control-allow-origin']).toBeUndefined();
       }
@@ -64,16 +66,16 @@ describe('portal origins are derived from SITE_HOST in production', () => {
   it('allows nothing extra when SITE_HOST is not set (strict allow-list, no dev bypass)', async () => {
     const { app, restore } = loadApp({ ...prod, SITE_HOST: undefined });
     try {
-      expect((await preflight(app, 'http://192.168.1.50:5174')).headers['access-control-allow-origin']).toBeUndefined();
+      expect((await preflight(app, 'http://192.168.1.50:5173')).headers['access-control-allow-origin']).toBeUndefined();
     } finally {
       restore();
     }
   });
 
   it('still honours an explicit FRONTEND_URLS for anything unusual', async () => {
-    const { app, restore } = loadApp({ ...prod, SITE_HOST: '192.168.1.50', FRONTEND_URLS: 'http://clinic-pc:5174' });
+    const { app, restore } = loadApp({ ...prod, SITE_HOST: '192.168.1.50', FRONTEND_URLS: 'http://clinic-pc:8443' });
     try {
-      expect((await preflight(app, 'http://clinic-pc:5174')).headers['access-control-allow-origin']).toBe('http://clinic-pc:5174');
+      expect((await preflight(app, 'http://clinic-pc:8443')).headers['access-control-allow-origin']).toBe('http://clinic-pc:8443');
     } finally {
       restore();
     }

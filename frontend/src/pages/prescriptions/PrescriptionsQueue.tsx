@@ -1,5 +1,5 @@
+import { useWorkspaceNavigate } from '../../app/WorkspaceContext';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import { listPrescriptions } from '../../lib/prescriptions';
 import type { ListPrescriptionsParams } from '../../lib/prescriptions';
@@ -17,7 +17,7 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 const PrescriptionsQueue = () => {
-  const navigate = useNavigate();
+  const navigate = useWorkspaceNavigate();
   const [filters, setFilters] = useState<ListPrescriptionsParams>({ page: 1, limit: 20 });
   const { data, loading } = useApiData(() => listPrescriptions(filters), [JSON.stringify(filters)]);
 

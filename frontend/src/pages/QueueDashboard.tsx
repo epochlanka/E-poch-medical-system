@@ -1,5 +1,5 @@
+import { useWorkspaceNavigate } from '../app/WorkspaceContext';
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { api, BACKGROUND_REQUEST } from '../lib/api';
 
 interface Appointment {
@@ -26,7 +26,7 @@ const formatTime = (isoString: string) => {
 };
 
 const QueueDashboard: React.FC = () => {
-  const navigate = useNavigate();
+  const navigate = useWorkspaceNavigate();
   const [queue, setQueue] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');

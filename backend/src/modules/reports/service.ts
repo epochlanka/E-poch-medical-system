@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { usableQty, LOW_STOCK_THRESHOLD } from '../../lib/stock';
 import { NotFoundError, ValidationError } from './errors';
 import { ReportColumn } from './csv';
 
@@ -826,12 +827,12 @@ export const getDoctorClinicalStatistics = async (input: DateRangeInput & { doct
 export const getLowStockReport = async (): Promise<ReportResult> => {
   const medicines = await prisma.medicine.findMany({
     where: { is_active: true },
-    select: { medicine_id: true, name: true, reorder_level: true, batches: { select: { qty_on_hand: true } } },
+    select: { medicine_id: true, name: true, batches: { select: { qty_on_hand: true, expiry_date: true } } },
   });
 
   const rows = medicines
-    .map((m) => ({ medicineId: m.medicine_id, name: m.name, qtyOnHand: m.batches.reduce((s, b) => s + b.qty_on_hand, 0), reorderLevel: m.reorder_level }))
-    .filter((m) => m.qtyOnHand < m.reorderLevel)
+    .map((m) => ({ medicineId: m.medicine_id, name: m.name, qtyOnHand: usableQty(m.batches), alertBelow: LOW_STOCK_THRESHOLD }))
+    .filter((m) => m.qtyOnHand < LOW_STOCK_THRESHOLD)
     .sort((a, b) => a.qtyOnHand - b.qtyOnHand);
 
   return {
@@ -840,8 +841,8 @@ export const getLowStockReport = async (): Promise<ReportResult> => {
     columns: [
       { key: 'medicineId', label: 'Medicine ID' },
       { key: 'name', label: 'Medicine' },
-      { key: 'qtyOnHand', label: 'Qty on Hand' },
-      { key: 'reorderLevel', label: 'Reorder Level' },
+      { key: 'qtyOnHand', label: 'Usable qty' },
+      { key: 'alertBelow', label: 'Alert below' },
     ],
     rows,
     summary: { totalLowStockItems: rows.length, outOfStock: rows.filter((r) => r.qtyOnHand === 0).length },

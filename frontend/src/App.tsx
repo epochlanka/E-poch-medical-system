@@ -1,103 +1,97 @@
+import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import ProtectedRoute from './components/ProtectedRoute';
-import AppLayout from './components/layout/AppLayout';
-import Login from './pages/Login';
-import LoginConfirmation from './pages/LoginConfirmation';
-import Dashboard from './pages/dashboard/Dashboard';
-import Patients from './pages/patients/Patients';
-import Families from './pages/families/Families';
-import Pharmacy from './pages/pharmacy/Pharmacy';
-import Medicines from './pages/medicines/Medicines';
-import Appointments from './pages/appointments/Appointments';
-import StockManagement from './pages/stock/StockManagement';
-import PurchaseOrders from './pages/purchaseOrders/PurchaseOrders';
-import Suppliers from './pages/suppliers/Suppliers';
-import Invoices from './pages/invoices/Invoices';
-import Reports from './pages/reports/Reports';
-import UsersRoles from './pages/users/UsersRoles';
-import Payments from './pages/payments/Payments';
-import Settings from './pages/settings/Settings';
-import ConsultationsQueue from './pages/consultations/ConsultationsQueue';
-import Consultation from './pages/consultations/Consultation';
-import PrescriptionsQueue from './pages/prescriptions/PrescriptionsQueue';
-import NewPrescription from './pages/prescriptions/NewPrescription';
-import PrescriptionView from './pages/prescriptions/PrescriptionView';
-import LabTestOrders from './pages/labTestOrders/LabTestOrders';
-import ComingSoon from './pages/ComingSoon';
-import QueueDashboard from './pages/QueueDashboard';
-import BookAppointment from './pages/BookAppointment';
-import LetterTemplates from './pages/letters/LetterTemplates';
-import LetterTemplateEditor from './pages/letters/LetterTemplateEditor';
-import { navSections } from './components/layout/navConfig';
+import { RequireAuth, RequireWorkspace, RootRedirect } from './app/guards';
+import Login from './app/auth/Login';
+import LoginConfirmation from './app/auth/LoginConfirmation';
+import { homePathForRole } from './app/workspaces';
 
-const unimplementedPaths = navSections
-  .flatMap((section) => section.items)
-  .filter((item) => !item.implemented)
-  .map((item) => item.path);
+/**
+ * The unified E-Poch application shell.
+ *
+ * One address, one login, one session. After signing in, the user's role decides which workspace
+ * loads; workspaces are code-split, so a receptionist's browser never downloads the clinical or
+ * administration bundles.
+ *
+ * Workspaces still being migrated out of their standalone portals are declared here anyway — the
+ * guard hands those users off to the existing portal (see app/workspaces.ts), so the shared login
+ * works for every role before the migration finishes.
+ */
 
-const RootRedirect = () => {
-  const { isAuthenticated, loading } = useAuth();
-  if (loading) return null;
-  return <Navigate to={isAuthenticated ? '/dashboard' : '/login'} replace />;
-};
+const AdminWorkspace = lazy(() => import('./workspaces/admin'));
+const DoctorWorkspace = lazy(() => import('./workspaces/doctor'));
+const ReceptionWorkspace = lazy(() => import('./workspaces/reception'));
+const PharmacyWorkspace = lazy(() => import('./workspaces/pharmacy'));
+
+const WorkspaceFallback = () => null;
 
 const LoginEntry = () => {
   const { user, loading } = useAuth();
   if (loading) return null;
-  if (!user) return <Login />;
-  return <Navigate to="/login/confirm" replace />;
+  // Already signed in: don't show the form again, go and confirm the session instead.
+  if (user) return <Navigate to="/login/confirm" replace />;
+  return <Login />;
 };
 
-function App() {
-  return (
-    <AuthProvider>
-      <Routes>
-        <Route path="/" element={<RootRedirect />} />
-        <Route path="/login" element={<LoginEntry />} />
-        <Route path="/login/confirm" element={<LoginConfirmation />} />
+const App = () => (
+  <AuthProvider>
+    <Routes>
+      <Route path="/" element={<RootRedirect />} />
+      <Route path="/login" element={<LoginEntry />} />
+      <Route path="/login/confirm" element={<LoginConfirmation />} />
 
+      <Route element={<RequireAuth />}>
         <Route
+          path="/admin/*"
           element={
-            <ProtectedRoute requiredRole="Admin">
-              <AppLayout />
-            </ProtectedRoute>
+            <RequireWorkspace id="admin">
+              <Suspense fallback={<WorkspaceFallback />}>
+                <AdminWorkspace />
+              </Suspense>
+            </RequireWorkspace>
           }
-        >
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/patients" element={<Patients />} />
-          <Route path="/families" element={<Families />} />
-          <Route path="/appointments" element={<Appointments />} />
-          <Route path="/pharmacy" element={<Pharmacy />} />
-          <Route path="/inventory/medicines" element={<Medicines />} />
-          <Route path="/inventory/stock" element={<StockManagement />} />
-          <Route path="/inventory/purchase-orders" element={<PurchaseOrders />} />
-          <Route path="/suppliers" element={<Suppliers />} />
-          <Route path="/billing/invoices" element={<Invoices />} />
-          <Route path="/reports" element={<Reports />} />
-          <Route path="/users" element={<UsersRoles />} />
-          <Route path="/billing/payments" element={<Payments />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/consultations" element={<ConsultationsQueue />} />
-          <Route path="/consultations/:appointmentId" element={<Consultation />} />
-          <Route path="/prescriptions" element={<PrescriptionsQueue />} />
-          <Route path="/prescriptions/new/:consultationId" element={<NewPrescription />} />
-          <Route path="/prescriptions/:prescriptionId" element={<PrescriptionView />} />
-          <Route path="/lab-test-orders" element={<LabTestOrders />} />
-          <Route path="/queue" element={<QueueDashboard />} />
-          <Route path="/book-appointment" element={<BookAppointment />} />
-          <Route path="/letter-templates" element={<LetterTemplates />} />
-          <Route path="/letter-templates/new" element={<LetterTemplateEditor />} />
-          <Route path="/letter-templates/:templateId" element={<LetterTemplateEditor />} />
-          {unimplementedPaths.map((path) => (
-            <Route key={path} path={path} element={<ComingSoon />} />
-          ))}
-        </Route>
+        />
+        <Route
+          path="/doctor/*"
+          element={
+            <RequireWorkspace id="doctor">
+              <Suspense fallback={<WorkspaceFallback />}>
+                <DoctorWorkspace />
+              </Suspense>
+            </RequireWorkspace>
+          }
+        />
+        <Route
+          path="/reception/*"
+          element={
+            <RequireWorkspace id="reception">
+              <Suspense fallback={<WorkspaceFallback />}>
+                <ReceptionWorkspace />
+              </Suspense>
+            </RequireWorkspace>
+          }
+        />
+        <Route
+          path="/pharmacy/*"
+          element={
+            <RequireWorkspace id="pharmacy">
+              <Suspense fallback={<WorkspaceFallback />}>
+                <PharmacyWorkspace />
+              </Suspense>
+            </RequireWorkspace>
+          }
+        />
 
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </AuthProvider>
-  );
-}
+        <Route path="*" element={<UnknownRoute />} />
+      </Route>
+    </Routes>
+  </AuthProvider>
+);
+
+/** A signed-in user on a path no workspace claims — send them to their own home. */
+const UnknownRoute = () => {
+  const { user } = useAuth();
+  return <Navigate to={user ? homePathForRole(user.role) : '/login'} replace />;
+};
 
 export default App;

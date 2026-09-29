@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { ownedQty, usableQty, isLowStock, LOW_STOCK_THRESHOLD } from '../../lib/stock';
 import { TX_OPTIONS, lockBatches } from '../../lib/rowLocks';
 import { NotFoundError, ValidationError, ForbiddenError } from './errors';
 
@@ -35,6 +36,7 @@ interface ListBatchesFilters {
   medicineId?: number;
   supplierId?: number;
   batchNo?: string;
+  search?: string;
   status?: 'Active' | 'Depleted' | 'Expired' | 'Expiring';
   expiryFrom?: Date;
   expiryTo?: Date;
@@ -51,6 +53,9 @@ export const listBatches = async (filters: ListBatchesFilters) => {
   if (filters.expiryFrom) expiryFilter.gte = filters.expiryFrom;
   if (filters.expiryTo) expiryFilter.lte = filters.expiryTo;
   if (filters.status === 'Expired') expiryFilter.lt = now;
+  // Active means "usable today" — in date and not yet run down. Without this the filter was
+  // accepted and then silently ignored, returning expired and depleted batches too.
+  if (filters.status === 'Active') expiryFilter.gt = now;
   if (filters.status === 'Expiring') {
     expiryFilter.gte = now;
     expiryFilter.lte = addDays(now, DEFAULT_EXPIRY_THRESHOLD_DAYS);
@@ -60,9 +65,18 @@ export const listBatches = async (filters: ListBatchesFilters) => {
     ...(filters.medicineId ? { medicine_id: filters.medicineId } : {}),
     ...(filters.supplierId ? { supplier_id: filters.supplierId } : {}),
     ...(filters.batchNo ? { batch_no: { contains: filters.batchNo, mode: 'insensitive' } } : {}),
+    ...(filters.search?.trim()
+      ? {
+          OR: [
+            { batch_no: { contains: filters.search.trim(), mode: 'insensitive' as const } },
+            { medicine: { name: { contains: filters.search.trim(), mode: 'insensitive' as const } } },
+            { medicine: { generic_name: { contains: filters.search.trim(), mode: 'insensitive' as const } } },
+          ],
+        }
+      : {}),
     ...(Object.keys(expiryFilter).length ? { expiry_date: expiryFilter } : {}),
     ...(filters.status === 'Depleted' ? { qty_on_hand: { lte: 0 } } : {}),
-    ...(filters.status === 'Expiring' ? { qty_on_hand: { gt: 0 } } : {}),
+    ...(filters.status === 'Expiring' || filters.status === 'Active' ? { qty_on_hand: { gt: 0 } } : {}),
   };
 
   const [total, batches] = await Promise.all([
@@ -205,7 +219,7 @@ export const getAlerts = async (expiryThresholdDays = DEFAULT_EXPIRY_THRESHOLD_D
   const [medicines, expiringBatches] = await Promise.all([
     prisma.medicine.findMany({
       where: { is_active: true },
-      select: { medicine_id: true, name: true, reorder_level: true, batches: { select: { qty_on_hand: true } } },
+      select: { medicine_id: true, name: true, batches: { select: { qty_on_hand: true, expiry_date: true } } },
     }),
     prisma.batch.findMany({
       where: { qty_on_hand: { gt: 0 }, expiry_date: { lte: expiryHorizon } },
@@ -217,12 +231,16 @@ export const getAlerts = async (expiryThresholdDays = DEFAULT_EXPIRY_THRESHOLD_D
   const alerts: Alert[] = [];
 
   for (const medicine of medicines) {
-    const totalQty = medicine.batches.reduce((sum, b) => sum + b.qty_on_hand, 0);
-    if (totalQty >= medicine.reorder_level) continue;
+    // Expired stock cannot be dispensed, so it must not hold off a reorder alert.
+    if (!isLowStock(medicine.batches)) continue;
+    const usable = usableQty(medicine.batches);
+    const expired = ownedQty(medicine.batches) - usable;
     alerts.push({
       type: 'low-stock',
-      severity: totalQty === 0 ? 'red' : 'amber',
-      message: `${medicine.name} is low on stock (${totalQty} on hand, reorder level ${medicine.reorder_level})`,
+      severity: usable === 0 ? 'red' : 'amber',
+      message:
+        `${medicine.name} is low on stock (${usable} left, alert below ${LOW_STOCK_THRESHOLD})` +
+        (expired > 0 ? ` — ${expired} more on hand but expired` : ''),
       refId: medicine.medicine_id,
     });
   }

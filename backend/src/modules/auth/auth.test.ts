@@ -29,11 +29,11 @@ describe('Auth API', () => {
   it('should succeed login with valid credentials', async () => {
     const res = await request(app)
       .post('/api/v1/auth/login')
-      .set('Origin', 'http://localhost:5174')
+      .set('Origin', 'http://localhost:5199')
       .send({ username: 'admin', password: 'admin123' });
 
     expect(res.status).toBe(200);
-    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:5174');
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:5199');
     expect(res.headers['access-control-allow-credentials']).toBe('true');
     expect(res.body).toHaveProperty('token');
     expect(res.body.user).toHaveProperty('username', 'admin');
@@ -80,11 +80,11 @@ describe('Auth API', () => {
   it('allows credentialed CORS preflights from a clinic LAN address in development', async () => {
     const res = await request(app)
       .options('/api/v1/auth/login')
-      .set('Origin', 'http://192.168.1.50:5174')
+      .set('Origin', 'http://192.168.1.50:5199')
       .set('Access-Control-Request-Method', 'POST');
 
     expect(res.status).toBe(204);
-    expect(res.headers['access-control-allow-origin']).toBe('http://192.168.1.50:5174');
+    expect(res.headers['access-control-allow-origin']).toBe('http://192.168.1.50:5199');
     expect(res.headers['access-control-allow-credentials']).toBe('true');
   });
 

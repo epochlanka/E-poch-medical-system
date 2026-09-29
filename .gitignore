@@ -6,6 +6,11 @@ start.sh
 .env
 .env.*
 !.env.example
+clinic.env
+
+# Offline production image bundles
+deploy/transfer/
+deploy/releases/
 
 # Build output
 dist/

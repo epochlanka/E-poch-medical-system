@@ -117,16 +117,16 @@ const DuplicateReview = () => {
     <div>
       <div className="pat-header">
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-          <div className="reg-card-icon" style={{ background: '#dbeafe', color: '#2563eb', marginTop: 2 }}>
+          <div className="reg-card-icon" style={{ background: '#dbeafe', color: 'var(--accent)', marginTop: 2 }}>
             <AlertIcon />
           </div>
           <div>
-            <h1>Duplicate Review</h1>
-            <p>Review possible duplicate patient records and take appropriate action.</p>
+            <h1>Possible duplicates</h1>
+            <p>Records that look like the same person. Merge them, or mark them as different people.</p>
           </div>
         </div>
         <div className="reg-breadcrumb">
-          <Link to="/patients/all" style={{ color: '#2563eb', textDecoration: 'none' }}>
+          <Link to="/patients/all" style={{ color: 'var(--accent)', textDecoration: 'none' }}>
             Patients
           </Link>
           <span className="sep">/</span>

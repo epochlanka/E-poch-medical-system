@@ -1,5 +1,5 @@
+import { useWorkspaceNavigate } from '../../app/WorkspaceContext';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useApiData } from '../../hooks/useApiData';
 import { listUsers, getPermissionMatrix, updateUser, unlockUser, ROLES } from '../../lib/security';
@@ -102,7 +102,7 @@ const RowMenu = ({
 
 const UsersRoles = () => {
   const { user: currentUser } = useAuth();
-  const navigate = useNavigate();
+  const navigate = useWorkspaceNavigate();
 
   const [activeTab, setActiveTab] = useState<'users' | 'roles'>('users');
   const [searchInput, setSearchInput] = useState('');

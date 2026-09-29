@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { LOW_STOCK_THRESHOLD } from '../../lib/stock';
 import { NotFoundError, ValidationError, ForbiddenError, AllergyConflictError } from './errors';
 import { computeExpectedQty, scheduledDoseCount } from './qtyCalc';
 
@@ -36,12 +37,12 @@ interface CreatePrescriptionInput {
   notes?: string;
 }
 
-const stockStatusFor = (medicine: { reorder_level: number; batches: { qty_on_hand: number; expiry_date: Date }[] }, qty: number) => {
+const stockStatusFor = (medicine: { batches: { qty_on_hand: number; expiry_date: Date }[] }, qty: number) => {
   const now = new Date();
   const total = medicine.batches.filter((b) => b.expiry_date > now).reduce((sum, b) => sum + b.qty_on_hand, 0);
   if (total <= 0) return 'out-of-stock';
   if (total < qty) return 'insufficient';
-  if (total < medicine.reorder_level) return 'low';
+  if (total < LOW_STOCK_THRESHOLD) return 'low';
   return 'in-stock';
 };
 
@@ -77,7 +78,10 @@ export const createPrescription = async (input: CreatePrescriptionInput, actor: 
         instructions: i.instructions ?? undefined,
         qty: i.qty,
         dose_qty: i.dose_qty ?? undefined,
-        qty_manual: i.qty_manual,
+        // A refill reuses the quantity the original prescriber already approved. Without a
+        // recorded dose_qty there is nothing to recompute it from, so carry it as manual rather
+        // than rejecting a historical line whose frequency this parser now understands.
+        qty_manual: i.qty_manual || i.dose_qty == null,
       }));
     }
   }

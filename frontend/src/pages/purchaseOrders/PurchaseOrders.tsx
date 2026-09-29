@@ -1,5 +1,5 @@
+import { useWorkspaceNavigate } from '../../app/WorkspaceContext';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import {
   listPurchaseOrders,
@@ -121,7 +121,7 @@ const RowMenu = ({
 };
 
 const PurchaseOrders = () => {
-  const navigate = useNavigate();
+  const navigate = useWorkspaceNavigate();
   const [searchInput, setSearchInput] = useState('');
   const [filters, setFilters] = useState<ListPurchaseOrdersParams>({ page: 1, limit: 8 });
   const [supplierId, setSupplierId] = useState('');

@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { ownedQty, usableBatches, usableQty, stockStatusFor } from '../../lib/stock';
 import { NotFoundError, ValidationError } from './errors';
 import { receiveStockBatch, ReceiveStockInput } from '../suppliers/service';
 import { NotFoundError as SupplierNotFoundError, ValidationError as SupplierValidationError } from '../suppliers/errors';
@@ -43,11 +44,15 @@ type BatchStockRow = { qty_on_hand: number; expiry_date: Date; cost_per_base_uni
 // batch's own frozen cost_per_base_unit (never the selling price), summed across every batch that
 // still has stock on hand, expired or not — an expired batch is still owned inventory until
 // someone explicitly writes it off via a stock transaction.
-const deriveStock = (batches: BatchStockRow[], reorderLevel: number, defaultSellingPrice: number, now = new Date()) => {
-  const totalQty = batches.reduce((sum, b) => sum + b.qty_on_hand, 0);
-  const validBatches = batches.filter((b) => b.qty_on_hand > 0 && b.expiry_date > now);
-  const hasValidStock = validBatches.length > 0;
-  const stockStatus: 'out-of-stock' | 'low' | 'in-stock' = !hasValidStock ? 'out-of-stock' : totalQty < reorderLevel ? 'low' : 'in-stock';
+//
+// totalQty keeps that "owned" meaning; usableQty is what can actually be dispensed today, and is
+// what the stock status is judged on. Comparing the owned total against the reorder level used to
+// report "In Stock" for a medicine whose stock had almost entirely expired.
+const deriveStock = (batches: BatchStockRow[], defaultSellingPrice: number, now = new Date()) => {
+  const totalQty = ownedQty(batches);
+  const validBatches = usableBatches(batches, now);
+  const usable = ownedQty(validBatches);
+  const stockStatus = stockStatusFor(batches, now);
 
   const fefoSorted = [...validBatches].sort((a, b) => a.expiry_date.getTime() - b.expiry_date.getTime());
   const nearestExpiry = fefoSorted.length ? fefoSorted[0].expiry_date : null;
@@ -57,7 +62,7 @@ const deriveStock = (batches: BatchStockRow[], reorderLevel: number, defaultSell
   const effectiveSellingPrice = fefoSorted.length ? fefoSorted[0].selling_price_per_base_unit : defaultSellingPrice;
   const stockValue = batches.filter((b) => b.qty_on_hand > 0).reduce((sum, b) => sum + b.qty_on_hand * b.cost_per_base_unit, 0);
 
-  return { totalQty, stockStatus, isExpiringSoon, nearestExpiry, effectiveSellingPrice, stockValue };
+  return { totalQty, usableQty: usable, stockStatus, isExpiringSoon, nearestExpiry, effectiveSellingPrice, stockValue };
 };
 
 // Stock Management's "Location" column: a medicine has no location of its own — it's wherever
@@ -103,7 +108,7 @@ export const searchMedicines = async (params: SearchMedicinesParams) => {
 
   const now = new Date();
   return medicines.map((m) => {
-    const { totalQty, stockStatus, effectiveSellingPrice } = deriveStock(m.batches, m.reorder_level, m.default_selling_price, now);
+    const { totalQty, stockStatus, effectiveSellingPrice } = deriveStock(m.batches, m.default_selling_price, now);
 
     return {
       medicine_id: m.medicine_id,
@@ -171,12 +176,7 @@ export const listMedicineStock = async (params: ListMedicineStockParams) => {
 
   const now = new Date();
   let rows = medicines.map((m) => {
-    const { totalQty, stockStatus, isExpiringSoon, nearestExpiry, effectiveSellingPrice, stockValue } = deriveStock(
-      m.batches,
-      m.reorder_level,
-      m.default_selling_price,
-      now
-    );
+    const { totalQty, usableQty: usable, stockStatus, isExpiringSoon, nearestExpiry, effectiveSellingPrice, stockValue } = deriveStock(m.batches, m.default_selling_price, now);
     const activeBatchCount = m.batches.filter((b) => b.qty_on_hand > 0).length;
     return {
       medicine_id: m.medicine_id,
@@ -192,6 +192,7 @@ export const listMedicineStock = async (params: ListMedicineStockParams) => {
       reorder_level: m.reorder_level,
       max_stock_level: m.max_stock_level,
       sell_price: effectiveSellingPrice,
+      usableQty: usable,
       stockValue,
       barcode: m.barcode,
       is_active: m.is_active,
@@ -230,7 +231,6 @@ export const getMedicineWithBatches = async (medicineId: number) => {
   const now = new Date();
   const { totalQty, stockStatus, isExpiringSoon, nearestExpiry, effectiveSellingPrice, stockValue } = deriveStock(
     medicine.batches,
-    medicine.reorder_level,
     medicine.default_selling_price,
     now
   );
@@ -257,7 +257,6 @@ export const getMedicineStats = async () => {
     select: {
       medicine_id: true,
       name: true,
-      reorder_level: true,
       default_selling_price: true,
       batches: { select: BATCH_PRICING_SELECT },
     },
@@ -268,21 +267,20 @@ export const getMedicineStats = async () => {
   let lowStock = 0;
   let outOfStock = 0;
   let expiringSoon = 0;
-  const lowStockList: { medicineId: number; medicineName: string; totalQty: number; reorderLevel: number }[] = [];
+  const lowStockList: { medicineId: number; medicineName: string; totalQty: number }[] = [];
 
   for (const m of medicines) {
-    const { totalQty, stockStatus, isExpiringSoon } = deriveStock(m.batches, m.reorder_level, m.default_selling_price, now);
+    const { totalQty, stockStatus, isExpiringSoon } = deriveStock(m.batches, m.default_selling_price, now);
     if (stockStatus === 'in-stock') inStock += 1;
     else if (stockStatus === 'low') {
       lowStock += 1;
-      lowStockList.push({ medicineId: m.medicine_id, medicineName: m.name, totalQty, reorderLevel: m.reorder_level });
+      lowStockList.push({ medicineId: m.medicine_id, medicineName: m.name, totalQty });
     } else outOfStock += 1;
     if (isExpiringSoon) expiringSoon += 1;
   }
 
-  // Worst shortfall (as a share of its own reorder level) first, so a near-empty fast-mover
-  // outranks a big-catalog item that's only marginally under its threshold.
-  lowStockList.sort((a, b) => a.totalQty / Math.max(a.reorderLevel, 1) - b.totalQty / Math.max(b.reorderLevel, 1));
+  // Emptiest first: with one clinic-wide threshold the shortfall is simply how little is left.
+  lowStockList.sort((a, b) => a.totalQty - b.totalQty);
 
   const expiryHorizon = addDays(now, EXPIRY_SOON_DAYS);
   const expiringBatches = await prisma.batch.findMany({
@@ -382,13 +380,9 @@ export const listMedicineCatalog = async (params: ListCatalogParams) => {
 
   const now = new Date();
   let rows = medicines.map((m) => {
-    const { totalQty, stockStatus, isExpiringSoon, nearestExpiry, effectiveSellingPrice, stockValue } = deriveStock(
-      m.batches,
-      m.reorder_level,
-      m.default_selling_price,
-      now
-    );
+    const { totalQty, usableQty: usable, stockStatus, isExpiringSoon, nearestExpiry, effectiveSellingPrice, stockValue } = deriveStock(m.batches, m.default_selling_price, now);
     return {
+      usableQty: usable,
       medicine_id: m.medicine_id,
       code: displayCode(m),
       name: m.name,
@@ -464,82 +458,221 @@ const parseCsvLine = (line: string): string[] => {
   return result;
 };
 
-interface ImportRowResult {
+export interface ImportRowResult {
   row: number;
   status: 'created' | 'updated' | 'error';
+  /** What the row refers to, so a result list reads as medicines rather than row numbers. */
+  name?: string;
+  /** Units of opening stock this row adds, when it carries any. */
+  stockAdded?: number;
   message?: string;
 }
 
-// Matches an existing medicine by barcode first (if the row has one), else by an exact
-// name+strength+form combination — good enough to avoid duplicate rows on a re-import of the
-// same file without requiring every medicine to have a barcode assigned. CSV import is Medicine
-// Product master-data only — it never carries stock/batch/price data (that always goes through
-// Add Stock Batch / GRN, so every batch stays auditable).
-export const importMedicinesFromCsv = async (csvText: string) => {
-  const lines = csvText.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  if (lines.length < 2) throw new ValidationError('CSV must include a header row and at least one data row');
+export interface ImportSummary {
+  created: number;
+  updated: number;
+  errored: number;
+  /** Batches created, and the total units they hold. Zero on a catalog-only sheet. */
+  batches: number;
+  unitsAdded: number;
+  /** True when nothing was written — the caller asked for a preview. */
+  dryRun: boolean;
+  unknownHeaders: string[];
+  results: ImportRowResult[];
+}
 
-  const headers = parseCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
-  for (const required of ['name', 'base_unit']) {
-    if (!headers.includes(required)) throw new ValidationError(`CSV is missing required column "${required}"`);
+// Dosage form -> the unit its stock is counted in. Mirrors the same helper in
+// pharmacist-frontend/src/lib/medicines.ts so an imported sheet and the Add Medicine form agree.
+const defaultBaseUnitForForm = (form: string): string => {
+  const f = form.toLowerCase();
+  if (f.includes('tablet')) return 'Tablet';
+  if (f.includes('capsule')) return 'Capsule';
+  if (f.includes('syrup') || f.includes('suspension') || f.includes('drop') || f.includes('injection')) return 'ml';
+  if (f.includes('cream') || f.includes('ointment')) return 'Gram';
+  return 'Piece';
+};
+
+const truthy = (value?: string) => !!value && ['true', '1', 'yes', 'y'].includes(value.trim().toLowerCase());
+
+/** Accepts what people actually type: 2027-06-30, 30/06/2027, 30-06-2027, or an Excel date cell. */
+const parseSheetDate = (value: string): Date => {
+  const text = value.trim();
+  let match = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (match) {
+    const [, y, m, d] = match;
+    return new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
   }
+  // Day-first, which is the convention in Sri Lanka and what a nurse will type.
+  match = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (match) {
+    const [, d, m, y] = match;
+    if (Number(m) > 12) throw new Error(`Could not read the expiry date "${text}" — use YYYY-MM-DD`);
+    return new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
+  }
+  throw new Error(`Could not read the expiry date "${text}" — use YYYY-MM-DD, for example 2027-06-30`);
+};
+
+const parseSheetNumber = (value: string, label: string): number => {
+  // Tolerate thousands separators and a currency prefix typed into a price cell.
+  const cleaned = value.replace(/[,\s]/g, '').replace(/^(rs\.?|lkr)/i, '');
+  const n = Number(cleaned);
+  if (!Number.isFinite(n)) throw new Error(`${label} "${value}" is not a number`);
+  return n;
+};
+
+/**
+ * Turn validated spreadsheet rows into medicines and their opening stock.
+ *
+ * Every row is validated before anything is written, and `dryRun` stops after that — so staff can
+ * see exactly what a file will do before it touches the database, which matters when the file was
+ * typed by hand by several people.
+ *
+ * Stock goes through runReceiveStockBatch, the same path as "Add Stock Batch", so each imported
+ * batch gets its own purchase order and GRN rather than appearing from nowhere.
+ */
+export const importMedicineRows = async (
+  sheet: { rows: { rowNumber: number; values: Record<string, string | undefined> }[]; unknownHeaders: string[] },
+  actor: Actor,
+  options: { dryRun?: boolean } = {}
+): Promise<ImportSummary> => {
+  const dryRun = !!options.dryRun;
+  if (sheet.rows.length === 0) throw new ValidationError('The sheet has a header row but no medicines under it.');
+  if (sheet.rows.length > 2000) throw new ValidationError('That sheet has more than 2000 rows — split it into smaller files.');
 
   const results: ImportRowResult[] = [];
   let created = 0;
   let updated = 0;
   let errored = 0;
+  let batches = 0;
+  let unitsAdded = 0;
 
-  for (let i = 1; i < lines.length; i++) {
-    const rowNum = i + 1;
-    const values = parseCsvLine(lines[i]);
-    const rec: Record<string, string | undefined> = {};
-    headers.forEach((h, idx) => (rec[h] = values[idx]?.trim() || undefined));
+  // A sheet typed by several people repeats the same medicine; keep track so the second row adds a
+  // batch to the medicine the first row created rather than failing to find it.
+  const seen = new Map<string, number>();
 
+  for (const row of sheet.rows) {
+    const rec = row.values;
+    const name = rec.name?.trim();
     try {
-      if (!rec.name) throw new Error('Missing "name"');
-      if (!rec.base_unit) throw new Error('Missing "base_unit"');
+      if (!name) throw new Error('Medicine name is missing');
+
+      const form = rec.form?.trim() || undefined;
+      const baseUnit = rec.unit?.trim() || defaultBaseUnitForForm(form ?? '');
+      const strength = rec.strength?.trim() || undefined;
+      const brand = rec.brand_name?.trim() || undefined;
+
+      const hasQty = !!rec.quantity?.trim();
+      const hasExpiry = !!rec.expiry_date?.trim();
+      const hasPrice = !!rec.selling_price?.trim();
+      if ((hasQty || hasExpiry) && !(hasQty && hasExpiry && hasPrice)) {
+        throw new Error('To add stock a row needs Quantity, Selling price and Expiry date together');
+      }
+
+      let quantity = 0;
+      let sellingPrice = 0;
+      let expiry: Date | null = null;
+      if (hasQty) {
+        quantity = parseSheetNumber(rec.quantity!, 'Quantity');
+        if (!(quantity > 0)) throw new Error('Quantity must be greater than zero');
+        sellingPrice = parseSheetNumber(rec.selling_price!, 'Selling price');
+        if (!(sellingPrice > 0)) throw new Error('Selling price must be greater than zero');
+        expiry = parseSheetDate(rec.expiry_date!);
+        if (expiry.getTime() <= Date.now()) {
+          throw new Error(`Expiry date ${rec.expiry_date} has already passed — expired stock cannot be imported`);
+        }
+      }
 
       const data = {
-        name: rec.name,
-        generic_name: rec.generic_name,
-        brand_name: rec.brand_name,
-        category: rec.category,
-        form: rec.form,
-        strength: rec.strength,
-        manufacturer: rec.manufacturer,
-        requires_prescription: rec.requires_prescription ? ['true', '1', 'yes'].includes(rec.requires_prescription.toLowerCase()) : undefined,
-        base_unit: rec.base_unit,
-        default_pack_unit: rec.default_pack_unit,
-        default_pack_size: rec.default_pack_size ? Number(rec.default_pack_size) : undefined,
-        default_selling_price: rec.default_selling_price ? Number(rec.default_selling_price) : undefined,
-        reorder_level: rec.reorder_level ? Number(rec.reorder_level) : undefined,
-        max_stock_level: rec.max_stock_level ? Number(rec.max_stock_level) : undefined,
-        barcode: rec.barcode,
+        name,
+        generic_name: rec.generic_name?.trim() || undefined,
+        brand_name: brand,
+        category: rec.category?.trim() || undefined,
+        form,
+        strength,
+        base_unit: baseUnit,
+        requires_prescription: rec.requires_prescription ? truthy(rec.requires_prescription) : undefined,
+        default_selling_price: hasPrice ? sellingPrice : undefined,
       };
 
-      let existing = data.barcode ? await prisma.medicine.findUnique({ where: { barcode: data.barcode } }) : null;
-      if (!existing) {
-        existing = await prisma.medicine.findFirst({
-          where: { name: data.name, strength: data.strength ?? null, form: data.form ?? null, brand_name: data.brand_name ?? null },
+      const dedupeKey = [name, brand ?? '', strength ?? '', form ?? ''].join('\u0000').toLowerCase();
+      let medicineId = seen.get(dedupeKey) ?? null;
+      let existed = medicineId !== null;
+      // -1 marks "introduced earlier in this same dry run", which has no real id yet.
+      if (medicineId === -1) medicineId = null;
+
+      if (medicineId === null) {
+        const existing = await prisma.medicine.findFirst({
+          where: { name, strength: strength ?? null, form: form ?? null, brand_name: brand ?? null },
         });
+        if (existing) {
+          medicineId = existing.medicine_id;
+          existed = true;
+        }
       }
 
-      if (existing) {
-        await prisma.medicine.update({ where: { medicine_id: existing.medicine_id }, data });
-        updated++;
-        results.push({ row: rowNum, status: 'updated' });
-      } else {
-        await prisma.medicine.create({ data });
-        created++;
-        results.push({ row: rowNum, status: 'created' });
+      if (dryRun) {
+        // Nothing is written; report what would happen so the preview is trustworthy. That
+        // includes remembering medicines this sheet has already introduced, or a second batch row
+        // for the same medicine would be previewed as another new medicine.
+        if (existed) updated++;
+        else {
+          created++;
+          seen.set(dedupeKey, -1);
+        }
+        if (hasQty) {
+          batches++;
+          unitsAdded += quantity;
+        }
+        results.push({
+          row: row.rowNumber,
+          status: existed ? 'updated' : 'created',
+          name,
+          stockAdded: hasQty ? quantity : undefined,
+        });
+        continue;
       }
+
+      if (medicineId !== null) {
+        await prisma.medicine.update({ where: { medicine_id: medicineId }, data });
+        updated++;
+      } else {
+        const medicine = await prisma.medicine.create({ data });
+        medicineId = medicine.medicine_id;
+        created++;
+      }
+      seen.set(dedupeKey, medicineId);
+
+      if (hasQty && expiry) {
+        await runReceiveStockBatch(
+          {
+            medicine_id: medicineId,
+            batch_no: rec.batch_no?.trim() || undefined,
+            expiry_date: expiry,
+            received_unit: baseUnit,
+            received_qty: quantity,
+            units_per_pack: 1,
+            purchase_price_per_pack: rec.cost_price?.trim() ? parseSheetNumber(rec.cost_price, 'Cost price') : undefined,
+            selling_price_per_base_unit: sellingPrice,
+          },
+          actor
+        );
+        batches++;
+        unitsAdded += quantity;
+      }
+
+      results.push({
+        row: row.rowNumber,
+        status: existed ? 'updated' : 'created',
+        name,
+        stockAdded: hasQty ? quantity : undefined,
+      });
     } catch (err: any) {
       errored++;
-      results.push({ row: rowNum, status: 'error', message: err.message });
+      results.push({ row: row.rowNumber, status: 'error', name, message: err.message });
     }
   }
 
-  return { created, updated, errored, results };
+  return { created, updated, errored, batches, unitsAdded, dryRun, unknownHeaders: sheet.unknownHeaders, results };
 };
 
 // Initial stock at product-creation time goes through the exact same path as "Add Stock Batch"

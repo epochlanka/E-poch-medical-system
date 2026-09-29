@@ -1,9 +1,9 @@
 .shell {
   display: flex;
   min-height: 100vh;
-  background: #f4f6fb;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  color: #0f172a;
+  background: var(--surface-sunken);
+  font-family: var(--font-ui);
+  color: var(--ink);
 }
 
 /* ---- Sidebar ---- */
@@ -32,7 +32,7 @@
   width: 38px;
   height: 38px;
   border-radius: 10px;
-  background: linear-gradient(135deg, #2563eb, #20b2aa);
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -92,8 +92,8 @@
   color: #1e293b;
 }
 .shell-nav-link.active {
-  background: #eaf1fe;
-  color: #2563eb;
+  background: var(--accent-wash);
+  color: var(--accent);
 }
 .shell-nav-link svg {
   flex-shrink: 0;

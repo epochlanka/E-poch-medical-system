@@ -1,5 +1,6 @@
+import { useWorkspaceNavigate } from '../../app/WorkspaceContext';
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import { fileUrl } from '../../lib/api';
 import { draftKey as scopedDraftKey } from '../../lib/drafts';
@@ -34,7 +35,7 @@ const draftKey = (consultationId: number) => scopedDraftKey(`rx_${consultationId
 
 const NewPrescription = () => {
   const { consultationId } = useParams();
-  const navigate = useNavigate();
+  const navigate = useWorkspaceNavigate();
   const id = Number(consultationId);
 
   const { data: context, loading, error } = useApiData(() => getPrescriptionContext(id), [id]);

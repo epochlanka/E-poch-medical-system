@@ -4,6 +4,7 @@ import { adjustStock, createStockCount, getBatches, getLedger, getStockAlerts, g
 import type { Batch, LedgerEntry, StockAlert, StockCount } from '../../lib/operations';
 import { Empty, Notice, PageHeader, Panel, PathLink } from './Shared';
 import { dateText, errorText } from './format';
+import { useFeedback } from '../../../../shared/ui/feedback';
 
 type Mode = 'batches' | 'stock-ledger' | 'low-stock' | 'expiry-alerts' | 'stock-take' | 'adjustment';
 const titles: Record<Mode, [string, string]> = {
@@ -18,6 +19,7 @@ const tabs: [Mode, string][] = [['batches', 'Batches'], ['stock-ledger', 'Histor
 const statusTone = (status: string) => status === 'Active' ? 'ok' : status === 'Expired' ? 'bad' : 'warn';
 
 export default function InventoryOperations({ mode }: { mode: Mode }) {
+  const { toast, confirm } = useFeedback();
   const [params] = useSearchParams();
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -39,13 +41,13 @@ export default function InventoryOperations({ mode }: { mode: Mode }) {
   const [revision, setRevision] = useState(0);
   const medicineId = Number(params.get('medicineId')) || undefined;
 
-  useEffect(() => { setPage(1); }, [search, medicineId]);
+  useEffect(() => { setPage(1); }, [search, medicineId, mode]);
   useEffect(() => {
     let active = true;
     setLoading(true); setError('');
     const load = async () => {
       const [batchResult, alertResult, countResult] = await Promise.all([
-        getBatches({ page, limit: 50, batchNo: search || undefined, medicineId }),
+        getBatches({ page, limit: 50, search: search || undefined, medicineId }),
         getStockAlerts(), getStockCounts(),
       ]);
       if (!active) return;
@@ -64,29 +66,44 @@ export default function InventoryOperations({ mode }: { mode: Mode }) {
   }, [selectedId, mode, revision]);
 
   const selected = batches.find(b => b.batchId === selectedId);
+  // Results go to a toast as well as the panel, so they are visible without scrolling back up.
   const run = async (action: () => Promise<unknown>, message: string) => {
     setBusy(true); setError(''); setSuccess('');
-    try { await action(); setSuccess(message); setRevision(n => n + 1); return true; }
-    catch (e) { setError(errorText(e)); return false; }
+    try { await action(); setSuccess(message); toast(message, 'success'); setRevision(n => n + 1); return true; }
+    catch (e) { const text = errorText(e); setError(text); toast(text, 'error'); return false; }
     finally { setBusy(false); }
   };
-  const submitAdjustment = () => {
+  const submitAdjustment = async () => {
     const amount = Number(delta);
     if (!selectedId || !Number.isInteger(amount) || amount === 0 || !reason.trim()) { setError('Choose a batch, enter a whole-number change, and write a reason.'); return; }
     if (selected && selected.qtyOnHand + amount < 0) { setError('This would make stock less than zero. Check the amount.'); return; }
-    if (!window.confirm(`Change ${selected?.batchNo ?? 'this batch'} by ${amount > 0 ? '+' : ''}${amount} units? Reason: ${reason.trim()}`)) return;
+    if (!(await confirm({ title: 'Correct this stock level?', body: `Change ${selected?.batchNo ?? 'this batch'} by ${amount > 0 ? '+' : ''}${amount} units. Reason: ${reason.trim()}`, confirmLabel: 'Save correction' }))) return;
     void run(() => adjustStock(selectedId, amount, reason.trim(), transactionType), 'Stock change saved with your reason.').then(ok => { if (ok) { setDelta(''); setReason(''); } });
   };
-  const submitCount = () => {
+  const submitCount = async () => {
     const items = Object.entries(counted).filter(([, value]) => value !== '').map(([id, value]) => ({ batch_id: Number(id), counted_qty: Number(value) }));
     if (items.length === 0 || items.some(i => !Number.isInteger(i.counted_qty) || i.counted_qty < 0)) { setError('Enter a whole-number count of zero or more for at least one batch.'); return; }
-    if (!window.confirm(`Save a stock count for ${items.length} batch${items.length === 1 ? '' : 'es'}? Check the shelf quantities before continuing.`)) return;
+    if (!(await confirm({ title: 'Save this stock count?', body: `Covers ${items.length} batch${items.length === 1 ? '' : 'es'}. Check the shelf quantities before continuing.`, confirmLabel: 'Save count' }))) return;
     void run(() => createStockCount(items, notes.trim()), 'Stock count saved. It has not changed stock yet.').then(ok => { if (ok) { setCounted({}); setNotes(''); } });
   };
-  const applyCount = (count: StockCount) => {
-    if (!window.confirm(`Apply count #${count.stock_count_id} to stock? This changes the system balance. If stock moved after counting, the system will stop and ask for a new count.`)) return;
+  const applyCount = async (count: StockCount) => {
+    if (!(await confirm({ title: `Apply count #${count.stock_count_id} to stock?`, body: 'This changes the system balance. If stock moved after counting, the system will stop and ask for a new count.', confirmLabel: 'Apply to stock', tone: 'danger' }))) return;
     void run(() => postStockCount(count.stock_count_id), 'Count applied to stock. The stock history has been updated.');
   };
+  // Counted minus what the system thinks is on the shelf. This is the number a stock count
+  // exists to produce, and it was never shown — the server stores it, the screen hid it.
+  const varianceFor = (b: Batch) => {
+    const entered = counted[b.batchId];
+    if (entered === undefined || entered === '') return null;
+    const value = Number(entered);
+    return Number.isFinite(value) ? value - b.qtyOnHand : null;
+  };
+  // The batch table paginates, so entries made on an earlier page are off-screen but still part
+  // of the count. Surface the running totals rather than letting them submit unseen.
+  const countedEntries = Object.entries(counted).filter(([, v]) => v !== '');
+  const countedOnThisPage = batches.filter(b => varianceFor(b) !== null).length;
+  const differencesOnThisPage = batches.filter(b => (varianceFor(b) ?? 0) !== 0).length;
+
   const showBatchTable = mode === 'batches' || mode === 'stock-ledger' || mode === 'stock-take' || mode === 'adjustment';
   const visibleAlerts = alerts.filter(a => mode === 'low-stock' ? a.type === 'low-stock' : a.type !== 'low-stock');
 
@@ -102,15 +119,21 @@ export default function InventoryOperations({ mode }: { mode: Mode }) {
       {mode === 'stock-take' && <Notice tone="warn">Saving a count does not change stock. Small differences can be applied after review. Large differences need an administrator. If stock changed after counting, the system asks for a new count.</Notice>}
       {mode === 'adjustment' && <Notice tone="warn">Use this only for a real stock correction. Dispensing and goods receipt must use their own workflows.</Notice>}
       <Panel title={mode === 'stock-take' ? 'Enter shelf quantities' : 'Choose a batch'} action={<span className="ops-muted">Page {page} of {totalPages}</span>}>
-        <div className="ops-toolbar"><input className="ops-search" aria-label="Search batch number" placeholder="Search batch number" value={search} onChange={e => setSearch(e.target.value)} />{medicineId && <PathLink to="/inventory/batches">Clear medicine filter</PathLink>}</div>
-        {loading ? <Empty text="Loading batches…" /> : batches.length ? <div className="ops-table-wrap"><table className="ops-table"><thead><tr><th>Medicine</th><th>Batch number</th><th>Expires</th><th>On shelf</th><th>Place</th><th>{mode === 'stock-take' ? 'Counted' : 'Action'}</th></tr></thead><tbody>{batches.map(b => <tr key={b.batchId}><td><strong>{b.medicineName}</strong><br /><span className={`ops-pill ${statusTone(b.status)}`}>{b.status}</span></td><td>{b.batchNo}</td><td>{dateText(b.expiryDate)}</td><td>{b.qtyOnHand}</td><td>{b.location || 'Not set'}</td><td>{mode === 'stock-take' ? <input className="ops-search" style={{ width: 95 }} aria-label={`Counted quantity for ${b.medicineName} batch ${b.batchNo}`} type="number" min="0" step="1" value={counted[b.batchId] ?? ''} onChange={e => setCounted(v => ({ ...v, [b.batchId]: e.target.value }))} /> : <button className="ops-btn" onClick={() => setSelectedId(b.batchId)}>{mode === 'stock-ledger' ? 'View history' : mode === 'adjustment' ? 'Correct stock' : 'View details'}</button>}</td></tr>)}</tbody></table></div> : <Empty text="No batches found. Try another search." />}
+        <div className="ops-toolbar"><input className="ops-search" aria-label="Search medicine or batch number" placeholder="Search medicine or batch number" value={search} onChange={e => setSearch(e.target.value)} />{medicineId && <PathLink to="/inventory/batches">Clear medicine filter</PathLink>}</div>
+        {loading ? <Empty text="Loading batches…" /> : batches.length ? <div className="ops-table-wrap"><table className="ops-table"><thead><tr><th>Medicine</th><th>Batch number</th><th>Expires</th><th>On shelf</th><th>Place</th><th>{mode === 'stock-take' ? 'Counted' : 'Action'}</th>{mode === 'stock-take' && <th>Difference</th>}</tr></thead><tbody>{batches.map(b => <tr key={b.batchId}><td><strong>{b.medicineName}</strong><br /><span className={`ops-pill ${statusTone(b.status)}`}>{b.status}</span></td><td>{b.batchNo}</td><td>{dateText(b.expiryDate)}</td><td>{b.qtyOnHand}</td><td>{b.location || 'Not set'}</td><td>{mode === 'stock-take' ? <input className="ops-search" style={{ width: 95 }} aria-label={`Counted quantity for ${b.medicineName} batch ${b.batchNo}`} type="number" min="0" step="1" value={counted[b.batchId] ?? ''} onChange={e => setCounted(v => ({ ...v, [b.batchId]: e.target.value }))} /> : <button className="ops-btn" onClick={() => setSelectedId(b.batchId)}>{mode === 'stock-ledger' ? 'View history' : mode === 'adjustment' ? 'Correct stock' : 'View details'}</button>}</td>
+              {mode === 'stock-take' && <td>{varianceFor(b) === null ? <span className="ops-muted">Not counted</span> : <span className={`ops-pill ${varianceFor(b) === 0 ? 'ok' : 'warn'}`}>{varianceFor(b)! > 0 ? `+${varianceFor(b)}` : varianceFor(b) === 0 ? 'Matches' : String(varianceFor(b))}</span>}</td>}</tr>)}</tbody></table></div> : <Empty text="No batches found. Try another search." />}
         <div className="ops-toolbar"><button className="ops-btn" disabled={page === 1} onClick={() => setPage(n => n - 1)}>Previous</button><button className="ops-btn" disabled={page >= totalPages} onClick={() => setPage(n => n + 1)}>Next</button></div>
       </Panel>
       {selected && mode === 'batches' && <Panel title={`${selected.medicineName} — ${selected.batchNo}`}><div className="ops-panel-body ops-grid"><div><strong>Expiry</strong><p>{dateText(selected.expiryDate)}</p></div><div><strong>Quantity</strong><p>{selected.qtyOnHand}</p></div><div><strong>Storage place</strong><p>{selected.location || 'Not set'}</p></div><div><strong>Supplier</strong><p>{selected.supplierName || 'Not recorded'}</p></div><PathLink to="/inventory/stock-ledger">See stock history</PathLink></div></Panel>}
       {selected && mode === 'stock-ledger' && <Panel title={`History — ${selected.medicineName}, batch ${selected.batchNo}`}>{ledger.length ? <div className="ops-table-wrap"><table className="ops-table"><thead><tr><th>When</th><th>What happened</th><th>Change</th><th>Balance</th><th>By</th></tr></thead><tbody>{ledger.map(e => <tr key={e.ledgerId}><td>{dateText(e.createdAt)}</td><td><strong>{e.eventType}</strong><br /><span className="ops-muted">{e.reason || '—'}</span></td><td>{e.changeQty > 0 ? '+' : ''}{e.changeQty}</td><td>{e.balanceAfter}</td><td>{e.createdBy}</td></tr>)}</tbody></table></div> : <Empty text="No movements recorded for this batch." />}</Panel>}
       {selected && mode === 'adjustment' && <Panel title={`Correct ${selected.medicineName} — ${selected.batchNo}`}><div className="ops-panel-body"><Notice>Current system quantity: <strong>{selected.qtyOnHand}</strong>. Use a negative number for missing or damaged stock, or a positive number for stock found.</Notice><div className="ops-grid"><div className="ops-field"><label htmlFor="stock-type">Type of change</label><select id="stock-type" value={transactionType} onChange={e => setTransactionType(e.target.value as typeof transactionType)}><option value="Adjustment">Adjustment (correction)</option><option value="Transfer">Transfer (moved elsewhere)</option><option value="Return">Return (sent back to supplier)</option><option value="Damaged">Damaged</option><option value="Expired">Expired / written off</option></select></div><div className="ops-field"><label htmlFor="stock-change">Change in quantity</label><input id="stock-change" type="number" step="1" value={delta} onChange={e => setDelta(e.target.value)} placeholder="Example: -2" /></div><div className="ops-field"><label htmlFor="stock-reason">Reason for change</label><input id="stock-reason" value={reason} onChange={e => setReason(e.target.value)} placeholder="Example: 2 tablets damaged" maxLength={200} /></div></div><div className="ops-actions"><button className="ops-btn primary" disabled={busy} onClick={submitAdjustment}>Review and save change</button></div></div></Panel>}
-      {mode === 'stock-take' && <Panel title="Save this count"><div className="ops-panel-body"><div className="ops-field"><label htmlFor="count-notes">Notes (optional)</label><textarea id="count-notes" rows={2} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Example: Counted shelf A after closing" /></div><div className="ops-actions"><button className="ops-btn primary" disabled={busy} onClick={submitCount}>Save count for review</button></div></div></Panel>}
-      {mode === 'stock-take' && <Panel title="Previous counts">{counts.length ? <div className="ops-table-wrap"><table className="ops-table"><thead><tr><th>Date</th><th>Counted by</th><th>Batches</th><th>Status</th><th>Next step</th></tr></thead><tbody>{counts.map(c => <tr key={c.stock_count_id}><td>{dateText(c.created_at)}</td><td>{c.performed_by_user?.username || '—'}</td><td>{c.items.length}</td><td><span className={`ops-pill ${c.status === 'Posted' ? 'ok' : 'warn'}`}>{c.status === 'PendingReview' ? 'Needs admin review' : c.status === 'Posted' ? 'Applied' : 'Saved only'}</span></td><td>{c.status === 'Draft' ? <button className="ops-btn primary" disabled={busy} onClick={() => applyCount(c)}>Review and apply</button> : c.status === 'PendingReview' ? 'Ask administrator' : 'Complete'}</td></tr>)}</tbody></table></div> : <Empty text="No stock counts saved yet." />}</Panel>}
+      {mode === 'stock-take' && <Panel title="Save this count"><div className="ops-panel-body">
+        <Notice tone={countedEntries.length ? 'info' : 'warn'}>
+          {countedEntries.length === 0
+            ? 'Nothing counted yet. Enter the shelf quantity for each batch you have counted.'
+            : `${countedEntries.length} batch${countedEntries.length === 1 ? '' : 'es'} counted in total (${countedOnThisPage} on this page, ${differencesOnThisPage} differing here). Entries made on other pages are included when you save.`}
+        </Notice><div className="ops-field"><label htmlFor="count-notes">Notes (optional)</label><textarea id="count-notes" rows={2} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Example: Counted shelf A after closing" /></div><div className="ops-actions"><button className="ops-btn primary" disabled={busy} onClick={submitCount}>Save count for review</button></div></div></Panel>}
+      {mode === 'stock-take' && <Panel title="Previous counts">{counts.length ? <div className="ops-table-wrap"><table className="ops-table"><thead><tr><th>Date</th><th>Counted by</th><th>Batches</th><th>Differences</th><th>Status</th><th>Next step</th></tr></thead><tbody>{counts.map(c => <tr key={c.stock_count_id}><td>{dateText(c.created_at)}</td><td>{c.performed_by_user?.username || '—'}</td><td>{c.items.length}</td><td>{(() => { const off = c.items.filter(i => i.variance !== 0); if (!off.length) return <span className="ops-pill ok">All matched</span>; const net = off.reduce((sum, i) => sum + i.variance, 0); return <span className="ops-pill warn">{off.length} off · net {net > 0 ? `+${net}` : net}</span>; })()}</td><td><span className={`ops-pill ${c.status === 'Posted' ? 'ok' : 'warn'}`}>{c.status === 'PendingReview' ? 'Needs admin review' : c.status === 'Posted' ? 'Applied' : 'Saved only'}</span></td><td>{c.status === 'Draft' ? <button className="ops-btn primary" disabled={busy} onClick={() => applyCount(c)}>Review and apply</button> : c.status === 'PendingReview' ? 'Ask administrator' : 'Complete'}</td></tr>)}</tbody></table></div> : <Empty text="No stock counts saved yet." />}</Panel>}
     </>}
   </div>;
 }

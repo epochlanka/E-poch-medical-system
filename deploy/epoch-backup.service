@@ -1,9 +1,13 @@
-## Runs deploy/backup.sh once (triggered daily by epoch-backup.timer). Needs BACKUP_DEST etc. in the
-## repo-root .env — see deploy/backup.sh.
+## Runs backup.sh once (triggered daily by epoch-backup.timer).
 ##
-## Install alongside the other units:
-##   sudo cp deploy/epoch-backup.service deploy/epoch-backup.timer /etc/systemd/system/
+## __REPO_PATH__ is whichever directory holds the compose file and backup.sh: the repository root
+## on a development machine, or the transferred install folder on the clinic machine.
+## Set BACKUP_DEST (and ideally BACKUP_PASSPHRASE_FILE) in the .env or clinic.env beside it.
+##
+## On the clinic machine, from inside the install folder:
+##   sudo cp epoch-backup.service epoch-backup.timer /etc/systemd/system/
 ##   sudo sed -i "s#__REPO_PATH__#$(pwd)#" /etc/systemd/system/epoch-backup.service
+##   sudo sed -i "s#/deploy/backup.sh#/backup.sh#" /etc/systemd/system/epoch-backup.service
 ##   sudo systemctl daemon-reload
 ##   sudo systemctl enable --now epoch-backup.timer
 

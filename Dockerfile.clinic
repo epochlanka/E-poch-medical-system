@@ -1,0 +1,60 @@
+# One-container clinic image: API, migrations, document rendering and the E-POCH web application.
+# Build from the repository root:
+#   docker build -f Dockerfile.clinic -t epoch-medical:clinic .
+
+FROM node:24-alpine AS backend-builder
+WORKDIR /build/backend
+RUN apk add --no-cache openssl
+COPY backend/package*.json ./
+RUN npm ci
+COPY backend ./
+RUN npx prisma generate && npm run build
+
+FROM node:24-alpine AS frontend-builder
+WORKDIR /build/frontend
+COPY frontend/package*.json ./
+RUN npm ci
+COPY frontend ./
+RUN npm run build
+
+FROM node:24-alpine
+WORKDIR /usr/src/app
+
+# nginx serves the web application. The remaining packages support Prisma, health checks,
+# encrypted backups, the clinic timezone, and Word-to-PDF letter rendering.
+RUN apk add --no-cache \
+      nginx openssl wget su-exec tzdata tar postgresql17-client \
+      libreoffice-writer font-liberation font-carlito font-dejavu font-noto-sinhala font-noto-tamil \
+    && fc-cache -f
+
+ENV NODE_ENV=production \
+    TZ=Asia/Colombo
+
+COPY backend/package*.json ./
+RUN npm ci --omit=dev
+
+COPY --from=backend-builder /build/backend/dist ./dist
+COPY --from=backend-builder /build/backend/node_modules/.prisma ./node_modules/.prisma
+COPY --from=backend-builder /build/backend/node_modules/@prisma ./node_modules/@prisma
+COPY backend/prisma ./prisma
+COPY backend/scripts/check-db-security.js backend/scripts/bootstrap-production.js ./scripts/
+
+COPY --from=frontend-builder /build/frontend/dist /srv/epoch/app
+
+COPY deploy/clinic-nginx.conf /etc/nginx/http.d/default.conf
+COPY backend/docker-entrypoint.sh /usr/local/bin/backend-entrypoint
+COPY deploy/clinic-entrypoint.sh /usr/local/bin/clinic-entrypoint
+RUN chmod +x /usr/local/bin/backend-entrypoint /usr/local/bin/clinic-entrypoint \
+    && mkdir -p uploads backups logs /run/nginx \
+    && addgroup -S appgroup && adduser -S appuser -G appgroup \
+    && chown -R appuser:appgroup /usr/src/app \
+    && nginx -t
+
+EXPOSE 3000 5173
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD wget -q -O - http://127.0.0.1:3000/health >/dev/null \
+      && wget -q -O - http://127.0.0.1:5173/health >/dev/null \
+      || exit 1
+
+ENTRYPOINT ["clinic-entrypoint"]
+CMD ["node", "dist/server.js"]

@@ -8,12 +8,13 @@
 # context:
 #   docker build -f receptionist-frontend/Dockerfile.prod -t epoch-receptionist-frontend-prod .
 
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 WORKDIR /usr/src/app
 
 COPY pharmacist-frontend/package*.json ./pharmacist-frontend/
 RUN cd pharmacist-frontend && npm ci
 COPY pharmacist-frontend/src ./pharmacist-frontend/src
+COPY shared ./shared
 
 COPY receptionist-frontend/package*.json ./receptionist-frontend/
 RUN cd receptionist-frontend && npm ci

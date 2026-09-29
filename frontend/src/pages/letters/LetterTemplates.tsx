@@ -1,5 +1,5 @@
+import { useWorkspaceNavigate } from '../../app/WorkspaceContext';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import {
   listLetterTemplates,
@@ -13,7 +13,7 @@ import '../dashboard/dashboard.css';
 import '../patients/patients.css';
 
 const LetterTemplates = () => {
-  const navigate = useNavigate();
+  const navigate = useWorkspaceNavigate();
   const { data: templates, loading, error, reload } = useApiData(() => listLetterTemplates());
   const [busyId, setBusyId] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);

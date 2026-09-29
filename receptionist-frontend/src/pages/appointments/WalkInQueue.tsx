@@ -250,12 +250,12 @@ const WalkInQueue = () => {
       <div className="pat-header">
         <div>
           <h1>
-            <span style={{ marginRight: 8, color: '#2563eb', verticalAlign: -2, display: 'inline-flex' }}>
+            <span style={{ marginRight: 8, color: 'var(--accent)', verticalAlign: -2, display: 'inline-flex' }}>
               <UsersIcon />
             </span>
-            Walk-in / Add to Queue
+            Add a walk-in
           </h1>
-          <p>Register a walk-in patient and add to the live queue.</p>
+          <p>Put a patient who arrived without an appointment into today's waiting line.</p>
         </div>
         <div className="reg-breadcrumb">
           <span>Appointments &amp; Queue</span>
@@ -586,7 +586,7 @@ const WalkInQueue = () => {
           <div className="card">
             <div className="card-header">
               <h3 className="card-title">
-                <span style={{ marginRight: 8, color: '#2563eb', verticalAlign: -2, display: 'inline-flex' }}>
+                <span style={{ marginRight: 8, color: 'var(--accent)', verticalAlign: -2, display: 'inline-flex' }}>
                   <UsersIcon />
                 </span>
                 Current Queue Summary

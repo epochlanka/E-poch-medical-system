@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { toFriendlyError, type FriendlyError } from './errorMessage';
-import { commonLoginUrl, isUserRole, redirectToRoleHome } from '../config/roleRoutes';
+import { homePathForRole, isUserRole } from '../app/workspaces';
 
 // Keep the API on the same computer that served the UI. This makes the default work both on
 // localhost and when another clinic PC opens the app through this computer's LAN address.
@@ -20,25 +20,25 @@ const emitAppError = (friendly: FriendlyError) => {
   }
 };
 
-// The role this tab last saw itself signed in as, kept current by AuthContext. All four portals
-// (Admin/Doctor/Receptionist/Pharmacist, on different ports) call this same backend origin, so
-// they share one browser cookie jar — logging into a different portal (or the same portal in
-// another tab) silently swaps the session under any other open tab, which never re-fetches
-// /auth/me on its own. That tab keeps showing its old role's UI until an action 403s. The
-// interceptor below tells that apart from a genuine same-role permission error: only redirect
-// when the role has actually changed underneath this tab.
 // Timer-driven refreshes (live queue boards, sidebar counters) send this so the server does not
 // count them as human activity. Without it, a queue board left open on an unattended workstation
 // polls every 10-15s, keeps the session "active", and the idle timeout can never fire.
 export const BACKGROUND_REQUEST = { headers: { 'X-Epoch-Background': '1' } } as const;
 
+// The role this tab last saw itself signed in as, kept current by AuthContext. One session cookie
+// is shared by every tab on this origin, so signing in as someone else in another tab silently
+// swaps the session under this one, which never re-fetches /auth/me on its own. This tab keeps
+// showing the old role's UI until an action 403s. The interceptor below tells that apart from a
+// genuine same-role permission error: it only redirects when the role actually changed underneath.
 export const authState: { role: string | null } = { role: null };
 
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
     if (error.response?.status === 401 && !window.location.pathname.startsWith('/login')) {
-      window.location.replace(commonLoginUrl());
+      // Session gone or expired. A full load (rather than a route change) clears anything the
+      // previous session left in memory, and lands on the shared sign-in screen.
+      window.location.replace(`/login?from=${encodeURIComponent(window.location.pathname + window.location.search)}`);
       return Promise.reject(error);
     }
 
@@ -47,7 +47,7 @@ api.interceptors.response.use(
         const { data } = await axios.get(`${API_BASE_URL}/api/v1/auth/me`, { withCredentials: true });
         const actualRole = data?.user?.role;
         if (actualRole && actualRole !== authState.role && isUserRole(actualRole)) {
-          redirectToRoleHome(actualRole);
+          window.location.replace(homePathForRole(actualRole));
           return new Promise(() => {}); // navigation is in flight; nothing else should run
         }
       } catch {

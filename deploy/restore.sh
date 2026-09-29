@@ -17,15 +17,25 @@
 #   - a pair made by deploy/backup.sh:  "database-<ts>.dump[.enc],uploads-<ts>.tar.gz[.enc]"
 #     (comma-separated, no spaces). Encrypted (.enc) files need BACKUP_PASSPHRASE_FILE in .env.
 set -eu
-cd "$(dirname "$0")/.."
-[ -f .env ] && { set -a; . ./.env; set +a; }
+# Works in two layouts, because the clinic machine has no checkout of this repository:
+#   development repo  — docker-compose.prod.yml, .env,       service "backend",       backend/uploads
+#   clinic install    — docker-compose.yml,      clinic.env, service "epoch-medical", data/uploads
+# The script is run from whichever directory holds the compose file.
+if [ -f "$(dirname "$0")/../docker-compose.prod.yml" ]; then
+  cd "$(dirname "$0")/.."
+  COMPOSE_FILE=docker-compose.prod.yml; APP_SERVICE=backend; UPLOADS_PARENT=backend; ENV_FILE=.env
+else
+  cd "$(dirname "$0")"
+  COMPOSE_FILE=docker-compose.yml; APP_SERVICE=epoch-medical; UPLOADS_PARENT=data; ENV_FILE=clinic.env
+fi
+[ -f "$ENV_FILE" ] && { set -a; . "./$ENV_FILE"; set +a; }
+COMPOSE="docker compose -f $COMPOSE_FILE"
 
 MODE="${1:-}"; BACKUP="${2:-}"; TARGET_URL=""
 [ "${3:-}" = "--target-url" ] && TARGET_URL="${4:-}"
 case "$MODE" in --drill|--live) ;; *) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;; esac
 [ -n "$BACKUP" ] || { echo "Missing <backup>." >&2; exit 2; }
 
-COMPOSE="docker compose -f docker-compose.prod.yml"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 START="$(date +%s)"
@@ -52,12 +62,12 @@ esac
 [ -s "$STAGE/database.dump" ] || { echo "The backup contains no database.dump." >&2; exit 1; }
 [ -d "$STAGE/uploads" ] || mkdir "$STAGE/uploads"
 
-IMAGE="$($COMPOSE images -q backend | head -n 1)"
-[ -n "$IMAGE" ] || { echo "The backend image is not built yet (run ./deploy/launch.sh first)." >&2; exit 1; }
+IMAGE="$($COMPOSE images -q "$APP_SERVICE" | head -n 1)"
+[ -n "$IMAGE" ] || { echo "The application image is not available (start the stack first)." >&2; exit 1; }
 tools() { docker run --rm --network host --entrypoint sh -v "$STAGE:/restore:ro" -e "PGCONNECT_TIMEOUT=30" "$@"; }
 
 host_of() { printf '%s' "$1" | sed -E 's#^[a-z]+://[^@]*@##; s#[:/?].*##'; }
-live_url="$(grep -E '^DIRECT_URL=' backend/.env | head -n1 | cut -d= -f2-)"
+live_url="$(grep -E '^DIRECT_URL=' "$([ -f backend/.env ] && echo backend/.env || echo "$ENV_FILE")" | head -n1 | cut -d= -f2-)"
 
 # ── DRILL ──────────────────────────────────────────────────────────────────────────────────────
 if [ "$MODE" = "--drill" ]; then
@@ -87,17 +97,17 @@ read -r CONFIRM
 [ "$CONFIRM" = "RESTORE LIVE DATABASE" ] || { echo "Cancelled."; exit 1; }
 
 TS="$(date +%Y%m%dT%H%M%S)"
-SAFETY="backend/backups/pre-restore-$TS.dump"
-mkdir -p backend/backups
+SAFETY="$UPLOADS_PARENT/backups/pre-restore-$TS.dump"
+mkdir -p "$UPLOADS_PARENT/backups"
 echo "Saving a safety dump of the CURRENT database to $SAFETY ..."
-$COMPOSE exec -T backend sh -c 'pg_dump --format=custom "$DIRECT_URL"' > "$SAFETY"
+$COMPOSE exec -T "$APP_SERVICE" sh -c 'pg_dump --format=custom "$DIRECT_URL"' > "$SAFETY"
 [ -s "$SAFETY" ] || { echo "Safety dump is empty — aborting before anything is changed." >&2; exit 1; }
 
 echo "Stopping the application..."
-$COMPOSE stop backend
+$COMPOSE stop "$APP_SERVICE"
 
 echo "Restoring the database (single transaction: it either fully succeeds or changes nothing)..."
-if ! $COMPOSE run --rm --no-deps --entrypoint sh -v "$STAGE:/restore:ro" backend -c \
+if ! $COMPOSE run --rm --no-deps --entrypoint sh -v "$STAGE:/restore:ro" "$APP_SERVICE" -c \
      'pg_restore --exit-on-error --single-transaction --clean --if-exists --no-owner --dbname "$DIRECT_URL" /restore/database.dump'; then
   echo "RESTORE FAILED — the database was left exactly as it was. Restarting the application." >&2
   $COMPOSE up -d
@@ -105,20 +115,23 @@ if ! $COMPOSE run --rm --no-deps --entrypoint sh -v "$STAGE:/restore:ro" backend
 fi
 
 echo "Restoring uploaded files..."
-if [ -d backend/uploads ]; then mv backend/uploads "backend/uploads.before-restore-$TS"; fi
-cp -a "$STAGE/uploads" backend/uploads
+if [ -d "$UPLOADS_PARENT/uploads" ]; then mv "$UPLOADS_PARENT/uploads" "$UPLOADS_PARENT/uploads.before-restore-$TS"; fi
+cp -a "$STAGE/uploads" "$UPLOADS_PARENT/uploads"
 
 echo "Revoking every session (the restored database brings back old ones)..."
-$COMPOSE run --rm --no-deps --entrypoint sh backend -c \
+$COMPOSE run --rm --no-deps --entrypoint sh "$APP_SERVICE" -c \
   'node -e "const {PrismaClient}=require(\"@prisma/client\");const p=new PrismaClient();p.userSession.updateMany({where:{revoked_at:null},data:{revoked_at:new Date()}}).then(r=>{console.log(\"sessions revoked:\",r.count);return p.\$disconnect()})"'
 
 echo "Starting the application..."
 $COMPOSE up -d
-$COMPOSE run --rm --no-deps --entrypoint sh backend -c 'node scripts/check-db-security.js'
+# Supabase-only check; a local PostgreSQL has no anon/authenticated roles to audit.
+if [ "${SKIP_DB_SECURITY_CHECK:-}" != "true" ]; then
+  $COMPOSE run --rm --no-deps --entrypoint sh "$APP_SERVICE" -c 'node scripts/check-db-security.js'
+fi
 
 echo
 echo "Restored in $(( $(date +%s) - START ))s."
-echo "  - Previous uploads kept at backend/uploads.before-restore-$TS ; previous database at $SAFETY"
+echo "  - Previous uploads kept at $UPLOADS_PARENT/uploads.before-restore-$TS ; previous database at $SAFETY"
 echo "  - Settings > Backups now lists the backups that existed AT THE RESTORED POINT IN TIME; backup files"
-echo "    made since then are still on disk in backend/backups but are not listed."
+echo "    made since then are still on disk in $UPLOADS_PARENT/backups but are not listed."
 echo "  - Everyone must sign in again."

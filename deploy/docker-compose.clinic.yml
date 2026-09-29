@@ -1,0 +1,58 @@
+services:
+  # The clinic's own PostgreSQL, on the clinic machine. Nothing here talks to the internet: the
+  # application reaches it over the private compose network as host "db", and no port is published
+  # to the LAN, so the database is not reachable from any other machine in the clinic.
+  #
+  # Its data lives in ./data/postgres beside the uploads and logs, so one folder is the whole
+  # installation — but see deploy/README.md: a copy on the same disk protects against nothing that
+  # kills the disk. backup.sh to an external drive is not optional now that there is no managed
+  # off-site copy behind this.
+  #
+  # Both services read the same clinic.env. POSTGRES_* are consumed by the postgres image here and
+  # must agree with the DATABASE_URL the app uses; clinic.env.example keeps them together so there
+  # is one place to change the password. (env_file is used rather than ${VAR} interpolation on
+  # purpose: compose interpolates from its own .env, not from env_file, so ${POSTGRES_PASSWORD}
+  # here would silently resolve to empty.)
+  db:
+    image: postgres:17-alpine
+    env_file:
+      - ./clinic.env
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      # $$ so compose leaves it alone and the container's own shell expands it.
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  epoch-medical:
+    image: epoch-medical:clinic
+    env_file:
+      - ./clinic.env
+    # The app runs `prisma migrate deploy` at boot, so it must not start before the database can
+    # accept connections — otherwise the first start fails and waits out the restart backoff.
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      # One application on 5173 for every role, and the API on 3000.
+      - '3000:3000'
+      - '5173:5173'
+    volumes:
+      - ./data/uploads:/usr/src/app/uploads
+      - ./data/backups:/usr/src/app/backups
+      - ./data/logs:/usr/src/app/logs
+    restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'

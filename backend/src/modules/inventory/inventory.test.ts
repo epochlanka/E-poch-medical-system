@@ -44,6 +44,109 @@ describe('Inventory API', () => {
     expect(res.body.data.every((b: any) => b.status !== 'Expired')).toBe(true);
   });
 
+  it('filters batches by Active status to in-date batches that still have stock', async () => {
+    const res = await request(app).get('/api/v1/inventory/batches').query({ status: 'Active' }).set('Authorization', `Bearer ${pharmacistToken}`);
+    expect(res.status).toBe(200);
+    // The schema accepted Active and the query ignored it, so every expired and depleted batch
+    // came back too.
+    expect(res.body.data.every((b: any) => b.status === 'Active')).toBe(true);
+  });
+
+  it('finds batches by medicine name, not only by batch number', async () => {
+    const all = await request(app).get('/api/v1/inventory/batches').set('Authorization', `Bearer ${pharmacistToken}`);
+    const name: string = all.body.data[0].medicineName;
+    const res = await request(app)
+      .get('/api/v1/inventory/batches')
+      .query({ search: name.slice(0, 4) })
+      .set('Authorization', `Bearer ${pharmacistToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBeGreaterThan(0);
+    expect(res.body.data.some((b: any) => b.medicineName === name)).toBe(true);
+  });
+
+  // A medicine whose whole stock has expired cannot be dispensed, so it must still raise a
+  // reorder alert. Counting expired units as on-hand used to suppress it entirely.
+  it('raises a low-stock alert for a medicine whose only stock has expired', async () => {
+    const medicine = await prisma.medicine.create({
+      data: {
+        barcode: `EXP-${Date.now()}`,
+        name: `Expired Only ${Date.now()}`,
+        form: 'Tablet',
+        base_unit: 'Tablet',
+        default_selling_price: 5,
+      },
+    });
+    await prisma.batch.create({
+      data: {
+        medicine_id: medicine.medicine_id,
+        batch_no: `EXPB-${Date.now()}`,
+        expiry_date: new Date(Date.now() - 86400000),
+        qty_on_hand: 500,
+        qty_base_total: 500,
+        received_qty: 500,
+        received_unit: 'Tablet',
+        units_per_pack: 1,
+        purchase_price_per_pack: 1,
+        cost_per_base_unit: 1,
+        selling_price_per_base_unit: 5,
+      },
+    });
+
+    const res = await request(app).get('/api/v1/inventory/alerts').set('Authorization', `Bearer ${pharmacistToken}`);
+    expect(res.status).toBe(200);
+    const alert = res.body.find((a: any) => a.type === 'low-stock' && a.refId === medicine.medicine_id);
+    expect(alert).toBeDefined();
+    expect(alert.severity).toBe('red');
+    expect(alert.message).toMatch(/0 left/);
+    expect(alert.message).toMatch(/500 more on hand but expired/);
+
+    const catalog = await request(app)
+      .get('/api/v1/medicines/catalog')
+      .query({ search: medicine.name })
+      .set('Authorization', `Bearer ${pharmacistToken}`);
+    const row = catalog.body.data.find((m: any) => m.medicine_id === medicine.medicine_id);
+    expect(row.stockStatus).toBe('out-of-stock');
+    expect(row.usableQty).toBe(0);
+    expect(row.totalQty).toBe(500);
+  });
+
+  it('calls a medicine low on its usable stock alone, ignoring a large expired pile', async () => {
+    const medicine = await prisma.medicine.create({
+      data: {
+        barcode: `MIX-${Date.now()}`,
+        name: `Mostly Expired ${Date.now()}`,
+        form: 'Tablet',
+        base_unit: 'Tablet',
+        default_selling_price: 5,
+      },
+    });
+    const base = {
+      medicine_id: medicine.medicine_id,
+      qty_base_total: 0,
+      received_unit: 'Tablet',
+      units_per_pack: 1,
+      purchase_price_per_pack: 1,
+      cost_per_base_unit: 1,
+      selling_price_per_base_unit: 5,
+    };
+    await prisma.batch.create({
+      data: { ...base, batch_no: `MIXE-${Date.now()}`, expiry_date: new Date(Date.now() - 86400000), qty_on_hand: 400, received_qty: 400 },
+    });
+    await prisma.batch.create({
+      data: { ...base, batch_no: `MIXV-${Date.now()}`, expiry_date: new Date(Date.now() + 86400000 * 200), qty_on_hand: 5, received_qty: 5 },
+    });
+
+    const catalog = await request(app)
+      .get('/api/v1/medicines/catalog')
+      .query({ search: medicine.name })
+      .set('Authorization', `Bearer ${pharmacistToken}`);
+    const row = catalog.body.data.find((m: any) => m.medicine_id === medicine.medicine_id);
+    // 405 owned looks healthy; only 5 are dispensable, which is under the threshold of 10.
+    expect(row.totalQty).toBe(405);
+    expect(row.usableQty).toBe(5);
+    expect(row.stockStatus).toBe('low');
+  });
+
   it('returns a single batch with medicine/supplier detail', async () => {
     const res = await request(app).get('/api/v1/inventory/batches/1').set('Authorization', `Bearer ${pharmacistToken}`);
     expect(res.status).toBe(200);

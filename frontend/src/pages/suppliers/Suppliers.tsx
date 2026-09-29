@@ -1,5 +1,5 @@
+import { useWorkspaceNavigate } from '../../app/WorkspaceContext';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import { listSuppliers, getSupplierStats, updateSupplier } from '../../lib/suppliers';
 import type { Supplier } from '../../lib/suppliers';
@@ -91,7 +91,7 @@ const RowMenu = ({ supplier, onToggleActive }: { supplier: Supplier; onToggleAct
 };
 
 const Suppliers = () => {
-  const navigate = useNavigate();
+  const navigate = useWorkspaceNavigate();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');

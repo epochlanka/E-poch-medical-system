@@ -1,5 +1,5 @@
+import { useWorkspaceNavigate } from '../../app/WorkspaceContext';
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import { listPayments, getPaymentsStats, listPaymentMethodOptions } from '../../lib/billing';
 import type { ListPaymentsParams, PaymentStatus, PaymentsStats } from '../../lib/billing';
@@ -35,7 +35,7 @@ import '../patients/patients.css';
 const PER_PAGE_OPTIONS = [10, 25, 50];
 
 const Payments = () => {
-  const navigate = useNavigate();
+  const navigate = useWorkspaceNavigate();
 
   const [searchInput, setSearchInput] = useState('');
   const [filters, setFilters] = useState<ListPaymentsParams>({ page: 1, limit: 10 });

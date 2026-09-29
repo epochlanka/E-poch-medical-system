@@ -1,5 +1,6 @@
+import { useWorkspaceNavigate } from '../../app/WorkspaceContext';
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import { getClinicSettings } from '../../lib/settings';
 import {
@@ -67,7 +68,7 @@ const toInput = (f: FormState): LetterTemplateMetaInput => ({
 });
 
 const LetterTemplateEditor = () => {
-  const navigate = useNavigate();
+  const navigate = useWorkspaceNavigate();
   const { templateId } = useParams();
   const isNew = !templateId;
   const numericId = templateId ? Number(templateId) : null;

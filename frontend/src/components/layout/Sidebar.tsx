@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { navSections } from './navConfig';
+import { useWorkspace, useWorkspacePath } from '../../app/WorkspaceContext';
 
 const HeartPulseIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -14,6 +15,11 @@ interface SidebarProps {
 }
 
 const Sidebar = ({ open, onNavigate }: SidebarProps) => {
+  // Nav entries are written as workspace-local paths ('/patients'); the shell decides what they
+  // hang off ('/admin/patients'), so the same nav config works whichever workspace mounts it.
+  const toPath = useWorkspacePath();
+  const workspace = useWorkspace();
+
   return (
     <aside className={`shell-sidebar${open ? ' open' : ''}`}>
       <div className="shell-brand">
@@ -21,8 +27,8 @@ const Sidebar = ({ open, onNavigate }: SidebarProps) => {
           <HeartPulseIcon />
         </div>
         <div className="shell-brand-text">
-          <span className="shell-brand-name">Medi<b>Care</b></span>
-          <span className="shell-brand-sub">Clinic &amp; Dispensary</span>
+          <span className="shell-brand-name">E-<b>Poch</b></span>
+          <span className="shell-brand-sub">{workspace.label}</span>
         </div>
       </div>
 
@@ -33,7 +39,7 @@ const Sidebar = ({ open, onNavigate }: SidebarProps) => {
             {section.items.map((item) => (
               <NavLink
                 key={item.path}
-                to={item.path}
+                to={toPath(item.path)}
                 onClick={onNavigate}
                 className={({ isActive }) => `shell-nav-link${isActive ? ' active' : ''}`}
               >

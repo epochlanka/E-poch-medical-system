@@ -4,6 +4,7 @@ import { getFamilyMembers } from '../../lib/families';
 import type { FamilyDetail } from '../../lib/families';
 import { formatFamilyCode } from './familyUtils';
 import { FamiliesIcon } from '../../components/layout/Icons';
+import Modal from '../../components/Modal';
 
 interface ViewFamilyModalProps {
   familyId: number;
@@ -33,8 +34,7 @@ const ViewFamilyModal = ({ familyId, onClose, onEdit }: ViewFamilyModalProps) =>
   const { data, loading, error } = useApiData(() => getFamilyMembers(familyId), [familyId]);
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+    <Modal onClose={onClose} maxWidth={560}>
         {loading && <p className="modal-subtitle">Loading family…</p>}
         {error && <div className="modal-error">{error}</div>}
 
@@ -113,8 +113,7 @@ const ViewFamilyModal = ({ familyId, onClose, onEdit }: ViewFamilyModalProps) =>
             </div>
           </>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 };
 

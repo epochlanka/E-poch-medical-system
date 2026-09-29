@@ -25,15 +25,18 @@ const medicineIdParamsSchema = z.object({ params: z.object({ medicineId: z.coerc
 // Shared by a brand-new medicine's opening stock and the standalone "Add Stock Batch" action —
 // both ultimately call receiveStockBatch (medicines/service.ts -> suppliers/service.ts).
 const stockBatchSchema = z.object({
-  supplier_id: z.number().int().positive(),
-  batch_no: z.string().min(1, 'Batch number is required'),
+  // Both optional so a medicine and its opening stock can be added in one short form; the
+  // service falls back to the "Opening stock" supplier and a generated batch marker.
+  supplier_id: z.number().int().positive().optional(),
+  batch_no: z.string().optional(),
   purchase_date: z.coerce.date().optional(),
   manufacture_date: z.coerce.date().optional(),
   expiry_date: z.coerce.date(),
   received_unit: z.string().min(1, 'Received unit is required'), // Box, Strip, Bottle, Tablet, Capsule, ml, Tube, Piece, Other
   received_qty: z.number().positive(),
   units_per_pack: z.number().positive(), // base units per one received_unit
-  purchase_price_per_pack: z.number().min(0),
+  // Optional: at setup the clinic often knows what it sells for, not what it paid.
+  purchase_price_per_pack: z.number().min(0).optional(),
   selling_price_per_pack: z.number().min(0).optional(),
   selling_price_per_base_unit: z.number().min(0).optional(),
   location: z.string().optional(),
@@ -104,20 +107,29 @@ const catalogQuerySchema = z.object({
   }),
 });
 
-const csvUpload = multer({
+// Staff fill the stock sheet in in Excel, so .xlsx is the expected format; .csv still works for
+// anyone exporting from another system. 8 MB covers a few thousand rows of either.
+const SHEET_EXTENSIONS = /\.(xlsx|csv)$/i;
+const sheetUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 2 * 1024 * 1024 },
+  limits: { fileSize: 8 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    if (file.mimetype !== 'text/csv' && !file.originalname.toLowerCase().endsWith('.csv')) {
-      return cb(new Error('Only CSV files are allowed'));
+    if (!SHEET_EXTENSIONS.test(file.originalname)) {
+      return cb(new Error('Upload an Excel (.xlsx) or CSV (.csv) file. For an old .xls, use File → Save As → Excel Workbook first.'));
     }
     cb(null, true);
   },
 });
 
-const uploadCsvMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  csvUpload.single('file')(req, res, (err: unknown) => {
-    if (err) return res.status(400).json({ message: err instanceof Error ? err.message : 'Upload failed' });
+const uploadSheetMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  sheetUpload.single('file')(req, res, (err: unknown) => {
+    if (err) {
+      const message = err instanceof Error ? err.message : 'Upload failed';
+      // multer's own size error is unreadable; say what the limit actually is.
+      return res.status(400).json({
+        message: /file too large/i.test(message) ? 'That file is larger than 8 MB — split it into smaller sheets.' : message,
+      });
+    }
     next();
   });
 };
@@ -141,7 +153,9 @@ router.get('/stats', requireRole(READ_ROLES), controller.stats);
 router.get('/stock', requireRole(READ_ROLES), validate(stockQuerySchema), controller.listStock);
 router.get('/catalog-meta', requireRole(READ_ROLES), controller.catalogMeta);
 router.get('/catalog', requireRole(READ_ROLES), validate(catalogQuerySchema), controller.listCatalog);
-router.post('/import', requireRole(WRITE_ROLES), uploadCsvMiddleware, controller.importMedicines);
+// Must be declared before '/:medicineId', or "import-template" is read as a medicine id.
+router.get('/import-template', requireRole(WRITE_ROLES), controller.importTemplate);
+router.post('/import', requireRole(WRITE_ROLES), uploadSheetMiddleware, controller.importMedicines);
 
 router.get('/', requireRole(READ_ROLES), validate(searchSchema), controller.search);
 router.post('/', requireRole(WRITE_ROLES), validate(createSchema), controller.create);

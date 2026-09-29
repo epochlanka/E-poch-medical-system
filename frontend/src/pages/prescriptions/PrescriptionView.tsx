@@ -1,4 +1,5 @@
-import { useNavigate, useParams } from 'react-router-dom';
+import { useWorkspaceNavigate } from '../../app/WorkspaceContext';
+import { useParams } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import { getPrescription, downloadPrescriptionPdf } from '../../lib/prescriptions';
 import { PrintIcon, ChevronLeftIcon, DownloadIcon } from '../../components/layout/Icons';
@@ -17,7 +18,7 @@ const STATUS_BADGE: Record<string, string> = {
 
 const PrescriptionView = () => {
   const { prescriptionId } = useParams();
-  const navigate = useNavigate();
+  const navigate = useWorkspaceNavigate();
   const id = Number(prescriptionId);
 
   const { data: rx, loading, error } = useApiData(() => getPrescription(id), [id]);

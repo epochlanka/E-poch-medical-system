@@ -1,5 +1,5 @@
+import { useWorkspaceNavigate } from '../../app/WorkspaceContext';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import {
   listAppointments,
@@ -101,7 +101,7 @@ const RowMenu = ({ appointment, onCancel, onNoShow }: { appointment: QueueAppoin
 };
 
 const Appointments = () => {
-  const navigate = useNavigate();
+  const navigate = useWorkspaceNavigate();
   const [searchInput, setSearchInput] = useState('');
   const [filters, setFilters] = useState<ListAppointmentsParams>({ page: 1, limit: 8 });
   const [activeTab, setActiveTab] = useState<AppointmentListStatus | 'all' | 'today'>('all');

@@ -1,0 +1,131 @@
+/* Toast region and confirm dialog — see feedback.tsx. Colours come from shared/styles/tokens.css. */
+
+.fb-toasts {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(380px, calc(100vw - 36px));
+  pointer-events: none;
+}
+
+.fb-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 13px 15px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  font-size: var(--text-base);
+  line-height: 1.45;
+  color: var(--ink);
+  animation: fb-toast-in 0.18s ease-out;
+}
+.fb-toast span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.fb-toast button {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--ink-faint);
+  padding: 0 2px;
+}
+.fb-toast.success {
+  border-left: 4px solid var(--ok);
+  background: var(--ok-wash);
+  color: var(--ok);
+}
+.fb-toast.error {
+  border-left: 4px solid var(--danger);
+  background: var(--danger-wash);
+  color: var(--danger);
+}
+.fb-toast.info {
+  border-left: 4px solid var(--accent);
+}
+
+@keyframes fb-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fb-toast {
+    animation: none;
+  }
+}
+
+.fb-confirm {
+  border: none;
+  border-radius: var(--r-xl);
+  padding: 24px;
+  width: min(440px, calc(100vw - 40px));
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-pop);
+}
+.fb-confirm::backdrop {
+  background: rgba(15, 23, 42, 0.45);
+}
+.fb-confirm h2 {
+  margin: 0 0 8px;
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--ink);
+}
+.fb-confirm p {
+  margin: 0;
+  font-size: var(--text-base);
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+.fb-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.fb-btn {
+  min-height: var(--control-h);
+  padding: 10px 18px;
+  border-radius: var(--control-r);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: var(--text-base);
+  font-weight: 600;
+  cursor: pointer;
+}
+.fb-btn:hover {
+  background: var(--surface-wash);
+}
+.fb-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-on);
+}
+.fb-btn.primary:hover {
+  background: var(--accent-hover);
+}
+.fb-btn.primary.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+.fb-btn.primary.danger:hover {
+  filter: brightness(0.92);
+}

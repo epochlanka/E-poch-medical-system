@@ -1,5 +1,8 @@
 import { Request, Response } from 'express';
 import * as service from './service';
+import { parseImportFile, buildImportTemplate } from './stockImport';
+
+const actor = (req: Request) => req.user as any as { user_id: number; role: string };
 import { NotFoundError, ValidationError } from './errors';
 import { respondWithServerError } from '../../errors';
 
@@ -77,9 +80,29 @@ export const listCatalog = async (req: Request, res: Response) => {
 
 export const importMedicines = async (req: Request, res: Response) => {
   try {
-    if (!req.file) return res.status(400).json({ message: 'No CSV file provided' });
-    const result = await service.importMedicinesFromCsv(req.file.buffer.toString('utf-8'));
+    if (!req.file) return res.status(400).json({ message: 'No file was uploaded' });
+    // A malformed spreadsheet is the user's mistake, not a server fault — report it as a 400 with
+    // the parser's own wording, which already says how to fix the file.
+    let sheet;
+    try {
+      sheet = await parseImportFile(req.file.buffer, req.file.originalname);
+    } catch (parseError: any) {
+      return res.status(400).json({ message: parseError.message || 'Could not read that file.' });
+    }
+    const dryRun = req.query.dryRun === 'true' || req.query.dryRun === '1';
+    const result = await service.importMedicineRows(sheet, actor(req), { dryRun });
     res.status(200).json(result);
+  } catch (error) {
+    handleError(req, res, error);
+  }
+};
+
+export const importTemplate = async (req: Request, res: Response) => {
+  try {
+    const workbook = await buildImportTemplate();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="epoch-medicine-stock-template.xlsx"');
+    res.status(200).send(workbook);
   } catch (error) {
     handleError(req, res, error);
   }

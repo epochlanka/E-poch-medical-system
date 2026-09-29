@@ -82,7 +82,9 @@ describe('Prescriptions API', () => {
       .send({
         consultation_id: consultationId,
         items: [
-          { medicine_id: 1, dosage: '1 tablet', frequency: 'Twice daily', duration: '5 days', route: 'Oral', qty: 10 },
+          // dose_qty is required now that the parser understands worded frequencies:
+          // 1 tablet x twice daily x 5 days = 10, the same qty this test always asserted.
+          { medicine_id: 1, dosage: '1 tablet', dose_qty: 1, frequency: 'Twice daily', duration: '5 days', route: 'Oral', qty: 10 },
         ],
       });
 
@@ -291,6 +293,38 @@ describe('Prescriptions API', () => {
     it('does not validate qty for a non-calculable frequency (PRN) or duration ("Ongoing")', async () => {
       expect((await post({ frequency: 'PRN', duration: 'Ongoing', qty: 7 })).status).toBe(201);
       expect((await post({ frequency: 'BD', duration: 'Ongoing', qty: 60 })).status).toBe(201);
+    });
+
+    // The shorthand a prescriber actually types. Each case is 1 unit per dose, so the expected
+    // qty is simply doses/day x days; a mismatch would 400.
+    it.each([
+      ['Twice daily', '5 days', 10],
+      ['Three times daily', '5 days', 15],
+      ['QDS', '7 days', 28],
+      ['q8h', '5 days', 15],
+      ['every 6 hours', '3 days', 12],
+      ['3 times a day', '5 days', 15],
+      ['Nocte', '10 days', 10],
+      ['BD', '2 weeks', 28],
+      ['OD', '1 Month', 30],
+      ['BD', '5/7', 10],
+      ['TDS', '2/52', 42],
+      ['BD', '5', 10],
+    ])('calculates %s x %s as %i units', async (frequency, duration, qty) => {
+      expect((await post({ dose_qty: 1, frequency, duration, qty })).status).toBe(201);
+      expect((await post({ dose_qty: 1, frequency, duration, qty: qty + 1 })).status).toBe(400);
+    });
+
+    // "x 5/7" is "for 5 days", not "five times a day" — reading it as a frequency would multiply
+    // the dispensed quantity.
+    it('does not mistake a duration written after the frequency for a dose count', async () => {
+      expect((await post({ dose_qty: 1, frequency: 'BD x 5/7', duration: '5 days', qty: 10 })).status).toBe(201);
+    });
+
+    it('still refuses to guess when the schedule is open-ended or as-needed', async () => {
+      expect((await post({ dose_qty: 1, frequency: 'PRN', duration: '5 days', qty: 7 })).status).toBe(201);
+      expect((await post({ dose_qty: 1, frequency: 'when required', duration: '5 days', qty: 7 })).status).toBe(201);
+      expect((await post({ dose_qty: 1, frequency: 'BD', duration: 'until review', qty: 7 })).status).toBe(201);
     });
 
     it('rejects a non-positive dose_qty at the API boundary', async () => {

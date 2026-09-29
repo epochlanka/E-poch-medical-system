@@ -19,6 +19,7 @@ const itemSchema = z.object({
   dosage_form: z.string().min(1, 'Dosage form is required'),
   strength: z.string().optional(),
   dosage: z.string().min(1, 'Dosage is required'),
+  dose_qty: z.number().positive('Dose per administration must be a positive number').optional(),
   frequency: z.string().optional(),
   duration: z.string().optional(),
   quantity: z.number().positive('Quantity must be a positive number'),

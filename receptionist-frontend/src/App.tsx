@@ -7,6 +7,7 @@ import AppLayout from './components/layout/AppLayout';
 import ReceptionRoutes from './frontDesk/ReceptionRoutes';
 import PharmacyRoutes from './frontDesk/PharmacyRoutes';
 import { WorkspaceContext, isPharmacyPath } from './frontDesk/WorkspaceContext';
+import { FeedbackProvider } from '../../shared/ui/feedback';
 import './frontDesk/frontDesk.css';
 
 const initialLocation = (pathname: string): Location => ({ pathname, search: '', hash: '', state: null, key: pathname });
@@ -35,5 +36,5 @@ function FrontDeskPortal() {
   </WorkspaceContext.Provider>;
 }
 export default function App() {
-  return <AuthProvider><Routes><Route path="/*" element={<FrontDeskPortal />} /></Routes></AuthProvider>;
+  return <FeedbackProvider><AuthProvider><Routes><Route path="/*" element={<FrontDeskPortal />} /></Routes></AuthProvider></FeedbackProvider>;
 }

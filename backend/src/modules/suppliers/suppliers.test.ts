@@ -196,14 +196,14 @@ describe('Suppliers API', () => {
   });
 
   it('suggests reorder quantities for low-stock medicines', async () => {
-    const lowStockMedicine = await prisma.medicine.create({ data: { name: `Low Stock Drug ${runId}`, base_unit: 'Tablet', reorder_level: 50, is_active: true } });
+    const lowStockMedicine = await prisma.medicine.create({ data: { name: `Low Stock Drug ${runId}`, base_unit: 'Tablet', is_active: true } });
     await prisma.batch.create({ data: { medicine_id: lowStockMedicine.medicine_id, batch_no: `LOW-${runId}`, expiry_date: new Date(Date.now() + 86400000 * 100), qty_on_hand: 5 } });
 
     const res = await request(app).get('/api/v1/suppliers/purchase-orders/suggest-reorder').set('Authorization', `Bearer ${pharmacistToken}`);
     expect(res.status).toBe(200);
     const suggestion = res.body.find((s: any) => s.medicineId === lowStockMedicine.medicine_id);
     expect(suggestion).toBeDefined();
-    expect(suggestion.suggestedQty).toBe(95); // target 2x reorder level (100) - current (5)
+    expect(suggestion.suggestedQty).toBe(15); // target 2x the low-stock threshold (20) - current (5)
   });
 
   it('rejects purchase order creation from a read-only role (Receptionist)', async () => {

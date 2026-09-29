@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+import { useWorkspaceNavigate } from '../../app/WorkspaceContext';
 import { useApiData } from '../../hooks/useApiData';
 import { getLiveQueue, updateAppointmentStatus, displayPatientName, displayPatientGender } from '../../lib/appointments';
 import { listConsultations } from '../../lib/consultations';
@@ -17,7 +17,7 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 const ConsultationsQueue = () => {
-  const navigate = useNavigate();
+  const navigate = useWorkspaceNavigate();
   const { data: queue, loading: queueLoading, reload: reloadQueue } = useApiData(getLiveQueue);
   const { data: recent, loading: recentLoading } = useApiData(() => listConsultations({ limit: 10 }));
 

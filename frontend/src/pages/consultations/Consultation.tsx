@@ -1,5 +1,6 @@
+import { useWorkspaceNavigate } from '../../app/WorkspaceContext';
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useApiData } from '../../hooks/useApiData';
 import { fileUrl } from '../../lib/api';
 import { listMasterData } from '../../lib/settings';
@@ -52,7 +53,7 @@ const numOrUndefined = (s: string) => (s.trim() === '' ? undefined : Number(s));
 
 const Consultation = () => {
   const { appointmentId } = useParams();
-  const navigate = useNavigate();
+  const navigate = useWorkspaceNavigate();
   const id = Number(appointmentId);
 
   const { data: context, loading, error, reload } = useApiData(() => getConsultationContext(id), [id]);

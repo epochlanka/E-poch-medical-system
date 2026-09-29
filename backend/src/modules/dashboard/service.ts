@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { usableQty, isLowStock as isLowStockShared, LOW_STOCK_THRESHOLD } from '../../lib/stock';
 
 const ACTIVE_QUEUE_STATUSES = ['Waiting', 'Called', 'Consulting'];
 const QUEUE_STATUSES = ['Waiting', 'Called', 'Consulting', 'Completed', 'Skipped'] as const;
@@ -18,10 +19,8 @@ const endOfDay = (date = new Date()) => {
 
 const addDays = (date: Date, days: number) => new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
 
-const isLowStock = (medicine: { reorder_level: number; batches: { qty_on_hand: number }[] }) => {
-  const totalQty = medicine.batches.reduce((sum, b) => sum + b.qty_on_hand, 0);
-  return totalQty < medicine.reorder_level;
-};
+// One clinic-wide threshold, and expired stock does not count towards it — see lib/stock.ts.
+const isLowStock = (medicine: { batches: { qty_on_hand: number; expiry_date: Date }[] }) => isLowStockShared(medicine.batches);
 
 // Null means "no meaningful comparison" (yesterday was zero) rather than a fabricated 0%/100%.
 const changePct = (today: number, prior: number): number | null => {
@@ -68,7 +67,7 @@ export const getOverview = async (expiryThresholdDays = DEFAULT_EXPIRY_THRESHOLD
     }),
     prisma.medicine.findMany({
       where: { is_active: true },
-      select: { reorder_level: true, batches: { select: { qty_on_hand: true } } },
+      select: { batches: { select: { qty_on_hand: true, expiry_date: true } } },
     }),
     prisma.batch.count({
       where: {
@@ -265,7 +264,7 @@ export const getAlerts = async (expiryThresholdDays = DEFAULT_EXPIRY_THRESHOLD_D
   const [medicines, expiringBatches, skippedAppointments] = await Promise.all([
     prisma.medicine.findMany({
       where: { is_active: true },
-      select: { medicine_id: true, name: true, reorder_level: true, batches: { select: { qty_on_hand: true } } },
+      select: { medicine_id: true, name: true, batches: { select: { qty_on_hand: true, expiry_date: true } } },
     }),
     prisma.batch.findMany({
       where: { qty_on_hand: { gt: 0 }, expiry_date: { lte: expiryHorizon } },
@@ -286,7 +285,7 @@ export const getAlerts = async (expiryThresholdDays = DEFAULT_EXPIRY_THRESHOLD_D
     alerts.push({
       type: 'low-stock',
       severity: totalQty === 0 ? 'red' : 'amber',
-      message: `${medicine.name} is low on stock (${totalQty} on hand, reorder level ${medicine.reorder_level})`,
+      message: `${medicine.name} is low on stock (${usableQty(medicine.batches)} left, alert below ${LOW_STOCK_THRESHOLD})`,
       refId: medicine.medicine_id,
     });
   }
@@ -752,7 +751,7 @@ export const getPharmacistOverview = async () => {
       select: { prescription_id: true },
       distinct: ['prescription_id'],
     }),
-    prisma.medicine.findMany({ where: { is_active: true }, select: { medicine_id: true, name: true, reorder_level: true, batches: { select: { qty_on_hand: true } } } }),
+    prisma.medicine.findMany({ where: { is_active: true }, select: { medicine_id: true, name: true, batches: { select: { qty_on_hand: true, expiry_date: true } } } }),
     prisma.batch.findMany({
       where: { qty_on_hand: { gt: 0 }, expiry_date: { gte: now, lte: expiryHorizon } },
       include: { medicine: { select: { name: true } } },
@@ -782,9 +781,9 @@ export const getPharmacistOverview = async () => {
   let veryLowStockCount = 0;
   let lowStockCount = 0;
   for (const medicine of activeMedicines) {
-    const totalQty = medicine.batches.reduce((sum, b) => sum + b.qty_on_hand, 0);
-    if (totalQty === 0) veryLowStockCount += 1;
-    else if (totalQty < medicine.reorder_level) lowStockCount += 1;
+    const usable = usableQty(medicine.batches);
+    if (usable === 0) veryLowStockCount += 1;
+    else if (usable < LOW_STOCK_THRESHOLD) lowStockCount += 1;
   }
 
   let expiringWithin30Count = 0;
