@@ -7,13 +7,15 @@
   <meta name="description" content="E-POCH Medical System is clinic management software for private practices with an in-house pharmacy: patients, appointments and queue, consultations, prescriptions, pharmacy dispensing, inventory and billing in one system.">
   <meta name="keywords" content="E-POCH Medical System, Epoch medical system, E-poch, clinic management system, clinic software Sri Lanka, pharmacy management, patient management, medical practice software">
   <meta name="theme-color" content="#0F52BA">
-  <!-- TODO: replace https://www.example.com with the real website address before publishing -->
-  <link rel="canonical" href="https://www.example.com/">
+  <link rel="canonical" href="https://epochlanka.github.io/E-poch-medical-system/">
   <meta property="og:type" content="website">
+  <meta property="og:site_name" content="E-POCH Medical System">
   <meta property="og:title" content="E-POCH Medical System — Clinic &amp; Pharmacy Management">
   <meta property="og:description" content="One system for reception, the doctor and the pharmacy. Patients, queue, consultations, prescriptions, dispensing, stock and billing.">
-  <meta property="og:url" content="https://www.example.com/">
-  <meta property="og:image" content="https://www.example.com/og-image.png">
+  <meta property="og:url" content="https://epochlanka.github.io/E-poch-medical-system/">
+  <meta property="og:image" content="https://epochlanka.github.io/E-poch-medical-system/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -30,12 +32,61 @@
     "applicationSubCategory": "Clinic Management Software",
     "operatingSystem": "Web browser (runs on the clinic's local network)",
     "description": "Clinic and dispensary management system covering patients, families, appointments and queue, consultations, prescriptions, pharmacy dispensing, inventory, suppliers, billing and reports.",
-    "url": "https://www.example.com/",
+    "url": "https://epochlanka.github.io/E-poch-medical-system/",
+    "image": "https://epochlanka.github.io/E-poch-medical-system/og-image.png",
     "publisher": { "@type": "Organization", "name": "E-POCH" }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      { "@type": "Question", "name": "What is E-POCH Medical System?", "acceptedAnswer": { "@type": "Answer", "text": "Clinic management software for private practices with their own pharmacy. It handles patients, appointments, consultations, prescriptions, dispensing, stock and billing in one place." } },
+      { "@type": "Question", "name": "Do we need an internet connection?", "acceptedAnswer": { "@type": "Answer", "text": "No. The system runs on your clinic's local network. Internet is only needed for updates or off-site backups if you choose them." } },
+      { "@type": "Question", "name": "What computers do we need?", "acceptedAnswer": { "@type": "Answer", "text": "The usual setup is two computers: one at the front desk that also runs the system, and one for the doctor. Any modern browser works on the other computers." } }
+    ]
   }
   </script>
 </head>
 <body>
+  <!-- Icon set: simple line icons, referenced below with <use href="#i-name"> -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+      <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></symbol>
+      <symbol id="i-stethoscope" viewBox="0 0 24 24"><path d="M5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 12 0V4a2 2 0 0 0-2-2h-1"/><path d="M8 15v1a6 6 0 0 0 12 0v-4"/><circle cx="20" cy="10" r="2"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></symbol>
+      <symbol id="i-pill" viewBox="0 0 24 24"><path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"/><path d="m8.5 8.5 7 7"/></symbol>
+      <symbol id="i-package" viewBox="0 0 24 24"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/></symbol>
+      <symbol id="i-truck" viewBox="0 0 24 24"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2M15 18H9M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></symbol>
+      <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8M12 17.5v-11"/></symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18M18 17V9M13 17V5M8 17v-3"/></symbol>
+      <symbol id="i-phone" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></symbol>
+      <symbol id="i-chat" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M8 12h.01M12 12h.01M16 12h.01"/></symbol>
+      <symbol id="i-mail" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/></symbol>
+      <symbol id="i-wifi-off" viewBox="0 0 24 24"><path d="M12 20h.01M8.5 16.43a5 5 0 0 1 7 0M2 8.82a15 15 0 0 1 4.17-2.65M10.66 5c4.01-.36 8.14.9 11.34 3.76M16.85 11.25a10 10 0 0 1 2.22 1.68M5 13a10 10 0 0 1 5.24-2.76M2 2l20 20"/></symbol>
+      <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5M3 12a9 3 0 0 0 18 0"/></symbol>
+      <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+      <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+      <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5M12 7v5l4 2"/></symbol>
+      <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+      <symbol id="i-clipboard" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2M12 11h4M12 16h4M8 11h.01M8 16h.01"/></symbol>
+      <symbol id="i-user-plus" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></symbol>
+      <symbol id="i-building" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4M8 6h.01M12 6h.01M16 6h.01M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01"/></symbol>
+      <symbol id="i-heart" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/><path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/></symbol>
+      <symbol id="i-tool" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
+      <symbol id="i-school" viewBox="0 0 24 24"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
+      <symbol id="i-up" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7M12 19V5"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    </defs>
+  </svg>
+
   <a class="skip" href="#main">Skip to content</a>
 
   <header class="site-header">
@@ -61,36 +112,35 @@
   <main id="main">
     <!-- Hero -->
     <section class="hero" id="top">
+      <div class="blob blob-1" aria-hidden="true"></div>
+      <div class="blob blob-2" aria-hidden="true"></div>
       <div class="container hero-grid">
-        <div>
-          <p class="eyebrow">Clinic &amp; pharmacy management software</p>
-          <h1>Run your whole clinic from <span class="grad">one system</span></h1>
-          <p class="lead">E-POCH Medical System connects reception, the doctor and the pharmacy. Every visit flows from registration to consultation, prescription, dispensing and payment, with nothing typed twice and nothing lost.</p>
-          <div class="hero-cta">
-            <a href="#contact" class="btn">Request a demo</a>
+        <div class="hero-copy">
+          <p class="eyebrow load" style="--d:0">Clinic &amp; pharmacy management software</p>
+          <h1 class="load" style="--d:1">Run your whole clinic from <span class="grad">one system</span></h1>
+          <p class="lead load" style="--d:2">E-POCH Medical System connects reception, the doctor and the pharmacy. Every visit flows from registration to consultation, prescription, dispensing and payment, with nothing typed twice and nothing lost.</p>
+          <div class="hero-cta load" style="--d:3">
+            <a href="#contact" class="btn">Request a demo <svg class="i i-sm"><use href="#i-arrow"/></svg></a>
             <a href="#features" class="btn btn-ghost">See features</a>
           </div>
-          <ul class="hero-points">
-            <li>Runs on your clinic's own network</li>
-            <li>Works without internet</li>
-            <li>Daily encrypted backups</li>
+          <ul class="hero-points load" style="--d:4">
+            <li><svg class="i i-sm"><use href="#i-monitor"/></svg>Runs on your clinic's own network</li>
+            <li><svg class="i i-sm"><use href="#i-wifi-off"/></svg>Works without internet</li>
+            <li><svg class="i i-sm"><use href="#i-database"/></svg>Daily encrypted backups</li>
           </ul>
         </div>
 
-        <div class="mock" aria-hidden="true">
-          <div class="mock-bar"><i></i><i></i><i></i><span>E-POCH · Reception</span></div>
+        <div class="mock load" style="--d:2" aria-hidden="true">
+          <div class="mock-bar"><i></i><i></i><i></i><span>E-POCH · Reception</span><b class="live">Live</b></div>
           <div class="mock-body">
             <div class="mock-stats">
-              <div><b>42</b><span>Patients today</span></div>
-              <div><b>6</b><span>In queue</span></div>
-              <div><b>3</b><span>To dispense</span></div>
+              <div><b data-count="38" id="stat-today">0</b><span>Patients today</span></div>
+              <div><b id="stat-queue">4</b><span>In queue</span></div>
+              <div><b data-count="2" id="stat-rx">0</b><span>To dispense</span></div>
             </div>
             <div class="mock-title">Live queue</div>
-            <div class="mock-row"><span class="tok">A-07</span><span>N. Perera</span><span class="pill pill-blue">Consulting</span></div>
-            <div class="mock-row"><span class="tok">A-08</span><span>S. Fernando</span><span class="pill pill-amber">Called</span></div>
-            <div class="mock-row"><span class="tok">A-09</span><span>K. Silva</span><span class="pill">Waiting</span></div>
-            <div class="mock-row"><span class="tok">A-10</span><span>R. Jayasuriya</span><span class="pill">Waiting</span></div>
-            <div class="mock-note">💊 New prescription from the consultation room, ready to prepare.</div>
+            <div class="mock-rows" id="queue"></div>
+            <div class="mock-note" id="toast"><svg class="i i-sm"><use href="#i-pill"/></svg><span>Prescription for N. Perera sent to the pharmacy.</span></div>
           </div>
         </div>
       </div>
@@ -99,30 +149,30 @@
     <!-- Value -->
     <section class="strip">
       <div class="container strip-grid">
-        <div><b>One visit, one record</b><span>Appointment, consultation, prescription, dispensing and invoice stay linked.</span></div>
-        <div><b>Earliest expiry first</b><span>Stock is tracked by batch, and dispensing picks the batch that expires soonest.</span></div>
-        <div><b>Full audit trail</b><span>Every clinical and financial change records who made it and when.</span></div>
+        <div class="reveal"><svg class="i"><use href="#i-link"/></svg><div><b>One visit, one record</b><span>Appointment, consultation, prescription, dispensing and invoice stay linked.</span></div></div>
+        <div class="reveal" style="--d:1"><svg class="i"><use href="#i-clock"/></svg><div><b>Earliest expiry first</b><span>Stock is tracked by batch, and dispensing picks the batch that expires soonest.</span></div></div>
+        <div class="reveal" style="--d:2"><svg class="i"><use href="#i-history"/></svg><div><b>Full audit trail</b><span>Every clinical and financial change records who made it and when.</span></div></div>
       </div>
     </section>
 
     <!-- Features -->
     <section id="features" class="section">
       <div class="container">
-        <div class="section-head">
+        <div class="section-head reveal">
           <p class="eyebrow">Features</p>
           <h2>Everything a private practice with a pharmacy needs</h2>
           <p>Built for a single clinic or small practice where one or more doctors work alongside a front desk and an in-house dispensary.</p>
         </div>
         <div class="cards">
-          <article class="card"><div class="ico">🧑‍🤝‍🧑</div><h3>Patients &amp; families</h3><p>Register patients, group them into families, spot possible duplicates, and see each patient's full visit history.</p></article>
-          <article class="card"><div class="ico">📅</div><h3>Appointments &amp; queue</h3><p>Book appointments or add walk-ins. A live queue moves patients from waiting to called to consulting.</p></article>
-          <article class="card"><div class="ico">🩺</div><h3>Consultations</h3><p>Record vitals, clinical notes and diagnoses. Allergies and chronic conditions are flagged on screen.</p></article>
-          <article class="card"><div class="ico">📝</div><h3>Prescriptions</h3><p>Look medicines up by name or generic, get allergy warnings, repeat earlier prescriptions and print them.</p></article>
-          <article class="card"><div class="ico">💊</div><h3>Pharmacy dispensing</h3><p>Prescriptions reach the pharmacy instantly. Pick, check and hand over each item, including partial dispensing.</p></article>
-          <article class="card"><div class="ico">📦</div><h3>Inventory &amp; expiry</h3><p>Batch and expiry tracking, low-stock and expiry alerts, stock counts and reason-coded adjustments.</p></article>
-          <article class="card"><div class="ico">🚚</div><h3>Suppliers &amp; purchasing</h3><p>Keep a supplier directory, raise purchase orders and record goods received against them.</p></article>
-          <article class="card"><div class="ico">💵</div><h3>Billing &amp; payments</h3><p>One invoice covers the consultation and medicines. Cash, card or mobile, split payments, discounts and day-end reconciliation.</p></article>
-          <article class="card"><div class="ico">📈</div><h3>Reports &amp; dashboards</h3><p>Patient volume, revenue, top medicines, follow-ups due and stock alerts, with PDF and Excel export.</p></article>
+          <article class="card reveal"><div class="ico"><svg class="i"><use href="#i-users"/></svg></div><h3>Patients &amp; families</h3><p>Register patients, group them into families, spot possible duplicates, and see each patient's full visit history.</p></article>
+          <article class="card reveal" style="--d:1"><div class="ico"><svg class="i"><use href="#i-calendar"/></svg></div><h3>Appointments &amp; queue</h3><p>Book appointments or add walk-ins. A live queue moves patients from waiting to called to consulting.</p></article>
+          <article class="card reveal" style="--d:2"><div class="ico"><svg class="i"><use href="#i-stethoscope"/></svg></div><h3>Consultations</h3><p>Record vitals, clinical notes and diagnoses. Allergies and chronic conditions are flagged on screen.</p></article>
+          <article class="card reveal"><div class="ico"><svg class="i"><use href="#i-file"/></svg></div><h3>Prescriptions</h3><p>Look medicines up by name or generic, get allergy warnings, repeat earlier prescriptions and print them.</p></article>
+          <article class="card reveal" style="--d:1"><div class="ico"><svg class="i"><use href="#i-pill"/></svg></div><h3>Pharmacy dispensing</h3><p>Prescriptions reach the pharmacy instantly. Pick, check and hand over each item, including partial dispensing.</p></article>
+          <article class="card reveal" style="--d:2"><div class="ico"><svg class="i"><use href="#i-package"/></svg></div><h3>Inventory &amp; expiry</h3><p>Batch and expiry tracking, low-stock and expiry alerts, stock counts and reason-coded adjustments.</p></article>
+          <article class="card reveal"><div class="ico"><svg class="i"><use href="#i-truck"/></svg></div><h3>Suppliers &amp; purchasing</h3><p>Keep a supplier directory, raise purchase orders and record goods received against them.</p></article>
+          <article class="card reveal" style="--d:1"><div class="ico"><svg class="i"><use href="#i-receipt"/></svg></div><h3>Billing &amp; payments</h3><p>One invoice covers the consultation and medicines. Cash, card or mobile, split payments, discounts and day-end reconciliation.</p></article>
+          <article class="card reveal" style="--d:2"><div class="ico"><svg class="i"><use href="#i-chart"/></svg></div><h3>Reports &amp; dashboards</h3><p>Patient volume, revenue, top medicines, follow-ups due and stock alerts, with PDF and Excel export.</p></article>
         </div>
       </div>
     </section>
@@ -130,15 +180,15 @@
     <!-- Workflow -->
     <section id="workflow" class="section section-alt">
       <div class="container">
-        <div class="section-head">
+        <div class="section-head reveal">
           <p class="eyebrow">How it works</p>
           <h2>A patient's visit, start to finish</h2>
         </div>
-        <ol class="steps">
-          <li><span>1</span><h3>Reception</h3><p>The patient is registered or found, then booked or added to the queue.</p></li>
-          <li><span>2</span><h3>Consultation</h3><p>The doctor calls the next patient, records vitals and notes, and writes the prescription.</p></li>
-          <li><span>3</span><h3>Pharmacy</h3><p>The prescription appears at the pharmacy right away. Medicines are picked from the right batch.</p></li>
-          <li><span>4</span><h3>Payment</h3><p>One invoice for the visit and medicines. The patient pays and leaves with a receipt.</p></li>
+        <ol class="steps reveal-group">
+          <li class="reveal"><div class="step-ico"><svg class="i"><use href="#i-user-plus"/></svg></div><small>Step 1</small><h3>Reception</h3><p>The patient is registered or found, then booked or added to the queue.</p></li>
+          <li class="reveal" style="--d:1"><div class="step-ico"><svg class="i"><use href="#i-stethoscope"/></svg></div><small>Step 2</small><h3>Consultation</h3><p>The doctor calls the next patient, records vitals and notes, and writes the prescription.</p></li>
+          <li class="reveal" style="--d:2"><div class="step-ico"><svg class="i"><use href="#i-pill"/></svg></div><small>Step 3</small><h3>Pharmacy</h3><p>The prescription appears at the pharmacy right away. Medicines are picked from the right batch.</p></li>
+          <li class="reveal" style="--d:3"><div class="step-ico"><svg class="i"><use href="#i-receipt"/></svg></div><small>Step 4</small><h3>Payment</h3><p>One invoice for the visit and medicines. The patient pays and leaves with a receipt.</p></li>
         </ol>
       </div>
     </section>
@@ -146,68 +196,102 @@
     <!-- Roles -->
     <section id="roles" class="section">
       <div class="container">
-        <div class="section-head">
+        <div class="section-head reveal">
           <p class="eyebrow">Workspaces</p>
           <h2>One sign-in, the right screen for each person</h2>
           <p>Everyone opens the same address. The workspace that loads follows the person's role, and front-desk staff can switch between reception and pharmacy without signing out.</p>
         </div>
         <div class="roles">
-          <article class="role"><h3>Administration</h3><p>Users and roles, clinic profile, fees, reorder levels, reports and backups.</p></article>
-          <article class="role"><h3>Clinical</h3><p>The doctor's queue, consultation workspace, patient history and prescribing.</p></article>
-          <article class="role"><h3>Reception</h3><p>Registration, appointments, the waiting queue, invoices and payments.</p></article>
-          <article class="role"><h3>Pharmacy</h3><p>Prescriptions to prepare, dispensing, stock, suppliers and purchasing.</p></article>
+          <article class="role reveal"><svg class="i"><use href="#i-sliders"/></svg><h3>Administration</h3><p>Users and roles, clinic profile, fees, reorder levels, reports and backups.</p></article>
+          <article class="role reveal" style="--d:1"><svg class="i"><use href="#i-stethoscope"/></svg><h3>Clinical</h3><p>The doctor's queue, consultation workspace, patient history and prescribing.</p></article>
+          <article class="role reveal" style="--d:2"><svg class="i"><use href="#i-clipboard"/></svg><h3>Reception</h3><p>Registration, appointments, the waiting queue, invoices and payments.</p></article>
+          <article class="role reveal" style="--d:3"><svg class="i"><use href="#i-pill"/></svg><h3>Pharmacy</h3><p>Prescriptions to prepare, dispensing, stock, suppliers and purchasing.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Who it's for -->
+    <section class="section section-alt">
+      <div class="container">
+        <div class="section-head reveal">
+          <p class="eyebrow">Who it's for</p>
+          <h2>Made for clinics like yours</h2>
+        </div>
+        <div class="audience">
+          <div class="aud reveal"><svg class="i"><use href="#i-heart"/></svg><h3>General practice</h3><p>Family doctors seeing walk-ins and regular patients every day.</p></div>
+          <div class="aud reveal" style="--d:1"><svg class="i"><use href="#i-pill"/></svg><h3>Clinics with a dispensary</h3><p>Practices that hand out medicines at the counter after the consultation.</p></div>
+          <div class="aud reveal" style="--d:2"><svg class="i"><use href="#i-building"/></svg><h3>Small medical centres</h3><p>A few doctors sharing one front desk, one pharmacy and one patient list.</p></div>
         </div>
       </div>
     </section>
 
     <!-- Security -->
-    <section id="security" class="section section-alt">
+    <section id="security" class="section">
       <div class="container split">
-        <div>
+        <div class="reveal">
           <p class="eyebrow">Security &amp; reliability</p>
           <h2>Your patient data stays in your clinic</h2>
           <p>E-POCH runs on a computer inside your clinic and is reached over your local network. Patient records are not sent to an outside server, and the system keeps working when the internet is down.</p>
         </div>
         <ul class="checks">
-          <li><b>Role-based access.</b> Doctors, reception and pharmacy only see and do what their role allows.</li>
-          <li><b>Audit trail.</b> Changes to clinical and billing records are logged with the user and time.</li>
-          <li><b>Encrypted backups.</b> Scheduled backups to an external drive, with a tested restore process.</li>
-          <li><b>Simple setup.</b> A typical clinic needs one front-desk computer as the server. Other computers only need a browser.</li>
+          <li class="reveal"><svg class="i"><use href="#i-shield"/></svg><div><b>Role-based access.</b> Doctors, reception and pharmacy only see and do what their role allows.</div></li>
+          <li class="reveal" style="--d:1"><svg class="i"><use href="#i-history"/></svg><div><b>Audit trail.</b> Changes to clinical and billing records are logged with the user and time.</div></li>
+          <li class="reveal" style="--d:2"><svg class="i"><use href="#i-database"/></svg><div><b>Encrypted backups.</b> Scheduled backups to an external drive, with a tested restore process.</div></li>
+          <li class="reveal" style="--d:3"><svg class="i"><use href="#i-monitor"/></svg><div><b>Simple setup.</b> A typical clinic needs one front-desk computer as the server. Other computers only need a browser.</div></li>
         </ul>
+      </div>
+    </section>
+
+    <!-- Setup & support -->
+    <section class="section section-alt">
+      <div class="container">
+        <div class="section-head reveal">
+          <p class="eyebrow">Setup &amp; support</p>
+          <h2>We get you running, then stay with you</h2>
+        </div>
+        <div class="support">
+          <div class="sup reveal"><span class="num">01</span><svg class="i"><use href="#i-tool"/></svg><h3>Installation</h3><p>We set up the system on your clinic computers and connect them on your network.</p></div>
+          <div class="sup reveal" style="--d:1"><span class="num">02</span><svg class="i"><use href="#i-school"/></svg><h3>Staff training</h3><p>We show your doctor, reception and pharmacy staff how to use their screens.</p></div>
+          <div class="sup reveal" style="--d:2"><span class="num">03</span><svg class="i"><use href="#i-database"/></svg><h3>Backups</h3><p>We set up automatic backups and check that your data can be restored.</p></div>
+          <div class="sup reveal" style="--d:3"><span class="num">04</span><svg class="i"><use href="#i-refresh"/></svg><h3>Updates &amp; help</h3><p>We keep the system up to date and help when you have a question.</p></div>
+        </div>
       </div>
     </section>
 
     <!-- FAQ -->
     <section id="faq" class="section">
       <div class="container narrow">
-        <div class="section-head">
+        <div class="section-head reveal">
           <p class="eyebrow">FAQ</p>
           <h2>Common questions</h2>
         </div>
-        <details><summary>What is E-POCH Medical System?</summary><p>It is clinic management software for private practices with their own pharmacy. It handles patients, appointments, consultations, prescriptions, dispensing, stock and billing in one place.</p></details>
-        <details><summary>Do we need an internet connection?</summary><p>No. The system runs on your clinic's local network. Internet is only needed for updates or off-site backups if you choose them.</p></details>
-        <details><summary>What computers do we need?</summary><p>The usual setup is two computers: one at the front desk that also runs the system, and one for the doctor. Any modern browser works on the other computers.</p></details>
-        <details><summary>Can one person handle both reception and pharmacy?</summary><p>Yes. A front-desk account covers both, and staff switch between the two screens without signing out.</p></details>
-        <details><summary>Do you help with installation and training?</summary><p>Yes. We install the system at your clinic, set up backups and train your staff. Contact us to arrange a visit.</p></details>
+        <div class="reveal">
+          <details><summary>What is E-POCH Medical System?</summary><div class="ans"><p>It is clinic management software for private practices with their own pharmacy. It handles patients, appointments, consultations, prescriptions, dispensing, stock and billing in one place.</p></div></details>
+          <details><summary>Do we need an internet connection?</summary><div class="ans"><p>No. The system runs on your clinic's local network. Internet is only needed for updates or off-site backups if you choose them.</p></div></details>
+          <details><summary>What computers do we need?</summary><div class="ans"><p>The usual setup is two computers: one at the front desk that also runs the system, and one for the doctor. Any modern browser works on the other computers.</p></div></details>
+          <details><summary>Can one person handle both reception and pharmacy?</summary><div class="ans"><p>Yes. A front-desk account covers both, and staff switch between the two screens without signing out.</p></div></details>
+          <details><summary>Can we move our existing patient records?</summary><div class="ans"><p>Talk to us about what you use today. We'll tell you what can be brought across before you decide.</p></div></details>
+          <details><summary>Do you help with installation and training?</summary><div class="ans"><p>Yes. We install the system at your clinic, set up backups and train your staff. Contact us to arrange a visit.</p></div></details>
+        </div>
       </div>
     </section>
 
     <!-- Contact -->
     <section id="contact" class="section contact">
       <div class="container split">
-        <div>
+        <div class="reveal">
           <p class="eyebrow light">Contact us</p>
           <h2>See E-POCH in your clinic</h2>
           <p>Tell us about your practice and we'll arrange a demo. We usually reply within one working day.</p>
           <!-- TODO: replace the phone number, email and address below with real details -->
           <ul class="contact-list">
-            <li><span>📞</span><a href="tel:+94000000000">+94 00 000 0000</a></li>
-            <li><span>💬</span><a href="https://wa.me/94000000000" rel="noopener" target="_blank">WhatsApp us</a></li>
-            <li><span>✉️</span><a href="mailto:info@example.com">info@example.com</a></li>
-            <li><span>📍</span>Your office address, Sri Lanka</li>
+            <li><span><svg class="i"><use href="#i-phone"/></svg></span><a href="tel:+94000000000">+94 00 000 0000</a></li>
+            <li><span><svg class="i"><use href="#i-chat"/></svg></span><a href="https://wa.me/94000000000" rel="noopener" target="_blank">WhatsApp us</a></li>
+            <li><span><svg class="i"><use href="#i-mail"/></svg></span><a href="mailto:info@example.com">info@example.com</a></li>
+            <li><span><svg class="i"><use href="#i-pin"/></svg></span>Your office address, Sri Lanka</li>
           </ul>
         </div>
-        <form class="form" id="contact-form" data-email="info@example.com" novalidate>
+        <form class="form reveal" style="--d:1" id="contact-form" data-email="info@example.com" novalidate>
           <label>Your name<input name="name" required autocomplete="name"></label>
           <label>Clinic name<input name="clinic" autocomplete="organization"></label>
           <div class="row">
@@ -215,7 +299,7 @@
             <label>Email<input name="email" type="email" autocomplete="email"></label>
           </div>
           <label>Message<textarea name="message" rows="4" placeholder="How many doctors? Do you have a pharmacy?"></textarea></label>
-          <button class="btn" type="submit">Send message</button>
+          <button class="btn" type="submit">Send message <svg class="i i-sm"><use href="#i-arrow"/></svg></button>
           <p class="form-note" id="form-note" role="status">Sending opens your email app with the message filled in.</p>
         </form>
       </div>
@@ -224,10 +308,24 @@
 
   <footer class="footer">
     <div class="container footer-grid">
-      <a href="#top" class="brand"><img src="favicon.svg" alt="" width="28" height="28"><span>E-POCH <small>Medical System</small></span></a>
-      <p>© <span id="year">2026</span> E-POCH. Clinic &amp; pharmacy management software.</p>
+      <div>
+        <a href="#top" class="brand"><img src="favicon.svg" alt="" width="28" height="28"><span>E-POCH <small>Medical System</small></span></a>
+        <p class="footer-tag">Clinic &amp; pharmacy management software for private practices.</p>
+      </div>
+      <nav class="footer-links" aria-label="Footer">
+        <a href="#features">Features</a>
+        <a href="#workflow">How it works</a>
+        <a href="#security">Security</a>
+        <a href="#faq">FAQ</a>
+        <a href="#contact">Contact</a>
+      </nav>
     </div>
+    <div class="container footer-bottom">© <span id="year">2026</span> E-POCH. All rights reserved.</div>
   </footer>
+
+  <!-- TODO: replace with the real WhatsApp number -->
+  <a class="fab" href="https://wa.me/94000000000" target="_blank" rel="noopener" aria-label="Chat with us on WhatsApp"><svg class="i"><use href="#i-chat"/></svg></a>
+  <button class="to-top" aria-label="Back to top"><svg class="i"><use href="#i-up"/></svg></button>
 
   <script src="script.js"></script>
 </body>
