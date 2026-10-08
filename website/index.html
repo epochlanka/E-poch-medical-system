@@ -111,6 +111,7 @@
       </button>
       <nav id="nav-links" class="nav-links" aria-label="Main">
         <a href="#features">Features</a>
+        <a href="#screens">Screens</a>
         <a href="#workflow">How it works</a>
         <a href="#roles">Workspaces</a>
         <a href="#security">Security</a>
@@ -166,6 +167,59 @@
       </div>
     </section>
 
+    <!-- Screenshots -->
+    <section id="screens" class="section screens">
+      <div class="container">
+        <div class="section-head center reveal">
+          <p class="eyebrow">See it in action</p>
+          <h2>Real screens from E-POCH</h2>
+          <p>Each person gets a workspace built for their job. Pick a workspace to look around.</p>
+        </div>
+        <div class="tabs reveal" role="tablist" aria-label="Workspaces">
+          <button role="tab" aria-selected="true" data-tab="reception"><svg class="i i-sm"><use href="#i-clipboard"/></svg>Reception</button>
+          <button role="tab" aria-selected="false" data-tab="doctor"><svg class="i i-sm"><use href="#i-stethoscope"/></svg>Doctor</button>
+          <button role="tab" aria-selected="false" data-tab="pharmacy"><svg class="i i-sm"><use href="#i-pill"/></svg>Pharmacy</button>
+          <button role="tab" aria-selected="false" data-tab="admin"><svg class="i i-sm"><use href="#i-sliders"/></svg>Administration</button>
+        </div>
+        <div class="gallery reveal">
+          <div class="panel active" data-panel="reception">
+            <figure class="shot-main"><div class="frame"><div class="frame-bar"><i></i><i></i><i></i></div><img src="screens/rec-dash.webp" alt="Reception front desk overview with today's patient flow" width="1440" height="900" loading="lazy"></div></figure>
+            <div class="thumbs">
+              <button class="thumb active" data-src="screens/rec-dash.webp" data-alt="Reception front desk overview with today's patient flow"><img src="screens/rec-dash.webp" alt="" loading="lazy"><span>Front desk overview</span></button>
+              <button class="thumb" data-src="screens/rec-queue.webp" data-alt="Today's patient flow from waiting to the doctor and the pharmacy"><img src="screens/rec-queue.webp" alt="" loading="lazy"><span>Today's patient flow</span></button>
+              <button class="thumb" data-src="screens/rec-register.webp" data-alt="Step-by-step patient registration form"><img src="screens/rec-register.webp" alt="" loading="lazy"><span>Register a patient</span></button>
+            </div>
+          </div>
+          <div class="panel" data-panel="doctor">
+            <figure class="shot-main"><div class="frame"><div class="frame-bar"><i></i><i></i><i></i></div><img src="screens/doc-workspace.webp" alt="Doctor's consultation workspace with allergy warning" width="1440" height="900" loading="lazy"></div></figure>
+            <div class="thumbs">
+              <button class="thumb active" data-src="screens/doc-workspace.webp" data-alt="Doctor's consultation workspace with allergy warning"><img src="screens/doc-workspace.webp" alt="" loading="lazy"><span>Consultation</span></button>
+              <button class="thumb" data-src="screens/doc-dash.webp" data-alt="Doctor's day view with the patient in consultation and the waiting room"><img src="screens/doc-dash.webp" alt="" loading="lazy"><span>Doctor's day</span></button>
+            </div>
+          </div>
+          <div class="panel" data-panel="pharmacy">
+            <figure class="shot-main"><div class="frame"><div class="frame-bar"><i></i><i></i><i></i></div><img src="screens/ph-queue.webp" alt="Pharmacy waiting prescriptions" width="1440" height="900" loading="lazy"></div></figure>
+            <div class="thumbs">
+              <button class="thumb active" data-src="screens/ph-queue.webp" data-alt="Pharmacy waiting prescriptions"><img src="screens/ph-queue.webp" alt="" loading="lazy"><span>Waiting prescriptions</span></button>
+              <button class="thumb" data-src="screens/ph-overview.webp" data-alt="Pharmacy overview with queue, alerts and expiring batches"><img src="screens/ph-overview.webp" alt="" loading="lazy"><span>Pharmacy overview</span></button>
+              <button class="thumb" data-src="screens/ph-catalog.webp" data-alt="Medicine catalog with stock levels"><img src="screens/ph-catalog.webp" alt="" loading="lazy"><span>Medicine catalog</span></button>
+              <button class="thumb" data-src="screens/ph-batches.webp" data-alt="Batches and expiry dates"><img src="screens/ph-batches.webp" alt="" loading="lazy"><span>Batches &amp; expiry</span></button>
+            </div>
+          </div>
+          <div class="panel" data-panel="admin">
+            <figure class="shot-main"><div class="frame"><div class="frame-bar"><i></i><i></i><i></i></div><img src="screens/admin-dash.webp" alt="Administration dashboard with revenue, appointments and stock alerts" width="1440" height="900" loading="lazy"></div></figure>
+            <div class="thumbs">
+              <button class="thumb active" data-src="screens/admin-dash.webp" data-alt="Administration dashboard with revenue, appointments and stock alerts"><img src="screens/admin-dash.webp" alt="" loading="lazy"><span>Dashboard</span></button>
+              <button class="thumb" data-src="screens/ad-reports.webp" data-alt="Reports and analytics"><img src="screens/ad-reports.webp" alt="" loading="lazy"><span>Reports</span></button>
+              <button class="thumb" data-src="screens/ad-appts.webp" data-alt="Appointments list with calendar"><img src="screens/ad-appts.webp" alt="" loading="lazy"><span>Appointments</span></button>
+              <button class="thumb" data-src="screens/ad-users.webp" data-alt="Users, roles and permissions"><img src="screens/ad-users.webp" alt="" loading="lazy"><span>Users &amp; roles</span></button>
+            </div>
+          </div>
+        </div>
+        <p class="shots-note">Screens shown with sample data. Click any screen to enlarge.</p>
+      </div>
+    </section>
+
     <!-- Features -->
     <section id="features" class="section">
       <div class="container">
@@ -187,6 +241,52 @@
           <article class="card reveal"><div class="ico"><svg class="i"><use href="#i-heart"/></svg></div><h3>Lab tests</h3><p>Order lab tests from the consultation, track when reports come back, and record the results.</p></article>
           <article class="card reveal" style="--d:1"><div class="ico"><svg class="i"><use href="#i-mail"/></svg></div><h3>Medical letters</h3><p>Keep letter templates and create medical letters for patients from their records.</p></article>
           <article class="card reveal" style="--d:2"><div class="ico"><svg class="i"><use href="#i-shield"/></svg></div><h3>Users &amp; permissions</h3><p>Accounts for each staff member, with roles and a permission matrix set by the administrator.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Highlights -->
+    <section id="highlights" class="section section-alt">
+      <div class="container">
+        <div class="section-head center reveal">
+          <p class="eyebrow">Highlights</p>
+          <h2>Built around how a clinic really works</h2>
+        </div>
+        <div class="hl">
+          <div class="hl-img reveal"><div class="frame"><div class="frame-bar"><i></i><i></i><i></i></div><img src="screens/rec-queue.webp" alt="Today's patient flow board" width="1440" height="900" loading="lazy"></div></div>
+          <div class="hl-text reveal" style="--d:1">
+            <p class="eyebrow">Reception</p>
+            <h3>See every patient's place in the visit</h3>
+            <p>The patient flow board shows who is waiting, who is with the doctor, who is at the pharmacy and who has finished, so the front desk always knows what is next.</p>
+            <ul><li><svg class="i i-sm"><use href="#i-check"/></svg>Book appointments and add walk-ins</li><li><svg class="i i-sm"><use href="#i-check"/></svg>Skip and recall patients in the queue</li><li><svg class="i i-sm"><use href="#i-check"/></svg>Find any patient by name, phone or ID</li></ul>
+          </div>
+        </div>
+        <div class="hl flip">
+          <div class="hl-img reveal"><div class="frame"><div class="frame-bar"><i></i><i></i><i></i></div><img src="screens/doc-workspace.webp" alt="Consultation workspace with allergy warning" width="1440" height="900" loading="lazy"></div></div>
+          <div class="hl-text reveal" style="--d:1">
+            <p class="eyebrow">Doctor</p>
+            <h3>Everything for the consultation on one screen</h3>
+            <p>The doctor sees the patient's allergies, recent history and follow-ups beside the notes, then writes the prescription in the next step.</p>
+            <ul><li><svg class="i i-sm"><use href="#i-check"/></svg>Allergy warnings before prescribing</li><li><svg class="i i-sm"><use href="#i-check"/></svg>Vitals, notes, diagnoses and attachments</li><li><svg class="i i-sm"><use href="#i-check"/></svg>Repeat earlier prescriptions</li></ul>
+          </div>
+        </div>
+        <div class="hl">
+          <div class="hl-img reveal"><div class="frame"><div class="frame-bar"><i></i><i></i><i></i></div><img src="screens/ph-overview.webp" alt="Pharmacy overview with expiring batches and alerts" width="1440" height="900" loading="lazy"></div></div>
+          <div class="hl-text reveal" style="--d:1">
+            <p class="eyebrow">Pharmacy</p>
+            <h3>Stock you can trust, down to the batch</h3>
+            <p>Prescriptions arrive at the pharmacy as soon as the doctor finishes. Stock is tracked by batch with expiry dates, and low stock and expiring items are flagged.</p>
+            <ul><li><svg class="i i-sm"><use href="#i-check"/></svg>Waiting prescriptions update on their own</li><li><svg class="i i-sm"><use href="#i-check"/></svg>Batch and expiry tracking</li><li><svg class="i i-sm"><use href="#i-check"/></svg>Purchase orders and goods received</li></ul>
+          </div>
+        </div>
+        <div class="hl flip">
+          <div class="hl-img reveal"><div class="frame"><div class="frame-bar"><i></i><i></i><i></i></div><img src="screens/ad-reports.webp" alt="Reports and analytics" width="1440" height="900" loading="lazy"></div></div>
+          <div class="hl-text reveal" style="--d:1">
+            <p class="eyebrow">Administration</p>
+            <h3>Know how the clinic is doing</h3>
+            <p>Dashboards and reports show patients, appointments, revenue and top medicines, and can be exported as PDF or CSV.</p>
+            <ul><li><svg class="i i-sm"><use href="#i-check"/></svg>Revenue by day and by category</li><li><svg class="i i-sm"><use href="#i-check"/></svg>Clinical statistics for the doctor</li><li><svg class="i i-sm"><use href="#i-check"/></svg>User accounts, roles and permissions</li></ul>
+          </div>
         </div>
       </div>
     </section>
@@ -339,6 +439,12 @@
 
   <a class="fab" href="https://wa.me/94768437970" target="_blank" rel="noopener" aria-label="Chat with us on WhatsApp"><svg class="i"><use href="#i-chat"/></svg></a>
   <button class="to-top" aria-label="Back to top"><svg class="i"><use href="#i-up"/></svg></button>
+
+  <div class="lightbox" id="lightbox" hidden>
+    <button class="lb-close" aria-label="Close">&times;</button>
+    <img alt="">
+    <p class="lb-cap"></p>
+  </div>
 
   <script src="script.js"></script>
 </body>

@@ -156,3 +156,37 @@ form.addEventListener('submit', (e) => {
   window.location.href = `mailto:${form.dataset.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   note.textContent = 'Your email app should open now. If it doesn\'t, call or WhatsApp us.';
 });
+
+// Screenshot gallery: workspace tabs and thumbnails
+const tabs = document.querySelectorAll('.tabs [role=tab]');
+tabs.forEach((tab) => tab.addEventListener('click', () => {
+  tabs.forEach((t) => t.setAttribute('aria-selected', t === tab));
+  document.querySelectorAll('.panel').forEach((p) => p.classList.toggle('active', p.dataset.panel === tab.dataset.tab));
+}));
+document.querySelectorAll('.panel').forEach((panel) => {
+  const main = panel.querySelector('.shot-main img');
+  panel.querySelectorAll('.thumb').forEach((thumb) => thumb.addEventListener('click', () => {
+    panel.querySelectorAll('.thumb').forEach((t) => t.classList.toggle('active', t === thumb));
+    main.classList.add('swap');
+    setTimeout(() => {
+      main.src = thumb.dataset.src;
+      main.alt = thumb.dataset.alt;
+      main.onload = () => main.classList.remove('swap');
+    }, reduceMotion ? 0 : 200);
+  }));
+});
+
+// Lightbox: click a screen to see it full size
+const lightbox = document.getElementById('lightbox');
+const lbImg = lightbox.querySelector('img');
+const lbCap = lightbox.querySelector('.lb-cap');
+document.querySelectorAll('.frame img').forEach((img) => img.addEventListener('click', () => {
+  lbImg.src = img.currentSrc || img.src;
+  lbImg.alt = img.alt;
+  lbCap.textContent = img.alt;
+  lightbox.hidden = false;
+  document.body.style.overflow = 'hidden';
+}));
+const closeLightbox = () => { lightbox.hidden = true; document.body.style.overflow = ''; };
+lightbox.addEventListener('click', (e) => { if (e.target !== lbImg) closeLightbox(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !lightbox.hidden) closeLightbox(); });
