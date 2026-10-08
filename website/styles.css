@@ -314,3 +314,5 @@ details p { color: var(--muted); margin: 12px 0 0; }
   .load, .reveal { opacity: 1; transform: none; }
   .steps::before { transform: none; }
 }
+.footer-tag a { color: #fff; text-decoration: none; }
+.footer-tag a:hover { text-decoration: underline; }
